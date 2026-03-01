@@ -52,7 +52,7 @@ module AttributeDiscovery =
       |> List.exists (fun testAttr ->
         attrName = testAttr || attrName = sprintf "%sAttribute" testAttr))
 
-  let toTestCase (framework: string) (category: TestCategory) (mi: MethodInfo) : TestCase =
+  let toTestCase (framework: TestFramework) (category: TestCategory) (mi: MethodInfo) : TestCase =
     let fullName = sprintf "%s.%s" mi.DeclaringType.FullName mi.Name
     { Id = TestId.create fullName framework
       FullName = fullName
@@ -124,7 +124,7 @@ module BuiltInExecutors =
   let xunit : TestExecutor =
     TestExecutor.AttributeBased {
       Description = {
-        Name = "xunit"
+        Name = TestFramework.XUnit
         TestAttributes = ["Fact"; "Theory"]
         AssemblyMarker = "xunit.core"
       }
@@ -134,7 +134,7 @@ module BuiltInExecutors =
   let nunit : TestExecutor =
     TestExecutor.AttributeBased {
       Description = {
-        Name = "nunit"
+        Name = TestFramework.NUnit
         TestAttributes = ["Test"; "TestCase"; "TestCaseSource"]
         AssemblyMarker = "nunit.framework"
       }
@@ -144,7 +144,7 @@ module BuiltInExecutors =
   let mstest : TestExecutor =
     TestExecutor.AttributeBased {
       Description = {
-        Name = "mstest"
+        Name = TestFramework.MSTest
         TestAttributes = ["TestMethod"; "DataTestMethod"]
         AssemblyMarker = "Microsoft.VisualStudio.TestPlatform.TestFramework"
       }
@@ -154,7 +154,7 @@ module BuiltInExecutors =
   let tunit : TestExecutor =
     TestExecutor.AttributeBased {
       Description = {
-        Name = "tunit"
+        Name = TestFramework.TUnit
         TestAttributes = ["Test"]
         AssemblyMarker = "TUnit.Core"
       }
@@ -343,13 +343,13 @@ module BuiltInExecutors =
                   let testPath = name |> String.concat "/"
                   let fullName = sprintf "%s/%s" propertyFullName testPath
                   let displayName = name |> List.last
-                  yield { Id = TestId.create fullName "expecto"
+                  yield { Id = TestId.create fullName TestFramework.Expecto
                           FullName = fullName
                           DisplayName = displayName
                           Origin = TestOrigin.ReflectionOnly
                           Labels = []
-                          Framework = "expecto"
-                          Category = CategoryDetection.categorize [] fullName "expecto" [||] } ]
+                          Framework = TestFramework.Expecto
+                          Category = CategoryDetection.categorize [] fullName TestFramework.Expecto [||] } ]
               |> List.toArray
             with _ -> [||]))
         |> Array.toList
@@ -360,7 +360,7 @@ module BuiltInExecutors =
   let expecto : TestExecutor =
     TestExecutor.Custom {
       Description = {
-        Name = "expecto"
+        Name = TestFramework.Expecto
         AssemblyMarker = "Expecto"
       }
       Discover = fun asm ->

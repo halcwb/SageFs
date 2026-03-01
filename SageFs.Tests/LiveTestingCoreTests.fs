@@ -13,27 +13,27 @@ open SageFs.Tests.LiveTestingTestHelpers
 [<Tests>]
 let testIdTests = testList "TestId" [
   test "create produces stable 16-char hex id" {
-    let id = TestId.create "MyModule.Tests.should add" "xunit"
+    let id = TestId.create "MyModule.Tests.should add" TestFramework.XUnit
     TestId.value id
     |> Expect.hasLength "should be 16 chars" 16
   }
 
   test "different fullnames produce different ids" {
-    let id1 = TestId.create "Test.A" "xunit"
-    let id2 = TestId.create "Test.B" "xunit"
+    let id1 = TestId.create "Test.A" TestFramework.XUnit
+    let id2 = TestId.create "Test.B" TestFramework.XUnit
     TestId.value id1
     |> Expect.notEqual "different names should differ" (TestId.value id2)
   }
 
   test "different frameworks produce different ids" {
-    let id1 = TestId.create "Test.A" "xunit"
-    let id2 = TestId.create "Test.A" "nunit"
+    let id1 = TestId.create "Test.A" TestFramework.XUnit
+    let id2 = TestId.create "Test.A" TestFramework.NUnit
     TestId.value id1
     |> Expect.notEqual "different frameworks should differ" (TestId.value id2)
   }
 
   test "value extracts the string" {
-    let id = TestId.create "test" "fw"
+    let id = TestId.create "test" (TestFramework.Unknown "fw")
     TestId.value id
     |> Expect.isNotEmpty "should extract string"
   }
@@ -44,8 +44,8 @@ let testIdTests = testList "TestId" [
 [<Tests>]
 let filterByPolicyTests = testList "filterByPolicy" [
   test "keystroke trigger only runs OnEveryChange tests" {
-    let unit = mkTestCase "Fast.test" "x" TestCategory.Unit
-    let integ = mkTestCase "Slow.test" "x" TestCategory.Integration
+    let unit = mkTestCase "Fast.test" (TestFramework.Unknown "x") TestCategory.Unit
+    let integ = mkTestCase "Slow.test" (TestFramework.Unknown "x") TestCategory.Integration
     let policies = Map.ofList [
       TestCategory.Unit, RunPolicy.OnEveryChange
       TestCategory.Integration, RunPolicy.OnDemand
@@ -55,9 +55,9 @@ let filterByPolicyTests = testList "filterByPolicy" [
   }
 
   test "file save trigger runs OnEveryChange and OnSaveOnly tests" {
-    let unit = mkTestCase "Fast.test" "x" TestCategory.Unit
-    let arch = mkTestCase "Arch.test" "x" TestCategory.Architecture
-    let integ = mkTestCase "Slow.test" "x" TestCategory.Integration
+    let unit = mkTestCase "Fast.test" (TestFramework.Unknown "x") TestCategory.Unit
+    let arch = mkTestCase "Arch.test" (TestFramework.Unknown "x") TestCategory.Architecture
+    let integ = mkTestCase "Slow.test" (TestFramework.Unknown "x") TestCategory.Integration
     let policies = Map.ofList [
       TestCategory.Unit, RunPolicy.OnEveryChange
       TestCategory.Architecture, RunPolicy.OnSaveOnly
@@ -68,9 +68,9 @@ let filterByPolicyTests = testList "filterByPolicy" [
   }
 
   test "explicit run triggers all non-disabled tests" {
-    let unit = mkTestCase "Fast.test" "x" TestCategory.Unit
-    let integ = mkTestCase "Slow.test" "x" TestCategory.Integration
-    let disabled = mkTestCase "Off.test" "x" TestCategory.Benchmark
+    let unit = mkTestCase "Fast.test" (TestFramework.Unknown "x") TestCategory.Unit
+    let integ = mkTestCase "Slow.test" (TestFramework.Unknown "x") TestCategory.Integration
+    let disabled = mkTestCase "Off.test" (TestFramework.Unknown "x") TestCategory.Benchmark
     let policies = Map.ofList [
       TestCategory.Unit, RunPolicy.OnEveryChange
       TestCategory.Integration, RunPolicy.OnDemand
@@ -81,7 +81,7 @@ let filterByPolicyTests = testList "filterByPolicy" [
   }
 
   test "disabled category blocks all triggers" {
-    let tc = mkTestCase "Disabled.test" "x" TestCategory.Unit
+    let tc = mkTestCase "Disabled.test" (TestFramework.Unknown "x") TestCategory.Unit
     let policies = Map.ofList [ TestCategory.Unit, RunPolicy.Disabled ]
     for trigger in [ RunTrigger.Keystroke; RunTrigger.FileSave; RunTrigger.ExplicitRun ] do
       LiveTesting.filterByPolicy policies trigger [| tc |]
@@ -89,7 +89,7 @@ let filterByPolicyTests = testList "filterByPolicy" [
   }
 
   test "property tests run on every change by default" {
-    let tc = mkTestCase "Prop.test" "x" TestCategory.Property
+    let tc = mkTestCase "Prop.test" (TestFramework.Unknown "x") TestCategory.Property
     let policies = RunPolicyDefaults.defaults
     LiveTesting.filterByPolicy policies RunTrigger.Keystroke [| tc |]
     |> Expect.hasLength "property runs on keystroke" 1
@@ -102,14 +102,14 @@ let filterByPolicyTests = testList "filterByPolicy" [
   }
 
   test "OnDemand category blocked on keystroke" {
-    let tc = mkTestCase "Integ.test" "x" TestCategory.Integration
+    let tc = mkTestCase "Integ.test" (TestFramework.Unknown "x") TestCategory.Integration
     let policies = Map.ofList [ TestCategory.Integration, RunPolicy.OnDemand ]
     LiveTesting.filterByPolicy policies RunTrigger.Keystroke [| tc |]
     |> Expect.hasLength "OnDemand blocked on keystroke" 0
   }
 
   test "OnDemand category blocked on file save" {
-    let tc = mkTestCase "Integ.test" "x" TestCategory.Integration
+    let tc = mkTestCase "Integ.test" (TestFramework.Unknown "x") TestCategory.Integration
     let policies = Map.ofList [ TestCategory.Integration, RunPolicy.OnDemand ]
     LiveTesting.filterByPolicy policies RunTrigger.FileSave [| tc |]
     |> Expect.hasLength "OnDemand blocked on save" 0
@@ -121,7 +121,7 @@ let filterByPolicyTests = testList "filterByPolicy" [
 [<Tests>]
 let mergeResultsTests = testList "mergeResults" [
   test "merging results updates LastResults map" {
-    let tid = mkTestId "t1" "x"
+    let tid = mkTestId "t1" (TestFramework.Unknown "x")
     let results = [| mkResult tid (TestResult.Passed (ts 5.0)) |]
     let state = LiveTesting.mergeResults LiveTestState.empty results
     state.LastResults
@@ -130,7 +130,7 @@ let mergeResultsTests = testList "mergeResults" [
   }
 
   test "merging results preserves RunPhase (no transition)" {
-    let tid = mkTestId "t1" "x"
+    let tid = mkTestId "t1" (TestFramework.Unknown "x")
     let gen = RunGeneration.next RunGeneration.zero
     let running = { LiveTestState.empty with RunPhases = Map.ofList ["s", Running gen]; LastGeneration = gen }
     let results = [| mkResult tid (TestResult.Passed (ts 5.0)) |]
@@ -140,7 +140,7 @@ let mergeResultsTests = testList "mergeResults" [
   }
 
   test "merging results updates History to PreviousRun" {
-    let tid = mkTestId "t1" "x"
+    let tid = mkTestId "t1" (TestFramework.Unknown "x")
     let results = [| mkResult tid (TestResult.Passed (ts 10.0)) |]
     let state = LiveTesting.mergeResults LiveTestState.empty results
     match state.History with
@@ -149,7 +149,7 @@ let mergeResultsTests = testList "mergeResults" [
   }
 
   test "newer result overwrites older for same TestId" {
-    let tid = mkTestId "t1" "x"
+    let tid = mkTestId "t1" (TestFramework.Unknown "x")
     let old = [| mkResult tid (TestResult.Passed (ts 5.0)) |]
     let state1 = LiveTesting.mergeResults LiveTestState.empty old
     let newer = [| mkResult tid (TestResult.Failed (TestFailure.AssertionFailed "oops", ts 3.0)) |]
@@ -160,7 +160,7 @@ let mergeResultsTests = testList "mergeResults" [
   }
 
   test "merging empty results preserves state" {
-    let tid = mkTestId "t1" "x"
+    let tid = mkTestId "t1" (TestFramework.Unknown "x")
     let withResult =
       { LiveTestState.empty with
           LastResults = Map.ofList [ tid, mkResult tid (TestResult.Passed (ts 1.0)) ] }
@@ -177,8 +177,8 @@ let mergeResultsTests = testList "mergeResults" [
 let computeStatusEntriesTests = testList "computeStatusEntries" [
   test "returns one entry per discovered test" {
     let tests = [|
-      mkTestCase "t1" "x" TestCategory.Unit
-      mkTestCase "t2" "x" TestCategory.Unit
+      mkTestCase "t1" (TestFramework.Unknown "x") TestCategory.Unit
+      mkTestCase "t2" (TestFramework.Unknown "x") TestCategory.Unit
     |]
     let state = { LiveTestState.empty with DiscoveredTests = tests }
     LiveTesting.computeStatusEntries state
@@ -186,7 +186,7 @@ let computeStatusEntriesTests = testList "computeStatusEntries" [
   }
 
   test "test with no result shows Detected" {
-    let tc = mkTestCase "t1" "x" TestCategory.Unit
+    let tc = mkTestCase "t1" (TestFramework.Unknown "x") TestCategory.Unit
     let state = { LiveTestState.empty with DiscoveredTests = [| tc |] }
     let entries = LiveTesting.computeStatusEntries state
     match entries.[0].Status with
@@ -195,7 +195,7 @@ let computeStatusEntriesTests = testList "computeStatusEntries" [
   }
 
   test "passed test shows Passed status" {
-    let tc = mkTestCase "t1" "x" TestCategory.Unit
+    let tc = mkTestCase "t1" (TestFramework.Unknown "x") TestCategory.Unit
     let result = mkResult tc.Id (TestResult.Passed (ts 5.0))
     let state =
       { LiveTestState.empty with
@@ -208,7 +208,7 @@ let computeStatusEntriesTests = testList "computeStatusEntries" [
   }
 
   test "failed test shows Failed status" {
-    let tc = mkTestCase "t1" "x" TestCategory.Unit
+    let tc = mkTestCase "t1" (TestFramework.Unknown "x") TestCategory.Unit
     let failure = TestFailure.AssertionFailed "expected 1 got 2"
     let result = mkResult tc.Id (TestResult.Failed (failure, ts 3.0))
     let state =
@@ -222,7 +222,7 @@ let computeStatusEntriesTests = testList "computeStatusEntries" [
   }
 
   test "disabled policy shows PolicyDisabled" {
-    let tc = mkTestCase "t1" "x" TestCategory.Unit
+    let tc = mkTestCase "t1" (TestFramework.Unknown "x") TestCategory.Unit
     let state =
       { LiveTestState.empty with
           DiscoveredTests = [| tc |]
@@ -234,7 +234,7 @@ let computeStatusEntriesTests = testList "computeStatusEntries" [
   }
 
   test "affected test shows Queued" {
-    let tc = mkTestCase "t1" "x" TestCategory.Unit
+    let tc = mkTestCase "t1" (TestFramework.Unknown "x") TestCategory.Unit
     let state =
       { LiveTestState.empty with
           DiscoveredTests = [| tc |]
@@ -246,7 +246,7 @@ let computeStatusEntriesTests = testList "computeStatusEntries" [
   }
 
   test "entry preserves test metadata" {
-    let tc = mkTestCase "MyModule.Tests.add" "xunit" TestCategory.Unit
+    let tc = mkTestCase "MyModule.Tests.add" TestFramework.XUnit TestCategory.Unit
     let state = { LiveTestState.empty with DiscoveredTests = [| tc |] }
     let entries = LiveTesting.computeStatusEntries state
     entries.[0].FullName
@@ -269,7 +269,7 @@ let providerDetectionTests = testList "TestProviderDescriptions" [
     providers
     |> List.exists (fun p ->
       match p with
-      | ProviderDescription.AttributeBased d -> d.Name = "xunit"
+      | ProviderDescription.AttributeBased d -> d.Name = TestFramework.XUnit
       | _ -> false)
     |> Expect.isTrue "should detect xunit"
   }
@@ -293,7 +293,7 @@ let providerDetectionTests = testList "TestProviderDescriptions" [
     providers
     |> List.exists (fun p ->
       match p with
-      | ProviderDescription.Custom d -> d.Name = "expecto"
+      | ProviderDescription.Custom d -> d.Name = TestFramework.Expecto
       | _ -> false)
     |> Expect.isTrue "should detect expecto as custom"
   }
@@ -410,7 +410,7 @@ let liveTestStateEmptyTests = testList "LiveTestState.empty" [
 let propertyTests = testList "Property-based" [
   testProperty "TestId.create is deterministic" (fun (name: string) (fw: string) ->
     let name = if isNull name then "" else name
-    let fw = if isNull fw then "" else fw
+    let fw = TestFramework.parse (if isNull fw then "" else fw)
     let id1 = TestId.create name fw
     let id2 = TestId.create name fw
     TestId.value id1 = TestId.value id2
@@ -418,7 +418,7 @@ let propertyTests = testList "Property-based" [
 
   testProperty "TestId.value always returns 16 chars" (fun (name: string) (fw: string) ->
     let name = if isNull name then "" else name
-    let fw = if isNull fw then "" else fw
+    let fw = TestFramework.parse (if isNull fw then "" else fw)
     let id = TestId.create name fw
     (TestId.value id).Length = 16
   )
@@ -429,7 +429,7 @@ let propertyTests = testList "Property-based" [
       | 0 -> TestCategory.Unit | 1 -> TestCategory.Integration
       | 2 -> TestCategory.Browser | 3 -> TestCategory.Benchmark
       | 4 -> TestCategory.Architecture | _ -> TestCategory.Property
-    let tc = mkTestCase "Prop.test" "x" category
+    let tc = mkTestCase "Prop.test" (TestFramework.Unknown "x") category
     let policies = Map.ofList [ category, RunPolicy.Disabled ]
     let result = LiveTesting.filterByPolicy policies RunTrigger.ExplicitRun [| tc |]
     result.Length = 0
@@ -441,7 +441,7 @@ let propertyTests = testList "Property-based" [
       | 0 -> TestCategory.Unit | 1 -> TestCategory.Integration
       | 2 -> TestCategory.Browser | 3 -> TestCategory.Benchmark
       | 4 -> TestCategory.Architecture | _ -> TestCategory.Property
-    let tc = mkTestCase "Prop.test" "x" category
+    let tc = mkTestCase "Prop.test" (TestFramework.Unknown "x") category
     let policies = Map.ofList [ category, RunPolicy.OnEveryChange ]
     let result = LiveTesting.filterByPolicy policies RunTrigger.ExplicitRun [| tc |]
     result.Length = 1
@@ -451,7 +451,7 @@ let propertyTests = testList "Property-based" [
     let count = (abs n % 10) + 1
     let results =
       [| for i in 1..count do
-           let tid = mkTestId (sprintf "t%d" i) "x"
+           let tid = mkTestId (sprintf "t%d" i) (TestFramework.Unknown "x")
            { TestId = tid; TestName = TestId.value tid
              Result = LTTestResult.Passed (ts 1.0)
              Timestamp = DateTimeOffset.UtcNow; Output = None } |]
@@ -461,7 +461,7 @@ let propertyTests = testList "Property-based" [
 
   testProperty "computeStatusEntries returns same count as DiscoveredTests" (fun (n: int) ->
     let count = abs n % 20
-    let tests = [| for i in 1..count -> mkTestCase (sprintf "t%d" i) "x" TestCategory.Unit |]
+    let tests = [| for i in 1..count -> mkTestCase (sprintf "t%d" i) (TestFramework.Unknown "x") TestCategory.Unit |]
     let state = { LiveTestState.empty with DiscoveredTests = tests }
     let entries = LiveTesting.computeStatusEntries state
     entries.Length = count
@@ -469,8 +469,8 @@ let propertyTests = testList "Property-based" [
 
   testProperty "findAffected returns subset of all test ids in graph" (fun (sym: string) ->
     let sym = if isNull sym then "x" else sym
-    let t1 = mkTestId "t1" "x"
-    let t2 = mkTestId "t2" "x"
+    let t1 = mkTestId "t1" (TestFramework.Unknown "x")
+    let t2 = mkTestId "t2" (TestFramework.Unknown "x")
     let graph = {
       SymbolToTests = Map.ofList [ "a", [| t1 |]; "b", [| t2 |] ]
       TransitiveCoverage = Map.ofList [ "a", [| t1 |]; "b", [| t2 |] ]; SourceVersion = 1
@@ -485,27 +485,27 @@ let propertyTests = testList "Property-based" [
 [<Tests>]
 let categoryDetectionTests = testList "CategoryDetection" [
   test "categorizes integration by label" {
-    let cat = CategoryDetection.categorize [ "Integration" ] "MyModule.test" "expecto" [||]
+    let cat = CategoryDetection.categorize [ "Integration" ] "MyModule.test" TestFramework.Expecto [||]
     cat |> Expect.equal "integration" TestCategory.Integration
   }
 
   test "categorizes browser by Playwright assembly ref" {
-    let cat = CategoryDetection.categorize [] "MyModule.test" "expecto" [| "Microsoft.Playwright" |]
+    let cat = CategoryDetection.categorize [] "MyModule.test" TestFramework.Expecto [| "Microsoft.Playwright" |]
     cat |> Expect.equal "browser" TestCategory.Browser
   }
 
   test "categorizes benchmark by label" {
-    let cat = CategoryDetection.categorize [ "Benchmark" ] "MyModule.test" "expecto" [||]
+    let cat = CategoryDetection.categorize [ "Benchmark" ] "MyModule.test" TestFramework.Expecto [||]
     cat |> Expect.equal "benchmark" TestCategory.Benchmark
   }
 
   test "categorizes by namespace containing 'integration'" {
-    let cat = CategoryDetection.categorize [] "MyApp.Integration.Tests.myTest" "xunit" [||]
+    let cat = CategoryDetection.categorize [] "MyApp.Integration.Tests.myTest" TestFramework.XUnit [||]
     cat |> Expect.equal "integration by name" TestCategory.Integration
   }
 
   test "defaults to Unit" {
-    let cat = CategoryDetection.categorize [] "MyModule.test" "expecto" [||]
+    let cat = CategoryDetection.categorize [] "MyModule.test" TestFramework.Expecto [||]
     cat |> Expect.equal "unit by default" TestCategory.Unit
   }
 ]
@@ -634,20 +634,20 @@ let serializationRoundtripTests = testList "serialization roundtrip integration"
   test "LiveTestHookResultDto survives JSON roundtrip" {
     let original : LiveTestHookResultDto = {
       DetectedProviders = [
-        ProviderDescription.Custom { Name = "expecto"; AssemblyMarker = "Expecto" }
-        ProviderDescription.AttributeBased { Name = "xunit"; TestAttributes = ["Fact"; "Theory"]; AssemblyMarker = "xunit.core" }
+        ProviderDescription.Custom { Name = TestFramework.Expecto; AssemblyMarker = "Expecto" }
+        ProviderDescription.AttributeBased { Name = TestFramework.XUnit; TestAttributes = ["Fact"; "Theory"]; AssemblyMarker = "xunit.core" }
       ]
       DiscoveredTests = [|
-        { Id = TestId.create "Test.add" "expecto"
+        { Id = TestId.create "Test.add" TestFramework.Expecto
           FullName = "Test.add"; DisplayName = "add"
           Origin = TestOrigin.SourceMapped ("test.fs", 10)
-          Labels = ["fast"]; Framework = "expecto"; Category = TestCategory.Unit }
-        { Id = TestId.create "Test.validate" "xunit"
+          Labels = ["fast"]; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
+        { Id = TestId.create "Test.validate" TestFramework.XUnit
           FullName = "Test.validate"; DisplayName = "validate"
           Origin = TestOrigin.ReflectionOnly
-          Labels = []; Framework = "xunit"; Category = TestCategory.Integration }
+          Labels = []; Framework = TestFramework.XUnit; Category = TestCategory.Integration }
       |]
-      AffectedTestIds = [| TestId.create "Test.add" "expecto" |]
+      AffectedTestIds = [| TestId.create "Test.add" TestFramework.Expecto |]
     }
 
     let json = SageFs.WorkerProtocol.Serialization.serialize original
@@ -660,15 +660,15 @@ let serializationRoundtripTests = testList "serialization roundtrip integration"
   test "full pipeline: serialize → deserialize → dispatch → annotations" {
     let hookResult : LiveTestHookResultDto = {
       DetectedProviders = [
-        ProviderDescription.Custom { Name = "expecto"; AssemblyMarker = "Expecto" }
+        ProviderDescription.Custom { Name = TestFramework.Expecto; AssemblyMarker = "Expecto" }
       ]
       DiscoveredTests = [|
-        { Id = TestId.create "Mod.test1" "expecto"
+        { Id = TestId.create "Mod.test1" TestFramework.Expecto
           FullName = "Mod.test1"; DisplayName = "test1"
           Origin = TestOrigin.SourceMapped ("Mod.fs", 5)
-          Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+          Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
       |]
-      AffectedTestIds = [| TestId.create "Mod.test1" "expecto" |]
+      AffectedTestIds = [| TestId.create "Mod.test1" TestFramework.Expecto |]
     }
 
     let json = SageFs.WorkerProtocol.Serialization.serialize hookResult

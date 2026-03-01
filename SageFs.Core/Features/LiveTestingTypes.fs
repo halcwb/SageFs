@@ -46,13 +46,41 @@ module AssemblyLoadError =
     | :? BadImageFormatException as ex ->
       Error(AssemblyLoadError.BadImage(path, ex.Message))
 
+// --- Test Framework ---
+
+[<RequireQualifiedAccess>]
+type TestFramework =
+  | Expecto
+  | XUnit
+  | NUnit
+  | MSTest
+  | TUnit
+  | Unknown of string
+
+module TestFramework =
+  let toString = function
+    | TestFramework.Expecto -> "expecto"
+    | TestFramework.XUnit -> "xunit"
+    | TestFramework.NUnit -> "nunit"
+    | TestFramework.MSTest -> "mstest"
+    | TestFramework.TUnit -> "tunit"
+    | TestFramework.Unknown s -> s
+
+  let parse = function
+    | "expecto" -> TestFramework.Expecto
+    | "xunit" -> TestFramework.XUnit
+    | "nunit" -> TestFramework.NUnit
+    | "mstest" -> TestFramework.MSTest
+    | "tunit" -> TestFramework.TUnit
+    | s -> TestFramework.Unknown s
+
 /// Configuration constants for the live testing pipeline.
 [<RequireQualifiedAccess>]
 module LiveTestingDefaults =
   /// Default test module identifier for detecting test functions by namespace.
   let [<Literal>] TestModuleIdentifier = ".Tests."
   /// Default framework string for Expecto-based projects.
-  let [<Literal>] Framework = "expecto"
+  let Framework = TestFramework.Expecto
 
 // --- Stable Test Identity ---
 
@@ -62,8 +90,8 @@ type TestId = TestId of string
 module TestId =
   /// 16 hex chars = 64 bits of entropy from SHA256. Collision probability
   /// is negligible for projects with < 10^9 tests (birthday bound ~2^32).
-  let create (fullName: string) (framework: string) =
-    let input = sprintf "%s|%s" fullName framework
+  let create (fullName: string) (framework: TestFramework) =
+    let input = sprintf "%s|%s" fullName (TestFramework.toString framework)
     let bytes = Encoding.UTF8.GetBytes(input)
     let hash = SHA256.HashData(bytes)
     TestId.TestId(Convert.ToHexString(hash).Substring(0, 16))
@@ -140,7 +168,7 @@ type TestCase = {
   DisplayName: string
   Origin: TestOrigin
   Labels: string list
-  Framework: string
+  Framework: TestFramework
   Category: TestCategory
 }
 
@@ -193,7 +221,7 @@ type TestStatusEntry = {
   DisplayName: string
   FullName: string
   Origin: TestOrigin
-  Framework: string
+  Framework: TestFramework
   Category: TestCategory
   CurrentPolicy: RunPolicy
   Status: TestRunStatus
@@ -203,13 +231,13 @@ type TestStatusEntry = {
 // --- Provider Descriptions (pure data — stored in Elm model) ---
 
 type AttributeProviderDescription = {
-  Name: string
+  Name: TestFramework
   TestAttributes: string list
   AssemblyMarker: string
 }
 
 type CustomProviderDescription = {
-  Name: string
+  Name: TestFramework
   AssemblyMarker: string
 }
 
@@ -995,7 +1023,7 @@ module CategoryDetection =
   let categorize
     (labels: string list)
     (fullName: string)
-    (_framework: string)
+    (_framework: TestFramework)
     (referencedAssemblies: string array)
     : TestCategory =
     let labelLower = labels |> List.map (fun l -> l.ToLowerInvariant())
@@ -1106,7 +1134,7 @@ module TestDependencyGraph =
   /// Returns an inverted index: production symbol → test IDs that reference it.
   let buildFromSymbolUses
     (testModuleIdentifier: string)
-    (framework: string)
+    (framework: TestFramework)
     (uses: ExtractedSymbolUse array)
     : TestDependencyGraph =
     let testDefs =
@@ -1341,20 +1369,20 @@ module SourceMapping =
     | false -> None
 
   /// Does this attribute name match the given test framework?
-  let attributeMatchesFramework (framework: string) (attrName: string) =
+  let attributeMatchesFramework (framework: TestFramework) (attrName: string) =
     match framework with
-    | "expecto" -> attrName = "Tests" || attrName = "TestsAttribute"
-    | "xunit" ->
+    | TestFramework.Expecto -> attrName = "Tests" || attrName = "TestsAttribute"
+    | TestFramework.XUnit ->
       attrName = "Fact" || attrName = "FactAttribute"
       || attrName = "Theory" || attrName = "TheoryAttribute"
-    | "nunit" ->
+    | TestFramework.NUnit ->
       attrName = "Test" || attrName = "TestAttribute"
       || attrName = "TestCase" || attrName = "TestCaseAttribute"
-    | "mstest" ->
+    | TestFramework.MSTest ->
       attrName = "TestMethod" || attrName = "TestMethodAttribute"
       || attrName = "DataTestMethod" || attrName = "DataTestMethodAttribute"
-    | "tunit" -> attrName = "Test" || attrName = "TestAttribute"
-    | _ -> false
+    | TestFramework.TUnit -> attrName = "Test" || attrName = "TestAttribute"
+    | TestFramework.Unknown _ -> false
 
   /// Merge tree-sitter source locations into discovered tests.
   /// Matches by function name against the test's FullName suffix.
@@ -1582,23 +1610,23 @@ module PipelineTiming =
 module TestProviderDescriptions =
   let builtInDescriptions : ProviderDescription list = [
     ProviderDescription.AttributeBased {
-      Name = "xunit"; TestAttributes = ["Fact"; "Theory"]
+      Name = TestFramework.XUnit; TestAttributes = ["Fact"; "Theory"]
       AssemblyMarker = "xunit.core"
     }
     ProviderDescription.AttributeBased {
-      Name = "nunit"; TestAttributes = ["Test"; "TestCase"; "TestCaseSource"]
+      Name = TestFramework.NUnit; TestAttributes = ["Test"; "TestCase"; "TestCaseSource"]
       AssemblyMarker = "nunit.framework"
     }
     ProviderDescription.AttributeBased {
-      Name = "mstest"; TestAttributes = ["TestMethod"; "DataTestMethod"]
+      Name = TestFramework.MSTest; TestAttributes = ["TestMethod"; "DataTestMethod"]
       AssemblyMarker = "Microsoft.VisualStudio.TestPlatform.TestFramework"
     }
     ProviderDescription.AttributeBased {
-      Name = "tunit"; TestAttributes = ["Test"]
+      Name = TestFramework.TUnit; TestAttributes = ["Test"]
       AssemblyMarker = "TUnit.Core"
     }
     ProviderDescription.Custom {
-      Name = "expecto"; AssemblyMarker = "Expecto"
+      Name = TestFramework.Expecto; AssemblyMarker = "Expecto"
     }
   ]
 
@@ -1969,12 +1997,12 @@ module SymbolGraphBuilder =
       StartLine = sr.Line
       EndLine = sr.Line }
 
-  let buildIndex (testModuleIdentifier: string) (framework: string) (refs: SymbolReference list) : Map<string, TestId array> =
+  let buildIndex (testModuleIdentifier: string) (framework: TestFramework) (refs: SymbolReference list) : Map<string, TestId array> =
     let extracted = refs |> List.map toExtractedSymbolUse |> Array.ofList
     let graph = TestDependencyGraph.buildFromSymbolUses testModuleIdentifier framework extracted
     graph.SymbolToTests
 
-  let updateGraph (testModuleIdentifier: string) (framework: string) (newRefs: SymbolReference list) (filePath: string) (graph: TestDependencyGraph) : TestDependencyGraph =
+  let updateGraph (testModuleIdentifier: string) (framework: TestFramework) (newRefs: SymbolReference list) (filePath: string) (graph: TestDependencyGraph) : TestDependencyGraph =
     let newFileIndex = buildIndex testModuleIdentifier framework newRefs
     let updatedPerFile = Map.add filePath newFileIndex graph.PerFileIndex
     let merged = TestDependencyGraph.mergePerFileIndexes updatedPerFile

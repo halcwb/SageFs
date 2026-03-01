@@ -102,17 +102,17 @@ let pipelineTimingExtendedTests = testList "PipelineTiming extended" [
 [<Tests>]
 let orchestratorTests = testList "PipelineOrchestrator" [
   let test1 =
-    { Id = TestId.create "Module.Tests.test1" "expecto"; FullName = "Module.Tests.test1"
+    { Id = TestId.create "Module.Tests.test1" TestFramework.Expecto; FullName = "Module.Tests.test1"
       DisplayName = "test1"; Origin = TestOrigin.ReflectionOnly
-      Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+      Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
   let test2 =
-    { Id = TestId.create "Module.Tests.test2" "expecto"; FullName = "Module.Tests.test2"
+    { Id = TestId.create "Module.Tests.test2" TestFramework.Expecto; FullName = "Module.Tests.test2"
       DisplayName = "test2"; Origin = TestOrigin.ReflectionOnly
-      Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+      Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
   let intTest =
-    { Id = TestId.create "Module.Tests.intTest" "expecto"; FullName = "Module.Tests.intTest"
+    { Id = TestId.create "Module.Tests.intTest" TestFramework.Expecto; FullName = "Module.Tests.intTest"
       DisplayName = "intTest"; Origin = TestOrigin.ReflectionOnly
-      Labels = []; Framework = "expecto"; Category = TestCategory.Integration }
+      Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Integration }
   let depGraph = {
     SymbolToTests = Map.ofList [
       "Module.add", [| test1.Id |]
@@ -198,7 +198,7 @@ let orchestratorTests = testList "PipelineOrchestrator" [
   }
 
   test "buildRunBatch filters out unknown IDs" {
-    let unknownId = TestId.create "Unknown.test" "xunit"
+    let unknownId = TestId.create "Unknown.test" TestFramework.XUnit
     let batch = PipelineOrchestrator.buildRunBatch baseState [| unknownId |]
     batch |> Expect.isEmpty "no matches"
   }
@@ -247,13 +247,13 @@ let pipelineStatusBarTests = testList "Pipeline Status Bar" [
 [<Tests>]
 let statusEntryTests = testList "StatusEntry Computation" [
   let test1 =
-    { Id = TestId.create "Module.Tests.test1" "expecto"; FullName = "Module.Tests.test1"
+    { Id = TestId.create "Module.Tests.test1" TestFramework.Expecto; FullName = "Module.Tests.test1"
       DisplayName = "test1"; Origin = TestOrigin.ReflectionOnly
-      Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+      Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
   let test2 =
-    { Id = TestId.create "Module.Tests.test2" "expecto"; FullName = "Module.Tests.test2"
+    { Id = TestId.create "Module.Tests.test2" TestFramework.Expecto; FullName = "Module.Tests.test2"
       DisplayName = "test2"; Origin = TestOrigin.ReflectionOnly
-      Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+      Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
   let mkResult tid res =
     { TestId = tid; TestName = ""; Result = res; Timestamp = DateTimeOffset.UtcNow; Output = None }
 
@@ -620,8 +620,8 @@ let pipelineEffectsTests = testList "PipelineEffects" [
   }
 
   test "afterTypeCheck with affected tests returns RunAffectedTests" {
-    let tc1 = { Id = TestId.create "test1" "xunit"; FullName = "test1"; DisplayName = "test1"
-                Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "xunit"
+    let tc1 = { Id = TestId.create "test1" TestFramework.XUnit; FullName = "test1"; DisplayName = "test1"
+                Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.XUnit
                 Category = TestCategory.Unit }
     let state = { LiveTestState.empty with DiscoveredTests = [| tc1 |]; Activation = LiveTestingActivation.Active }
     let graph = {
@@ -651,8 +651,8 @@ let pipelineEffectsTests = testList "PipelineEffects" [
   }
 
   test "afterTypeCheck when Running returns None (prevents concurrent test runs)" {
-    let tc1 = { Id = TestId.create "test1" "xunit"; FullName = "test1"; DisplayName = "test1"
-                Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "xunit"
+    let tc1 = { Id = TestId.create "test1" TestFramework.XUnit; FullName = "test1"; DisplayName = "test1"
+                Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.XUnit
                 Category = TestCategory.Unit }
     let gen = RunGeneration.RunGeneration 1
     let state = {
@@ -671,8 +671,8 @@ let pipelineEffectsTests = testList "PipelineEffects" [
   }
 
   test "afterTypeCheck when RunningButEdited returns None (re-trigger handled by completion)" {
-    let tc1 = { Id = TestId.create "test1" "xunit"; FullName = "test1"; DisplayName = "test1"
-                Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "xunit"
+    let tc1 = { Id = TestId.create "test1" TestFramework.XUnit; FullName = "test1"; DisplayName = "test1"
+                Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.XUnit
                 Category = TestCategory.Unit }
     let gen = RunGeneration.RunGeneration 1
     let state = {
@@ -691,11 +691,11 @@ let pipelineEffectsTests = testList "PipelineEffects" [
   }
 
   test "afterTypeCheck filters integration tests on keystroke" {
-    let tc1 = { Id = TestId.create "unit1" "xunit"; FullName = "unit1"; DisplayName = "unit1"
-                Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "xunit"
+    let tc1 = { Id = TestId.create "unit1" TestFramework.XUnit; FullName = "unit1"; DisplayName = "unit1"
+                Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.XUnit
                 Category = TestCategory.Unit }
-    let tc2 = { Id = TestId.create "integ1" "xunit"; FullName = "integ1"; DisplayName = "integ1"
-                Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "xunit"
+    let tc2 = { Id = TestId.create "integ1" TestFramework.XUnit; FullName = "integ1"; DisplayName = "integ1"
+                Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.XUnit
                 Category = TestCategory.Integration }
     let state = {
       LiveTestState.empty with
@@ -852,7 +852,7 @@ let pipelineStateTests = testList "LiveTestPipelineState" [
   test "tick with fcs debounce does NOT produce RunAffectedTests (deferred to afterTypeCheck)" {
     let t0 = DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero)
     let t301 = t0.AddMilliseconds(301.0)
-    let tc = mkTestCase "MyModule.myTest" "expecto" TestCategory.Unit
+    let tc = mkTestCase "MyModule.myTest" TestFramework.Expecto TestCategory.Unit
     let depGraph = {
       TestDependencyGraph.empty with
         SymbolToTests = Map.ofList ["mySymbol", [|tc.Id|]]
@@ -918,8 +918,8 @@ let effectDispatchTests = testList "EffectDispatcher" [
 
   test "RunAffectedTests logs tests and trigger" {
     let log = EffectDispatcher.create()
-    let tests = [| { Id = TestId.create "t1" "expecto"; FullName = "t1"; DisplayName = "t1"
-                     Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "expecto"
+    let tests = [| { Id = TestId.create "t1" TestFramework.Expecto; FullName = "t1"; DisplayName = "t1"
+                     Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.Expecto
                      Category = TestCategory.Unit } |]
     EffectDispatcher.dispatch log (PipelineEffect.RunAffectedTests(tests, RunTrigger.Keystroke, System.TimeSpan.Zero, System.TimeSpan.Zero, None, [||]))
     log.Effects |> Expect.hasLength "one effect" 1
@@ -981,7 +981,7 @@ let endToEndPipelineTests = testList "End-to-end Pipeline" [
 
   test "full pipeline: keystroke → TS → FCS → afterTypeCheck → run affected" {
     let t0 = DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero)
-    let tc = mkTestCase "M.affectedTest" "expecto" TestCategory.Unit
+    let tc = mkTestCase "M.affectedTest" TestFramework.Expecto TestCategory.Unit
     let depGraph = {
       TestDependencyGraph.empty with
         SymbolToTests = Map.ofList ["changedFn", [|tc.Id|]]
@@ -1014,7 +1014,7 @@ let endToEndPipelineTests = testList "End-to-end Pipeline" [
 
   test "disabled state produces no effects even after delay" {
     let t0 = DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero)
-    let tc = mkTestCase "M.t1" "expecto" TestCategory.Unit
+    let tc = mkTestCase "M.t1" TestFramework.Expecto TestCategory.Unit
     let depGraph = {
       TestDependencyGraph.empty with
         SymbolToTests = Map.ofList ["sym", [|tc.Id|]]
@@ -1036,7 +1036,7 @@ let endToEndPipelineTests = testList "End-to-end Pipeline" [
 
   test "integration tests filtered on keystroke trigger" {
     let t0 = DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero)
-    let tc = mkTestCase "M.intTest" "expecto" TestCategory.Integration
+    let tc = mkTestCase "M.intTest" TestFramework.Expecto TestCategory.Integration
     let depGraph = {
       TestDependencyGraph.empty with
         SymbolToTests = Map.ofList ["sym", [|tc.Id|]]
@@ -1314,13 +1314,13 @@ let liveTestingStatusBarTests = testList "liveTestingStatusBar" [
   }
 
   test "returns tests only when timing is None" {
-    let testId = TestId.create "MyTest.test1" "expecto"
+    let testId = TestId.create "MyTest.test1" TestFramework.Expecto
     let entry = {
       TestId = testId
       DisplayName = "test1"
       FullName = "MyTest.test1"
       Origin = TestOrigin.ReflectionOnly
-      Framework = "expecto"
+      Framework = TestFramework.Expecto
       Category = TestCategory.Unit
       CurrentPolicy = RunPolicy.OnEveryChange
       Status = TestRunStatus.Passed (TimeSpan.FromMilliseconds 10.0)
@@ -1344,13 +1344,13 @@ let liveTestingStatusBarTests = testList "liveTestingStatusBar" [
       Trigger = RunTrigger.FileSave
       Timestamp = DateTimeOffset.UtcNow
     }
-    let testId = TestId.create "MyTest.test1" "expecto"
+    let testId = TestId.create "MyTest.test1" TestFramework.Expecto
     let entry = {
       TestId = testId
       DisplayName = "test1"
       FullName = "MyTest.test1"
       Origin = TestOrigin.ReflectionOnly
-      Framework = "expecto"
+      Framework = TestFramework.Expecto
       Category = TestCategory.Unit
       CurrentPolicy = RunPolicy.OnEveryChange
       Status = TestRunStatus.Passed (TimeSpan.FromMilliseconds 10.0)
@@ -1369,9 +1369,9 @@ let pipelineBenchmarkTests = testList "Pipeline Core Benchmark" [
   test "200-test pipeline core completes under 5ms p95" {
     let sw = System.Diagnostics.Stopwatch()
     let makeTestCase i =
-      { Id = TestId.create (sprintf "Module.Tests.test%d" i) "expecto"
+      { Id = TestId.create (sprintf "Module.Tests.test%d" i) TestFramework.Expecto
         FullName = sprintf "Module.Tests.test%d" i; DisplayName = sprintf "test%d" i
-        Origin = TestOrigin.SourceMapped ("editor", i + 1); Labels = []; Framework = "expecto"
+        Origin = TestOrigin.SourceMapped ("editor", i + 1); Labels = []; Framework = TestFramework.Expecto
         Category = if i % 10 = 0 then TestCategory.Integration else TestCategory.Unit }
     let tests = Array.init 200 makeTestCase
     let directMap =
@@ -1409,9 +1409,9 @@ let pipelineBenchmarkTests = testList "Pipeline Core Benchmark" [
   test "1000-test pipeline core completes under 20ms p95" {
     let sw = System.Diagnostics.Stopwatch()
     let makeTestCase i =
-      { Id = TestId.create (sprintf "M.T.t%d" i) "expecto"
+      { Id = TestId.create (sprintf "M.T.t%d" i) TestFramework.Expecto
         FullName = sprintf "M.T.t%d" i; DisplayName = sprintf "t%d" i
-        Origin = TestOrigin.SourceMapped ("editor", i + 1); Labels = []; Framework = "expecto"
+        Origin = TestOrigin.SourceMapped ("editor", i + 1); Labels = []; Framework = TestFramework.Expecto
         Category = TestCategory.Unit }
     let tests = Array.init 1000 makeTestCase
     let directMap =
@@ -1456,7 +1456,7 @@ let e2ePipelineFlowTests = testList "E2E Pipeline Flow" [
     let tid = TestId.TestId "MyModule.myTest should work"
     let testCase = {
       TestCase.Id = tid; DisplayName = "myTest should work"; FullName = "MyModule.myTest should work"
-      Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "Expecto"; Category = TestCategory.Unit
+      Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit
     }
     let model0 = SageFsModel.initial
     let snap = {
@@ -1499,8 +1499,8 @@ let e2ePipelineFlowTests = testList "E2E Pipeline Flow" [
   test "multi-session test isolation" {
     let tid1 = TestId.TestId "test.in.session1"
     let tid2 = TestId.TestId "test.in.session2"
-    let tc1 = { TestCase.Id = tid1; FullName = "test.in.session1"; DisplayName = "t1"; Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "Expecto"; Category = TestCategory.Unit }
-    let tc2 = { TestCase.Id = tid2; FullName = "test.in.session2"; DisplayName = "t2"; Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "Expecto"; Category = TestCategory.Unit }
+    let tc1 = { TestCase.Id = tid1; FullName = "test.in.session1"; DisplayName = "t1"; Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
+    let tc2 = { TestCase.Id = tid2; FullName = "test.in.session2"; DisplayName = "t2"; Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     let m0 = SageFsModel.initial
     let snap1 = { SessionSnapshot.Id = "s1"; Name = Some "S1"; Projects = ["A.fsproj"]; Status = SessionDisplayStatus.Running; LastActivity = System.DateTime.UtcNow; EvalCount = 0; UpSince = System.DateTime.UtcNow; IsActive = true; WorkingDirectory = "C:\\A" }
     let snap2 = { SessionSnapshot.Id = "s2"; Name = Some "S2"; Projects = ["B.fsproj"]; Status = SessionDisplayStatus.Running; LastActivity = System.DateTime.UtcNow; EvalCount = 0; UpSince = System.DateTime.UtcNow; IsActive = false; WorkingDirectory = "C:\\B" }

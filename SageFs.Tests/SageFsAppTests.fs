@@ -6,6 +6,7 @@ open Expecto.Flip
 open FsCheck
 open SageFs
 open SageFs.Features.Diagnostics
+open SageFs.Features.LiveTesting
 
 [<Tests>]
 let sageFsUpdateTests = testList "SageFsUpdate" [
@@ -610,10 +611,10 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
 
   testCase "EnableLiveTesting with discovered tests emits RunAffectedTests" <| fun _ ->
     let tc : Features.LiveTesting.TestCase =
-      { Id = Features.LiveTesting.TestId.create "MyModule.test1" "expecto"
+      { Id = Features.LiveTesting.TestId.create "MyModule.test1" TestFramework.Expecto
         FullName = "MyModule.test1"; DisplayName = "test1"
         Origin = Features.LiveTesting.TestOrigin.ReflectionOnly
-        Labels = []; Framework = "expecto"
+        Labels = []; Framework = TestFramework.Expecto
         Category = Features.LiveTesting.TestCategory.Unit }
     let model =
       { SageFsModel.initial with

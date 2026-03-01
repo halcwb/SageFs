@@ -10,7 +10,7 @@ let executorDescriptionTests = testList "TestExecutor.description" [
     let desc = TestExecutor.description BuiltInExecutors.xunit
     match desc with
     | ProviderDescription.AttributeBased d ->
-      d.Name |> Expect.equal "should be xunit" "xunit"
+      d.Name |> Expect.equal "should be xunit" TestFramework.XUnit
     | _ -> failtest "Expected AttributeBased"
   }
 
@@ -18,7 +18,7 @@ let executorDescriptionTests = testList "TestExecutor.description" [
     let desc = TestExecutor.description BuiltInExecutors.expecto
     match desc with
     | ProviderDescription.Custom d ->
-      d.Name |> Expect.equal "should be expecto" "expecto"
+      d.Name |> Expect.equal "should be expecto" TestFramework.Expecto
     | _ -> failtest "Expected Custom"
   }
 ]
@@ -67,7 +67,7 @@ let attributeDiscoveryTests = testList "AttributeDiscovery" [
 
   test "attribute discovery finds nothing in assembly without test attributes" {
     let desc = {
-      Name = "xunit"
+      Name = TestFramework.XUnit
       TestAttributes = ["Fact"; "Theory"]
       AssemblyMarker = "xunit.core"
     }
@@ -125,7 +125,7 @@ let discoverTests = testList "TestOrchestrator.discoverTests" [
       let result = TestOrchestrator.discoverAll BuiltInExecutors.builtIn asm
       result.Tests
       |> List.iter (fun tc ->
-        tc.Framework |> Expect.equal "framework should be expecto" "expecto")
+        tc.Framework |> Expect.equal "framework should be expecto" TestFramework.Expecto)
     | None ->
       skiptest "SageFs.Tests assembly not loaded"
   }
@@ -155,7 +155,7 @@ let detectProvidersTests = testList "LiveTestingHook.detectProviders" [
       providers
       |> List.exists (fun p ->
         match p with
-        | ProviderDescription.Custom c -> c.Name = "expecto"
+        | ProviderDescription.Custom c -> c.Name = TestFramework.Expecto
         | _ -> false)
       |> Expect.isTrue "should detect expecto provider"
     | None -> skiptest "SageFs.Tests assembly not loaded"
@@ -168,7 +168,7 @@ let detectProvidersTests = testList "LiveTestingHook.detectProviders" [
       providers
       |> List.exists (fun p ->
         match p with
-        | ProviderDescription.AttributeBased a -> a.Name = "xunit"
+        | ProviderDescription.AttributeBased a -> a.Name = TestFramework.XUnit
         | _ -> false)
       |> Expect.isFalse "should not detect xunit provider"
     | None -> skiptest "SageFs.Tests assembly not loaded"
@@ -197,7 +197,7 @@ let hookDiscoverTestsTests = testList "LiveTestingHook.discoverTests" [
     | Some asm ->
       let result = LiveTestingHook.discoverTests BuiltInExecutors.builtIn asm
       result.Tests
-      |> List.forall (fun t -> t.Framework = "expecto")
+      |> List.forall (fun t -> t.Framework = TestFramework.Expecto)
       |> Expect.isTrue "all tests should be expecto framework"
     | None -> skiptest "SageFs.Tests assembly not loaded"
   }
@@ -214,14 +214,14 @@ let hookDiscoverTestsTests = testList "LiveTestingHook.discoverTests" [
 let findAffectedTestsTests = testList "LiveTestingHook.findAffectedTests" [
   test "returns empty when no updated methods specified" {
     let tests = [|
-      { Id = TestId.create "Mod.test1" "expecto"
+      { Id = TestId.create "Mod.test1" TestFramework.Expecto
         FullName = "Mod.test1"; DisplayName = "test1"
         Origin = TestOrigin.ReflectionOnly; Labels = []
-        Framework = "expecto"; Category = TestCategory.Unit }
-      { Id = TestId.create "Mod.test2" "expecto"
+        Framework = TestFramework.Expecto; Category = TestCategory.Unit }
+      { Id = TestId.create "Mod.test2" TestFramework.Expecto
         FullName = "Mod.test2"; DisplayName = "test2"
         Origin = TestOrigin.ReflectionOnly; Labels = []
-        Framework = "expecto"; Category = TestCategory.Unit }
+        Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
     let affected = LiveTestingHook.findAffectedTests tests []
     affected
@@ -231,14 +231,14 @@ let findAffectedTestsTests = testList "LiveTestingHook.findAffectedTests" [
 
   test "filters to matching tests when updated methods specified" {
     let tests = [|
-      { Id = TestId.create "MyModule.test1" "expecto"
+      { Id = TestId.create "MyModule.test1" TestFramework.Expecto
         FullName = "MyModule.test1"; DisplayName = "test1"
         Origin = TestOrigin.ReflectionOnly; Labels = []
-        Framework = "expecto"; Category = TestCategory.Unit }
-      { Id = TestId.create "OtherModule.test2" "expecto"
+        Framework = TestFramework.Expecto; Category = TestCategory.Unit }
+      { Id = TestId.create "OtherModule.test2" TestFramework.Expecto
         FullName = "OtherModule.test2"; DisplayName = "test2"
         Origin = TestOrigin.ReflectionOnly; Labels = []
-        Framework = "expecto"; Category = TestCategory.Unit }
+        Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
     let affected = LiveTestingHook.findAffectedTests tests ["MyModule.helper"]
     affected
@@ -248,10 +248,10 @@ let findAffectedTestsTests = testList "LiveTestingHook.findAffectedTests" [
 
   test "falls back to all tests when no tests match updated methods" {
     let tests = [|
-      { Id = TestId.create "MyModule.test1" "expecto"
+      { Id = TestId.create "MyModule.test1" TestFramework.Expecto
         FullName = "MyModule.test1"; DisplayName = "test1"
         Origin = TestOrigin.ReflectionOnly; Labels = []
-        Framework = "expecto"; Category = TestCategory.Unit }
+        Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
     // Conservative fallback: non-empty methods but no match → run everything
     let affected = LiveTestingHook.findAffectedTests tests ["UnrelatedModule.func"]

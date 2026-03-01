@@ -14,17 +14,17 @@ let affectedTestPipelineTests = testList "affected-test pipeline" [
     let graph = {
       TestDependencyGraph.empty with
         SymbolToTests = Map.ofList [
-          "MyModule.add", [| TestId.create "add-test" "xunit" |]
-          "MyModule.validate", [| TestId.create "validate-test" "xunit" |]
+          "MyModule.add", [| TestId.create "add-test" TestFramework.XUnit |]
+          "MyModule.validate", [| TestId.create "validate-test" TestFramework.XUnit |]
         ]
         TransitiveCoverage = Map.ofList [
-          "MyModule.add", [| TestId.create "add-test" "xunit" |]
-          "MyModule.validate", [| TestId.create "validate-test" "xunit" |]
+          "MyModule.add", [| TestId.create "add-test" TestFramework.XUnit |]
+          "MyModule.validate", [| TestId.create "validate-test" TestFramework.XUnit |]
         ]
     }
     let affected = TestDependencyGraph.findAffected ["MyModule.add"] graph
     affected.Length |> Expect.equal "one affected test" 1
-    affected.[0] |> Expect.equal "correct test" (TestId.create "add-test" "xunit")
+    affected.[0] |> Expect.equal "correct test" (TestId.create "add-test" TestFramework.XUnit)
   }
 ]
 
@@ -71,14 +71,14 @@ let policyFilterTests = testList "PolicyFilter" [
       TestCategory.Browser, RunPolicy.Disabled
     ]
     let tests = [|
-      { Id = TestId.create "unit1" "xunit"; FullName = "unit1"; DisplayName = "unit1"
-        Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "xunit"
+      { Id = TestId.create "unit1" TestFramework.XUnit; FullName = "unit1"; DisplayName = "unit1"
+        Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.XUnit
         Category = TestCategory.Unit }
-      { Id = TestId.create "int1" "xunit"; FullName = "int1"; DisplayName = "int1"
-        Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "xunit"
+      { Id = TestId.create "int1" TestFramework.XUnit; FullName = "int1"; DisplayName = "int1"
+        Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.XUnit
         Category = TestCategory.Integration }
-      { Id = TestId.create "browser1" "xunit"; FullName = "browser1"; DisplayName = "browser1"
-        Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "xunit"
+      { Id = TestId.create "browser1" TestFramework.XUnit; FullName = "browser1"; DisplayName = "browser1"
+        Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.XUnit
         Category = TestCategory.Browser }
     |]
     let filtered = PolicyFilter.filterTests policies RunTrigger.Keystroke tests
@@ -96,10 +96,10 @@ let policyFilterTests = testList "PolicyFilter" [
 [<Tests>]
 let prioritizationTests = testList "TestPrioritization" [
   test "failed tests come before passed tests" {
-    let cases = [| mkTestCase "passed1" "expecto" TestCategory.Unit; mkTestCase "failed1" "expecto" TestCategory.Unit |]
+    let cases = [| mkTestCase "passed1" TestFramework.Expecto TestCategory.Unit; mkTestCase "failed1" TestFramework.Expecto TestCategory.Unit |]
     let results = Map.ofList [
-      mkTestId "passed1" "expecto", mkResult (mkTestId "passed1" "expecto") (TestResult.Passed (ts 10.0))
-      mkTestId "failed1" "expecto", mkResult (mkTestId "failed1" "expecto") (TestResult.Failed (TestFailure.AssertionFailed "bad", ts 10.0))
+      mkTestId "passed1" TestFramework.Expecto, mkResult (mkTestId "passed1" TestFramework.Expecto) (TestResult.Passed (ts 10.0))
+      mkTestId "failed1" TestFramework.Expecto, mkResult (mkTestId "failed1" TestFramework.Expecto) (TestResult.Failed (TestFailure.AssertionFailed "bad", ts 10.0))
     ]
     let sorted = TestPrioritization.prioritize results cases
     sorted.[0].FullName |> Expect.equal "failed first" "failed1"
@@ -107,10 +107,10 @@ let prioritizationTests = testList "TestPrioritization" [
   }
 
   test "among passed, faster tests come first" {
-    let cases = [| mkTestCase "slow" "expecto" TestCategory.Unit; mkTestCase "fast" "expecto" TestCategory.Unit |]
+    let cases = [| mkTestCase "slow" TestFramework.Expecto TestCategory.Unit; mkTestCase "fast" TestFramework.Expecto TestCategory.Unit |]
     let results = Map.ofList [
-      mkTestId "slow" "expecto", mkResult (mkTestId "slow" "expecto") (TestResult.Passed (ts 500.0))
-      mkTestId "fast" "expecto", mkResult (mkTestId "fast" "expecto") (TestResult.Passed (ts 5.0))
+      mkTestId "slow" TestFramework.Expecto, mkResult (mkTestId "slow" TestFramework.Expecto) (TestResult.Passed (ts 500.0))
+      mkTestId "fast" TestFramework.Expecto, mkResult (mkTestId "fast" TestFramework.Expecto) (TestResult.Passed (ts 5.0))
     ]
     let sorted = TestPrioritization.prioritize results cases
     sorted.[0].FullName |> Expect.equal "fast first" "fast"
@@ -118,9 +118,9 @@ let prioritizationTests = testList "TestPrioritization" [
   }
 
   test "tests without results go last" {
-    let cases = [| mkTestCase "no.result" "expecto" TestCategory.Unit; mkTestCase "has.result" "expecto" TestCategory.Unit |]
+    let cases = [| mkTestCase "no.result" TestFramework.Expecto TestCategory.Unit; mkTestCase "has.result" TestFramework.Expecto TestCategory.Unit |]
     let results = Map.ofList [
-      mkTestId "has.result" "expecto", mkResult (mkTestId "has.result" "expecto") (TestResult.Passed (ts 10.0))
+      mkTestId "has.result" TestFramework.Expecto, mkResult (mkTestId "has.result" TestFramework.Expecto) (TestResult.Passed (ts 10.0))
     ]
     let sorted = TestPrioritization.prioritize results cases
     sorted.[0].FullName |> Expect.equal "has result first" "has.result"
@@ -129,17 +129,17 @@ let prioritizationTests = testList "TestPrioritization" [
 
   test "full priority: failed > skipped > passed > not-run > unknown" {
     let cases = [|
-      mkTestCase "passed" "expecto" TestCategory.Unit
-      mkTestCase "unknown" "expecto" TestCategory.Unit
-      mkTestCase "failed" "expecto" TestCategory.Unit
-      mkTestCase "skipped" "expecto" TestCategory.Unit
-      mkTestCase "notrun" "expecto" TestCategory.Unit
+      mkTestCase "passed" TestFramework.Expecto TestCategory.Unit
+      mkTestCase "unknown" TestFramework.Expecto TestCategory.Unit
+      mkTestCase "failed" TestFramework.Expecto TestCategory.Unit
+      mkTestCase "skipped" TestFramework.Expecto TestCategory.Unit
+      mkTestCase "notrun" TestFramework.Expecto TestCategory.Unit
     |]
     let results = Map.ofList [
-      mkTestId "passed" "expecto", mkResult (mkTestId "passed" "expecto") (TestResult.Passed (ts 10.0))
-      mkTestId "failed" "expecto", mkResult (mkTestId "failed" "expecto") (TestResult.Failed (TestFailure.AssertionFailed "x", ts 10.0))
-      mkTestId "skipped" "expecto", mkResult (mkTestId "skipped" "expecto") (TestResult.Skipped "reason")
-      mkTestId "notrun" "expecto", mkResult (mkTestId "notrun" "expecto") TestResult.NotRun
+      mkTestId "passed" TestFramework.Expecto, mkResult (mkTestId "passed" TestFramework.Expecto) (TestResult.Passed (ts 10.0))
+      mkTestId "failed" TestFramework.Expecto, mkResult (mkTestId "failed" TestFramework.Expecto) (TestResult.Failed (TestFailure.AssertionFailed "x", ts 10.0))
+      mkTestId "skipped" TestFramework.Expecto, mkResult (mkTestId "skipped" TestFramework.Expecto) (TestResult.Skipped "reason")
+      mkTestId "notrun" TestFramework.Expecto, mkResult (mkTestId "notrun" TestFramework.Expecto) TestResult.NotRun
     ]
     let sorted = TestPrioritization.prioritize results cases
     sorted |> Array.map (fun tc -> tc.FullName)
@@ -156,7 +156,7 @@ let prioritizationTests = testList "TestPrioritization" [
 let prioritizationPropertyTests = testList "TestPrioritization properties" [
   testProperty "result count is preserved" (fun (n: FsCheck.PositiveInt) ->
     let count = n.Get % 50 + 1
-    let cases = Array.init count (fun i -> mkTestCase (sprintf "test%d" i) "expecto" TestCategory.Unit)
+    let cases = Array.init count (fun i -> mkTestCase (sprintf "test%d" i) TestFramework.Expecto TestCategory.Unit)
     let sorted = TestPrioritization.prioritize Map.empty cases
     sorted.Length = cases.Length
   )
@@ -164,7 +164,7 @@ let prioritizationPropertyTests = testList "TestPrioritization properties" [
   testProperty "failed tests always precede passed tests in output" (fun (seed: int) ->
     let rng = System.Random(seed)
     let count = rng.Next(2, 20)
-    let cases = Array.init count (fun i -> mkTestCase (sprintf "t%d" i) "expecto" TestCategory.Unit)
+    let cases = Array.init count (fun i -> mkTestCase (sprintf "t%d" i) TestFramework.Expecto TestCategory.Unit)
     let results =
       cases
       |> Array.map (fun tc ->
@@ -193,7 +193,7 @@ let prioritizationPropertyTests = testList "TestPrioritization properties" [
   testProperty "among same-outcome, faster comes first" (fun (seed: int) ->
     let rng = System.Random(seed)
     let count = rng.Next(2, 20)
-    let cases = Array.init count (fun i -> mkTestCase (sprintf "t%d" i) "expecto" TestCategory.Unit)
+    let cases = Array.init count (fun i -> mkTestCase (sprintf "t%d" i) TestFramework.Expecto TestCategory.Unit)
     let results =
       cases
       |> Array.map (fun tc ->
@@ -223,7 +223,7 @@ let symbolGraphTests = testList "SymbolGraphBuilder" [
       { SymbolFullName = "MyApp.Tests.test2"; UseKind = SymbolUseKind.Definition; UsedInTestId = None; FilePath = "F.fs"; Line = 20 }
       { SymbolFullName = "MyModule.parse"; UseKind = SymbolUseKind.Reference; UsedInTestId = None; FilePath = "F.fs"; Line = 25 }
     ]
-    let index = SymbolGraphBuilder.buildIndex ".Tests." "fcs" refs
+    let index = SymbolGraphBuilder.buildIndex ".Tests." (TestFramework.Unknown "fcs") refs
     index |> Map.find "MyModule.parse" |> Array.length |> Expect.equal "parse has 2 tests" 2
     index |> Map.find "MyModule.format" |> Array.length |> Expect.equal "format has 1 test" 1
   }
@@ -232,7 +232,7 @@ let symbolGraphTests = testList "SymbolGraphBuilder" [
     let refs = [
       { SymbolFullName = "MyModule.helper"; UseKind = SymbolUseKind.Reference; UsedInTestId = None; FilePath = "F.fs"; Line = 5 }
     ]
-    let index = SymbolGraphBuilder.buildIndex ".Tests." "fcs" refs
+    let index = SymbolGraphBuilder.buildIndex ".Tests." (TestFramework.Unknown "fcs") refs
     index |> Map.isEmpty |> Expect.isTrue "no test context means no entries"
   }
 
@@ -242,7 +242,7 @@ let symbolGraphTests = testList "SymbolGraphBuilder" [
       { SymbolFullName = "MyModule.parse"; UseKind = SymbolUseKind.Reference; UsedInTestId = None; FilePath = "F.fs"; Line = 5 }
       { SymbolFullName = "MyModule.parse"; UseKind = SymbolUseKind.Reference; UsedInTestId = None; FilePath = "F.fs"; Line = 8 }
     ]
-    let index = SymbolGraphBuilder.buildIndex ".Tests." "fcs" refs
+    let index = SymbolGraphBuilder.buildIndex ".Tests." (TestFramework.Unknown "fcs") refs
     index |> Map.find "MyModule.parse" |> Array.length |> Expect.equal "deduped" 1
   }
 
@@ -250,7 +250,7 @@ let symbolGraphTests = testList "SymbolGraphBuilder" [
     // Set up existing graph WITH PerFileIndex tracking (as produced by real updateGraph calls)
     let existingGraph =
       TestDependencyGraph.empty
-      |> SymbolGraphBuilder.updateGraph ".Tests." "fcs"
+      |> SymbolGraphBuilder.updateGraph ".Tests." (TestFramework.Unknown "fcs")
         [ { SymbolFullName = "MyApp.Tests.OldTest"; UseKind = SymbolUseKind.Definition; UsedInTestId = None; FilePath = "Old.fs"; Line = 1 }
           { SymbolFullName = "OldModule.fn"; UseKind = SymbolUseKind.Reference; UsedInTestId = None; FilePath = "Old.fs"; Line = 5 } ]
         "Old.fs"
@@ -258,7 +258,7 @@ let symbolGraphTests = testList "SymbolGraphBuilder" [
       { SymbolFullName = "MyApp.Tests.test2"; UseKind = SymbolUseKind.Definition; UsedInTestId = None; FilePath = "New.fs"; Line = 1 }
       { SymbolFullName = "NewModule.fn"; UseKind = SymbolUseKind.Reference; UsedInTestId = None; FilePath = "New.fs"; Line = 5 }
     ]
-    let updated = SymbolGraphBuilder.updateGraph ".Tests." "fcs" newRefs "New.fs" existingGraph
+    let updated = SymbolGraphBuilder.updateGraph ".Tests." (TestFramework.Unknown "fcs") newRefs "New.fs" existingGraph
     updated.SymbolToTests |> Map.containsKey "OldModule.fn" |> Expect.isTrue "old preserved"
     updated.SymbolToTests |> Map.containsKey "NewModule.fn" |> Expect.isTrue "new added"
     updated.SourceVersion |> Expect.equal "version bumped" 2
@@ -268,7 +268,7 @@ let symbolGraphTests = testList "SymbolGraphBuilder" [
     // First analysis: FileA maps MyModule.fn → OldTest
     let graph1 =
       TestDependencyGraph.empty
-      |> SymbolGraphBuilder.updateGraph ".Tests." "fcs"
+      |> SymbolGraphBuilder.updateGraph ".Tests." (TestFramework.Unknown "fcs")
         [ { SymbolFullName = "MyApp.Tests.OldTest"; UseKind = SymbolUseKind.Definition; UsedInTestId = None; FilePath = "F.fs"; Line = 1 }
           { SymbolFullName = "MyModule.fn"; UseKind = SymbolUseKind.Reference; UsedInTestId = None; FilePath = "F.fs"; Line = 5 } ]
         "F.fs"
@@ -277,13 +277,13 @@ let symbolGraphTests = testList "SymbolGraphBuilder" [
       { SymbolFullName = "MyApp.Tests.test2"; UseKind = SymbolUseKind.Definition; UsedInTestId = None; FilePath = "F.fs"; Line = 1 }
       { SymbolFullName = "MyModule.fn"; UseKind = SymbolUseKind.Reference; UsedInTestId = None; FilePath = "F.fs"; Line = 5 }
     ]
-    let updated = SymbolGraphBuilder.updateGraph ".Tests." "fcs" newRefs "F.fs" graph1
+    let updated = SymbolGraphBuilder.updateGraph ".Tests." (TestFramework.Unknown "fcs") newRefs "F.fs" graph1
     let tests = updated.SymbolToTests |> Map.find "MyModule.fn"
     tests |> Array.length |> Expect.equal "replaced with new test" 1
   }
 
   test "empty refs produce empty index" {
-    let index = SymbolGraphBuilder.buildIndex ".Tests." "fcs" []
+    let index = SymbolGraphBuilder.buildIndex ".Tests." (TestFramework.Unknown "fcs") []
     index |> Map.isEmpty |> Expect.isTrue "empty"
   }
 ]
@@ -320,7 +320,7 @@ let symbolDiffTests = testList "SymbolDiff" [
   }
 
   test "fromRefs computes diff from reference lists" {
-    let t1 = TestId.create "t1" "expecto"
+    let t1 = TestId.create "t1" TestFramework.Expecto
     let prev = [
       { SymbolFullName = "A.fn"; UseKind = SymbolUseKind.Reference; UsedInTestId = Some t1; FilePath = "F.fs"; Line = 1 }
       { SymbolFullName = "B.fn"; UseKind = SymbolUseKind.Reference; UsedInTestId = Some t1; FilePath = "F.fs"; Line = 2 }
@@ -352,7 +352,7 @@ let symbolDiffTests = testList "SymbolDiff" [
 [<Tests>]
 let fileAnalysisCacheTests = testList "FileAnalysisCache" [
   test "empty cache returns all symbols as added" {
-    let t1 = TestId.create "t1" "expecto"
+    let t1 = TestId.create "t1" TestFramework.Expecto
     let refs = [
       { SymbolFullName = "A.fn"; UseKind = SymbolUseKind.Reference; UsedInTestId = Some t1; FilePath = "F.fs"; Line = 1 }
     ]
@@ -362,7 +362,7 @@ let fileAnalysisCacheTests = testList "FileAnalysisCache" [
   }
 
   test "second update with same symbols returns no changes" {
-    let t1 = TestId.create "t1" "expecto"
+    let t1 = TestId.create "t1" TestFramework.Expecto
     let refs = [
       { SymbolFullName = "A.fn"; UseKind = SymbolUseKind.Reference; UsedInTestId = Some t1; FilePath = "F.fs"; Line = 1 }
     ]
@@ -372,7 +372,7 @@ let fileAnalysisCacheTests = testList "FileAnalysisCache" [
   }
 
   test "different file doesn't affect existing file's cache" {
-    let t1 = TestId.create "t1" "expecto"
+    let t1 = TestId.create "t1" TestFramework.Expecto
     let refs1 = [{ SymbolFullName = "A.fn"; UseKind = SymbolUseKind.Reference; UsedInTestId = Some t1; FilePath = "F1.fs"; Line = 1 }]
     let refs2 = [{ SymbolFullName = "B.fn"; UseKind = SymbolUseKind.Reference; UsedInTestId = Some t1; FilePath = "F2.fs"; Line = 1 }]
     let _, cache1 = FileAnalysisCache.empty |> FileAnalysisCache.update "F1.fs" refs1
@@ -382,7 +382,7 @@ let fileAnalysisCacheTests = testList "FileAnalysisCache" [
   }
 
   test "modified file separates added and removed" {
-    let t1 = TestId.create "t1" "expecto"
+    let t1 = TestId.create "t1" TestFramework.Expecto
     let refs1 = [
       { SymbolFullName = "A.fn"; UseKind = SymbolUseKind.Reference; UsedInTestId = Some t1; FilePath = "F.fs"; Line = 1 }
       { SymbolFullName = "B.fn"; UseKind = SymbolUseKind.Reference; UsedInTestId = Some t1; FilePath = "F.fs"; Line = 2 }
@@ -416,15 +416,15 @@ let compositionTests = testList "compositionTests" [
     changes |> SymbolChanges.isEmpty |> Expect.isTrue "no symbol changes"
     let depGraph = {
       TestDependencyGraph.empty with
-        SymbolToTests = SymbolGraphBuilder.buildIndex ".Tests." "fcs" refs
-        TransitiveCoverage = SymbolGraphBuilder.buildIndex ".Tests." "fcs" refs
+        SymbolToTests = SymbolGraphBuilder.buildIndex ".Tests." (TestFramework.Unknown "fcs") refs
+        TransitiveCoverage = SymbolGraphBuilder.buildIndex ".Tests." (TestFramework.Unknown "fcs") refs
     }
     let affected = TestDependencyGraph.findAffected (SymbolChanges.allChanged changes) depGraph
     affected |> Expect.hasLength "no affected tests" 0
   }
 
   test "full pipeline roundtrip: keystroke → debounce → FCS → affected tests" {
-    let tc = mkTestCase "MyApp.Tests.test1" "expecto" TestCategory.Unit
+    let tc = mkTestCase "MyApp.Tests.test1" TestFramework.Expecto TestCategory.Unit
     let t0 = DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)
     let refs = [
       { SymbolFullName = "MyApp.Tests.test1"; UseKind = SymbolUseKind.Definition; UsedInTestId = None; FilePath = "Lib.fs"; Line = 1 }
@@ -499,11 +499,11 @@ let compositionTests = testList "compositionTests" [
       { SymbolFullName = "Lib.newFn"; UseKind = SymbolUseKind.Reference; UsedInTestId = None; FilePath = "Lib.fs"; Line = 8 }
     ]
     let _, cache1 = FileAnalysisCache.empty |> FileAnalysisCache.update "Lib.fs" refsV1
-    let graph1 = TestDependencyGraph.empty |> SymbolGraphBuilder.updateGraph ".Tests." "fcs" refsV1 "Lib.fs"
+    let graph1 = TestDependencyGraph.empty |> SymbolGraphBuilder.updateGraph ".Tests." (TestFramework.Unknown "fcs") refsV1 "Lib.fs"
     let changes, _ = cache1 |> FileAnalysisCache.update "Lib.fs" refsV2
     changes.Added |> Expect.contains "newFn added" "Lib.newFn"
     changes.Removed |> Expect.contains "oldFn removed" "Lib.oldFn"
-    let graph2 = graph1 |> SymbolGraphBuilder.updateGraph ".Tests." "fcs" refsV2 "Lib.fs"
+    let graph2 = graph1 |> SymbolGraphBuilder.updateGraph ".Tests." (TestFramework.Unknown "fcs") refsV2 "Lib.fs"
     let affectedByRemoved = TestDependencyGraph.findAffected changes.Removed graph1
     affectedByRemoved |> Expect.hasLength "t2 affected by removal" 1
     let affectedByAdded = TestDependencyGraph.findAffected changes.Added graph2
@@ -511,9 +511,9 @@ let compositionTests = testList "compositionTests" [
   }
 
   test "policy filters affected tests by trigger type" {
-    let unitTC = mkTestCase "UnitTest.test1" "expecto" TestCategory.Unit
-    let integTC = mkTestCase "IntegTest.test1" "expecto" TestCategory.Integration
-    let browserTC = mkTestCase "BrowserTest.test1" "expecto" TestCategory.Browser
+    let unitTC = mkTestCase "UnitTest.test1" TestFramework.Expecto TestCategory.Unit
+    let integTC = mkTestCase "IntegTest.test1" TestFramework.Expecto TestCategory.Integration
+    let browserTC = mkTestCase "BrowserTest.test1" TestFramework.Expecto TestCategory.Browser
     let allTests = [|unitTC; integTC; browserTC|]
     let policies = RunPolicyDefaults.defaults
     let filtered = LiveTesting.filterByPolicy policies RunTrigger.Keystroke allTests
@@ -524,8 +524,8 @@ let compositionTests = testList "compositionTests" [
   }
 
   test "symbol change marks affected test results as stale" {
-    let tc1 = mkTestCase "MyTest.test1" "expecto" TestCategory.Unit
-    let tc2 = mkTestCase "MyTest.test2" "expecto" TestCategory.Unit
+    let tc1 = mkTestCase "MyTest.test1" TestFramework.Expecto TestCategory.Unit
+    let tc2 = mkTestCase "MyTest.test2" TestFramework.Expecto TestCategory.Unit
     let now = DateTimeOffset.UtcNow
     let passedResult = {
       TestId = tc1.Id
@@ -620,10 +620,10 @@ let compositionTests = testList "compositionTests" [
 [<Tests>]
 let symbolGraphWiringTests = testList "symbol graph wiring integration" [
   test "afterTypeCheck with affected symbol produces RunAffectedTests effect" {
-    let tid = TestId.create "Tests.affected_by_add" "expecto"
+    let tid = TestId.create "Tests.affected_by_add" TestFramework.Expecto
     let testCase = {
       Id = tid; FullName = "Tests.affected_by_add"; DisplayName = "affected_by_add"
-      Origin = TestOrigin.ReflectionOnly; Framework = "expecto"
+      Origin = TestOrigin.ReflectionOnly; Framework = TestFramework.Expecto
       Category = TestCategory.Unit; Labels = [] }
     let graph = {
       TestDependencyGraph.empty with
@@ -645,10 +645,10 @@ let symbolGraphWiringTests = testList "symbol graph wiring integration" [
   }
 
   test "handleFcsResult updates dep graph via onFcsComplete" {
-    let tid = TestId.create "Tests.t1" "expecto"
+    let tid = TestId.create "Tests.t1" TestFramework.Expecto
     let testCase = {
       Id = tid; FullName = "Tests.t1"; DisplayName = "t1"
-      Origin = TestOrigin.ReflectionOnly; Framework = "expecto"
+      Origin = TestOrigin.ReflectionOnly; Framework = TestFramework.Expecto
       Category = TestCategory.Unit; Labels = [] }
     let pipeState = {
       LiveTestPipelineState.empty with
@@ -666,10 +666,10 @@ let symbolGraphWiringTests = testList "symbol graph wiring integration" [
   }
 
   test "triggerExecutionForAffected fallback path" {
-    let tid = TestId.create "Tests.fallback" "expecto"
+    let tid = TestId.create "Tests.fallback" TestFramework.Expecto
     let testCase = {
       Id = tid; FullName = "Tests.fallback"; DisplayName = "fallback"
-      Origin = TestOrigin.ReflectionOnly; Framework = "expecto"
+      Origin = TestOrigin.ReflectionOnly; Framework = TestFramework.Expecto
       Category = TestCategory.Unit; Labels = [] }
     let pipeState = {
       LiveTestPipelineState.empty with
@@ -690,10 +690,10 @@ let symbolGraphWiringTests = testList "symbol graph wiring integration" [
   }
 
   test "no effects when testing disabled" {
-    let tid = TestId.create "Tests.disabled" "expecto"
+    let tid = TestId.create "Tests.disabled" TestFramework.Expecto
     let testCase = {
       Id = tid; FullName = "Tests.disabled"; DisplayName = "disabled"
-      Origin = TestOrigin.ReflectionOnly; Framework = "expecto"
+      Origin = TestOrigin.ReflectionOnly; Framework = TestFramework.Expecto
       Category = TestCategory.Unit; Labels = [] }
     let graph = {
       TestDependencyGraph.empty with
@@ -708,10 +708,10 @@ let symbolGraphWiringTests = testList "symbol graph wiring integration" [
   }
 
   test "no effects when no symbols changed" {
-    let tid = TestId.create "Tests.no_change" "expecto"
+    let tid = TestId.create "Tests.no_change" TestFramework.Expecto
     let testCase = {
       Id = tid; FullName = "Tests.no_change"; DisplayName = "no_change"
-      Origin = TestOrigin.ReflectionOnly; Framework = "expecto"
+      Origin = TestOrigin.ReflectionOnly; Framework = TestFramework.Expecto
       Category = TestCategory.Unit; Labels = [] }
     let graph = {
       TestDependencyGraph.empty with
@@ -731,11 +731,11 @@ let symbolGraphWiringTests = testList "symbol graph wiring integration" [
 [<Tests>]
 let optimisticGutterTests = testList "optimistic gutter transitions" [
   test "TestRunStarted marks affected tests as Running via status entries" {
-    let tid = TestId.create "Tests.optimistic_run" "expecto"
+    let tid = TestId.create "Tests.optimistic_run" TestFramework.Expecto
     let tests = [|
       { Id = tid; FullName = "Tests.optimistic_run"; DisplayName = "optimistic_run"
         Origin = TestOrigin.SourceMapped ("editor", 5)
-        Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+        Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
     let model0 = SageFsModel.initial
     let model1 = { model0 with
@@ -753,15 +753,15 @@ let optimisticGutterTests = testList "optimistic gutter transitions" [
   }
 
   test "non-affected tests stay Detected while others run" {
-    let tidA = TestId.create "Tests.affected" "expecto"
-    let tidB = TestId.create "Tests.unaffected" "expecto"
+    let tidA = TestId.create "Tests.affected" TestFramework.Expecto
+    let tidB = TestId.create "Tests.unaffected" TestFramework.Expecto
     let tests = [|
       { Id = tidA; FullName = "Tests.affected"; DisplayName = "affected"
         Origin = TestOrigin.SourceMapped ("editor", 5)
-        Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+        Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
       { Id = tidB; FullName = "Tests.unaffected"; DisplayName = "unaffected"
         Origin = TestOrigin.SourceMapped ("editor", 10)
-        Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+        Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
     let model0 = SageFsModel.initial
     let model1 = { model0 with
@@ -779,11 +779,11 @@ let optimisticGutterTests = testList "optimistic gutter transitions" [
   }
 
   test "TestRunStarted keeps previous Passed status visible (streaming shows available result)" {
-    let tid = TestId.create "Tests.prev_passed" "expecto"
+    let tid = TestId.create "Tests.prev_passed" TestFramework.Expecto
     let tests = [|
       { Id = tid; FullName = "Tests.prev_passed"; DisplayName = "prev_passed"
         Origin = TestOrigin.SourceMapped ("editor", 5)
-        Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+        Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
     let dur = System.TimeSpan.FromMilliseconds 10.0
     let result = {
@@ -814,10 +814,10 @@ let optimisticGutterTests = testList "optimistic gutter transitions" [
   }
 
   test "effect handler dispatches TestRunStarted before async execution" {
-    let tid = TestId.create "Tests.sync_dispatch" "expecto"
+    let tid = TestId.create "Tests.sync_dispatch" TestFramework.Expecto
     let tests = [|
       { Id = tid; FullName = "Tests.sync_dispatch"; DisplayName = "sync_dispatch"
-        Origin = TestOrigin.ReflectionOnly; Framework = "expecto"
+        Origin = TestOrigin.ReflectionOnly; Framework = TestFramework.Expecto
         Category = TestCategory.Unit; Labels = [] }
     |]
     let model0 = SageFsModel.initial
@@ -837,10 +837,10 @@ let optimisticGutterTests = testList "optimistic gutter transitions" [
 [<Tests>]
 let sseEnrichmentTests = testList "SSE enrichment round-trip" [
   test "after mergeResults, compute enriched batch from state" {
-    let tid = TestId.create "Tests.round_trip" "expecto"
+    let tid = TestId.create "Tests.round_trip" TestFramework.Expecto
     let testCase = {
       Id = tid; FullName = "Tests.round_trip"; DisplayName = "round_trip"
-      Origin = TestOrigin.ReflectionOnly; Framework = "expecto"
+      Origin = TestOrigin.ReflectionOnly; Framework = TestFramework.Expecto
       Category = TestCategory.Unit; Labels = [] }
     let dur = System.TimeSpan.FromMilliseconds 42.0
     let result = {
@@ -870,10 +870,10 @@ let sseEnrichmentTests = testList "SSE enrichment round-trip" [
   }
 
   test "stale results after edit produce StaleCodeEdited" {
-    let tid = TestId.create "Tests.stale_edit" "expecto"
+    let tid = TestId.create "Tests.stale_edit" TestFramework.Expecto
     let testCase = {
       Id = tid; FullName = "Tests.stale_edit"; DisplayName = "stale_edit"
-      Origin = TestOrigin.ReflectionOnly; Framework = "expecto"
+      Origin = TestOrigin.ReflectionOnly; Framework = TestFramework.Expecto
       Category = TestCategory.Unit; Labels = [] }
     let phase, gen = TestRunPhase.startRun RunGeneration.zero
     let editedPhase = TestRunPhase.onEdit phase
@@ -912,7 +912,7 @@ let fcsGraphTests = testList "FCS dependency graph builder" [
       { FullName = "MyApp.Math.add"; DisplayName = "add"; UseKind = SymbolUseKind.Reference; StartLine = 5; EndLine = 5 }
       { FullName = "MyApp.Math.multiply"; DisplayName = "multiply"; UseKind = SymbolUseKind.Reference; StartLine = 7; EndLine = 7 }
     |]
-    let graph = TestDependencyGraph.buildFromSymbolUses ".Tests." "fcs" uses
+    let graph = TestDependencyGraph.buildFromSymbolUses ".Tests." (TestFramework.Unknown "fcs") uses
     graph.SymbolToTests.Count
     |> Expect.equal "should have 2 production symbols" 2
     let addAffected = TestDependencyGraph.findAffected ["MyApp.Math.add"] graph
@@ -931,8 +931,8 @@ let fcsGraphTests = testList "FCS dependency graph builder" [
       { FullName = "MyApp.Math.add"; DisplayName = "add"; UseKind = SymbolUseKind.Reference; StartLine = 6; EndLine = 6 }
       { FullName = "MyApp.Math.multiply"; DisplayName = "multiply"; UseKind = SymbolUseKind.Reference; StartLine = 7; EndLine = 7 }
     |]
-    let graph = TestDependencyGraph.buildFromSymbolUses ".Tests." "fcs" uses
-    let combinedId = TestId.create "MyApp.Tests.combinedTest" "fcs"
+    let graph = TestDependencyGraph.buildFromSymbolUses ".Tests." (TestFramework.Unknown "fcs") uses
+    let combinedId = TestId.create "MyApp.Tests.combinedTest" (TestFramework.Unknown "fcs")
     TestDependencyGraph.findAffected ["MyApp.Math.add"] graph
     |> Array.contains combinedId
     |> Expect.isTrue "add should affect combinedTest"
@@ -946,7 +946,7 @@ let fcsGraphTests = testList "FCS dependency graph builder" [
       { FullName = "MyApp.Math.unused"; DisplayName = "unused"; UseKind = SymbolUseKind.Definition; StartLine = 2; EndLine = 2 }
       { FullName = "MyApp.Tests.someTest"; DisplayName = "someTest"; UseKind = SymbolUseKind.Definition; StartLine = 5; EndLine = 5 }
     |]
-    let graph = TestDependencyGraph.buildFromSymbolUses ".Tests." "fcs" uses
+    let graph = TestDependencyGraph.buildFromSymbolUses ".Tests." (TestFramework.Unknown "fcs") uses
     TestDependencyGraph.findAffected ["MyApp.Math.unused"] graph
     |> Array.length
     |> Expect.equal "unused should affect 0 tests" 0
@@ -961,14 +961,14 @@ let fcsGraphTests = testList "FCS dependency graph builder" [
       { FullName = "MyApp.Math.add"; DisplayName = "add"; UseKind = SymbolUseKind.Reference; StartLine = 6; EndLine = 6 }
       { FullName = "MyApp.Math.sub"; DisplayName = "sub"; UseKind = SymbolUseKind.Reference; StartLine = 9; EndLine = 9 }
     |]
-    let graph = TestDependencyGraph.buildFromSymbolUses ".Tests." "fcs" uses
+    let graph = TestDependencyGraph.buildFromSymbolUses ".Tests." (TestFramework.Unknown "fcs") uses
     TestDependencyGraph.findAffected ["MyApp.Math.add"; "MyApp.Math.sub"] graph
     |> Array.length
     |> Expect.equal "should find 2 distinct tests" 2
   }
 
   test "empty symbol uses produces empty graph" {
-    let graph = TestDependencyGraph.buildFromSymbolUses ".Tests." "fcs" [||]
+    let graph = TestDependencyGraph.buildFromSymbolUses ".Tests." (TestFramework.Unknown "fcs") [||]
     graph.SymbolToTests.Count
     |> Expect.equal "empty uses produces empty graph" 0
   }
@@ -979,7 +979,7 @@ let fcsGraphTests = testList "FCS dependency graph builder" [
       { FullName = "Microsoft.FSharp.Core.ExtraTopLevelOperators.printfn"; DisplayName = "printfn"; UseKind = SymbolUseKind.Reference; StartLine = 2; EndLine = 2 }
       { FullName = "MyApp.Logic.doThing"; DisplayName = "doThing"; UseKind = SymbolUseKind.Reference; StartLine = 3; EndLine = 3 }
     |]
-    let graph = TestDependencyGraph.buildFromSymbolUses ".Tests." "fcs" uses
+    let graph = TestDependencyGraph.buildFromSymbolUses ".Tests." (TestFramework.Unknown "fcs") uses
     graph.SymbolToTests.Count
     |> Expect.equal "only production symbols, not stdlib" 1
     graph.SymbolToTests |> Map.containsKey "Microsoft.FSharp.Core.ExtraTopLevelOperators.printfn"
@@ -993,18 +993,18 @@ let fcsGraphTests = testList "FCS dependency graph builder" [
       { FullName = "MyApp.Tests.otherTest"; DisplayName = "otherTest"; UseKind = SymbolUseKind.Definition; StartLine = 8; EndLine = 8 }
       { FullName = "MyApp.Math.add"; DisplayName = "add"; UseKind = SymbolUseKind.Reference; StartLine = 6; EndLine = 6 }
     |]
-    let graph = TestDependencyGraph.buildFromSymbolUses ".Tests." "fcs" uses
+    let graph = TestDependencyGraph.buildFromSymbolUses ".Tests." (TestFramework.Unknown "fcs") uses
     let addTestCase = {
-      Id = TestId.create "MyApp.Tests.addTest" "fcs"
+      Id = TestId.create "MyApp.Tests.addTest" (TestFramework.Unknown "fcs")
       FullName = "MyApp.Tests.addTest"; DisplayName = "addTest"
       Origin = TestOrigin.SourceMapped ("test.fsx", 5)
-      Labels = []; Framework = "fcs"; Category = TestCategory.Unit
+      Labels = []; Framework = TestFramework.Unknown "fcs"; Category = TestCategory.Unit
     }
     let otherTestCase = {
-      Id = TestId.create "MyApp.Tests.otherTest" "fcs"
+      Id = TestId.create "MyApp.Tests.otherTest" (TestFramework.Unknown "fcs")
       FullName = "MyApp.Tests.otherTest"; DisplayName = "otherTest"
       Origin = TestOrigin.SourceMapped ("test.fsx", 8)
-      Labels = []; Framework = "fcs"; Category = TestCategory.Unit
+      Labels = []; Framework = TestFramework.Unknown "fcs"; Category = TestCategory.Unit
     }
     let state = { LiveTestState.empty with
                     DiscoveredTests = [| addTestCase; otherTestCase |]
@@ -1026,8 +1026,8 @@ let fcsGraphTests = testList "FCS dependency graph builder" [
       { FullName = "MyApp.Tests.addTest"; DisplayName = "addTest"; UseKind = SymbolUseKind.Definition; StartLine = 5; EndLine = 5 }
       { FullName = "MyApp.Math.add"; DisplayName = "add"; UseKind = SymbolUseKind.Reference; StartLine = 6; EndLine = 6 }
     |]
-    let graph = TestDependencyGraph.buildFromSymbolUses ".Tests." "fcs" uses
-    let addTestId = TestId.create "MyApp.Tests.addTest" "fcs"
+    let graph = TestDependencyGraph.buildFromSymbolUses ".Tests." (TestFramework.Unknown "fcs") uses
+    let addTestId = TestId.create "MyApp.Tests.addTest" (TestFramework.Unknown "fcs")
     let results = Map.ofList [
       addTestId, {
         TestId = addTestId; TestName = "addTest"
@@ -1068,17 +1068,17 @@ let perFileMergeTests = testList "per-file merge correctness" [
 
     let graph1 =
       TestDependencyGraph.empty
-      |> SymbolGraphBuilder.updateGraph ".Tests." "fcs" fileARefs "FileA.fs"
+      |> SymbolGraphBuilder.updateGraph ".Tests." (TestFramework.Unknown "fcs") fileARefs "FileA.fs"
 
-    let test1Id = TestId.create "MyApp.Tests.test1" "fcs"
+    let test1Id = TestId.create "MyApp.Tests.test1" (TestFramework.Unknown "fcs")
     TestDependencyGraph.findAffected ["MyApp.Prod.foo"] graph1
     |> Expect.contains "FileA should map Prod.foo to test1" test1Id
 
     let graph2 =
       graph1
-      |> SymbolGraphBuilder.updateGraph ".Tests." "fcs" fileBRefs "FileB.fs"
+      |> SymbolGraphBuilder.updateGraph ".Tests." (TestFramework.Unknown "fcs") fileBRefs "FileB.fs"
 
-    let test2Id = TestId.create "MyApp.Tests.test2" "fcs"
+    let test2Id = TestId.create "MyApp.Tests.test2" (TestFramework.Unknown "fcs")
     let affected = TestDependencyGraph.findAffected ["MyApp.Prod.foo"] graph2
 
     affected |> Expect.contains "Should still have test1 from FileA" test1Id
@@ -1097,12 +1097,12 @@ let perFileMergeTests = testList "per-file merge correctness" [
 
     let graph1 =
       TestDependencyGraph.empty
-      |> SymbolGraphBuilder.updateGraph ".Tests." "fcs" refsV1 "FileA.fs"
+      |> SymbolGraphBuilder.updateGraph ".Tests." (TestFramework.Unknown "fcs") refsV1 "FileA.fs"
     let graph2 =
       graph1
-      |> SymbolGraphBuilder.updateGraph ".Tests." "fcs" refsV2 "FileA.fs"
+      |> SymbolGraphBuilder.updateGraph ".Tests." (TestFramework.Unknown "fcs") refsV2 "FileA.fs"
 
-    let test1Id = TestId.create "MyApp.Tests.test1" "fcs"
+    let test1Id = TestId.create "MyApp.Tests.test1" (TestFramework.Unknown "fcs")
     TestDependencyGraph.findAffected ["MyApp.Prod.foo"] graph2
     |> Expect.isEmpty "foo should be gone after FileA re-analysis"
 
@@ -1122,13 +1122,13 @@ let perFileMergeTests = testList "per-file merge correctness" [
 
     let graph =
       TestDependencyGraph.empty
-      |> SymbolGraphBuilder.updateGraph ".Tests." "fcs" fileARefs "FileA.fs"
-      |> SymbolGraphBuilder.updateGraph ".Tests." "fcs" fileBRefs "FileB.fs"
+      |> SymbolGraphBuilder.updateGraph ".Tests." (TestFramework.Unknown "fcs") fileARefs "FileA.fs"
+      |> SymbolGraphBuilder.updateGraph ".Tests." (TestFramework.Unknown "fcs") fileBRefs "FileB.fs"
 
     let graphAfter =
-      graph |> SymbolGraphBuilder.updateGraph ".Tests." "fcs" [] "FileA.fs"
+      graph |> SymbolGraphBuilder.updateGraph ".Tests." (TestFramework.Unknown "fcs") [] "FileA.fs"
 
-    let test2Id = TestId.create "MyApp.Tests.test2" "fcs"
+    let test2Id = TestId.create "MyApp.Tests.test2" (TestFramework.Unknown "fcs")
     let affected = TestDependencyGraph.findAffected ["MyApp.Prod.foo"] graphAfter
 
     affected |> Expect.hasLength "only FileB's test2 remains" 1
@@ -1143,7 +1143,7 @@ let perFileMergeTests = testList "per-file merge correctness" [
 
     let graph =
       TestDependencyGraph.empty
-      |> SymbolGraphBuilder.updateGraph ".Tests." "fcs" fileARefs "FileA.fs"
+      |> SymbolGraphBuilder.updateGraph ".Tests." (TestFramework.Unknown "fcs") fileARefs "FileA.fs"
 
     graph.PerFileIndex
     |> Map.containsKey "FileA.fs"
@@ -1164,11 +1164,11 @@ let perFileMergeTests = testList "per-file merge correctness" [
 
     let graph =
       TestDependencyGraph.empty
-      |> SymbolGraphBuilder.updateGraph ".Tests." "fcs" fileARefs "FileA.fs"
-      |> SymbolGraphBuilder.updateGraph ".Tests." "fcs" fileBRefs "FileB.fs"
+      |> SymbolGraphBuilder.updateGraph ".Tests." (TestFramework.Unknown "fcs") fileARefs "FileA.fs"
+      |> SymbolGraphBuilder.updateGraph ".Tests." (TestFramework.Unknown "fcs") fileBRefs "FileB.fs"
 
-    let testAId = TestId.create "MyApp.Tests.testA" "fcs"
-    let testBId = TestId.create "MyApp.Tests.testB" "fcs"
+    let testAId = TestId.create "MyApp.Tests.testA" (TestFramework.Unknown "fcs")
+    let testBId = TestId.create "MyApp.Tests.testB" (TestFramework.Unknown "fcs")
 
     TestDependencyGraph.findAffected ["MyApp.Prod.foo"] graph
     |> Expect.equal "foo maps to testA only" [| testAId |]
@@ -1198,7 +1198,7 @@ let projectAssemblyDiscoveryTests = testList "Project assembly initial discovery
     result.DetectedProviders
     |> List.exists (fun p ->
       match p with
-      | ProviderDescription.Custom c -> c.Name = "expecto"
+      | ProviderDescription.Custom c -> c.Name = TestFramework.Expecto
       | _ -> false)
     |> Expect.isTrue "should detect expecto provider"
   }
@@ -1209,7 +1209,7 @@ let projectAssemblyDiscoveryTests = testList "Project assembly initial discovery
     result.DiscoveredTests
     |> Array.iter (fun t ->
       t.Framework
-      |> Expect.equal "framework should be expecto" "expecto")
+      |> Expect.equal "framework should be expecto" TestFramework.Expecto)
   }
 
   test "merging FSI + project results deduplicates providers" {
@@ -1217,14 +1217,14 @@ let projectAssemblyDiscoveryTests = testList "Project assembly initial discovery
     let projResult = {
       DetectedProviders =
         [ ProviderDescription.Custom
-            { Name = "expecto"; AssemblyMarker = "Expecto" } ]
+            { Name = TestFramework.Expecto; AssemblyMarker = "Expecto" } ]
       DiscoveredTests =
-        [| { Id = TestId.create "test1" "expecto"
+        [| { Id = TestId.create "test1" TestFramework.Expecto
              FullName = "test1"
              DisplayName = "t1"
              Origin = TestOrigin.ReflectionOnly
              Labels = []
-             Framework = "expecto"
+             Framework = TestFramework.Expecto
              Category = TestCategory.Unit } |]
       AffectedTestIds = [||]
       RunTest = LiveTestHookResult.noOp
@@ -1252,8 +1252,8 @@ let projectAssemblyDiscoveryTests = testList "Project assembly initial discovery
 let mergeDiscoveredTestsTests = testList "LiveTesting.mergeDiscoveredTests" [
   test "empty incoming preserves existing tests" {
     let existing = [|
-      { Id = TestId.create "test1" "expecto"; FullName = "test1"; DisplayName = "t1"
-        Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "expecto"
+      { Id = TestId.create "test1" TestFramework.Expecto; FullName = "test1"; DisplayName = "t1"
+        Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.Expecto
         Category = TestCategory.Unit } |]
     let result = LiveTesting.mergeDiscoveredTests existing [||]
     result.Length |> Expect.equal "keeps existing" 1
@@ -1261,8 +1261,8 @@ let mergeDiscoveredTestsTests = testList "LiveTesting.mergeDiscoveredTests" [
 
   test "empty existing uses incoming" {
     let incoming = [|
-      { Id = TestId.create "test1" "expecto"; FullName = "test1"; DisplayName = "t1"
-        Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "expecto"
+      { Id = TestId.create "test1" TestFramework.Expecto; FullName = "test1"; DisplayName = "t1"
+        Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.Expecto
         Category = TestCategory.Unit } |]
     let result = LiveTesting.mergeDiscoveredTests [||] incoming
     result.Length |> Expect.equal "takes incoming" 1
@@ -1270,12 +1270,12 @@ let mergeDiscoveredTestsTests = testList "LiveTesting.mergeDiscoveredTests" [
 
   test "incoming overrides existing with same TestId" {
     let existing = [|
-      { Id = TestId.create "test1" "expecto"; FullName = "test1"; DisplayName = "old"
-        Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "expecto"
+      { Id = TestId.create "test1" TestFramework.Expecto; FullName = "test1"; DisplayName = "old"
+        Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.Expecto
         Category = TestCategory.Unit } |]
     let incoming = [|
-      { Id = TestId.create "test1" "expecto"; FullName = "test1"; DisplayName = "new"
-        Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "expecto"
+      { Id = TestId.create "test1" TestFramework.Expecto; FullName = "test1"; DisplayName = "new"
+        Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.Expecto
         Category = TestCategory.Unit } |]
     let result = LiveTesting.mergeDiscoveredTests existing incoming
     result.Length |> Expect.equal "one merged test" 1
@@ -1284,12 +1284,12 @@ let mergeDiscoveredTestsTests = testList "LiveTesting.mergeDiscoveredTests" [
 
   test "disjoint tests are unioned" {
     let existing = [|
-      { Id = TestId.create "test1" "expecto"; FullName = "test1"; DisplayName = "t1"
-        Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "expecto"
+      { Id = TestId.create "test1" TestFramework.Expecto; FullName = "test1"; DisplayName = "t1"
+        Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.Expecto
         Category = TestCategory.Unit } |]
     let incoming = [|
-      { Id = TestId.create "test2" "expecto"; FullName = "test2"; DisplayName = "t2"
-        Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "expecto"
+      { Id = TestId.create "test2" TestFramework.Expecto; FullName = "test2"; DisplayName = "t2"
+        Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.Expecto
         Category = TestCategory.Unit } |]
     let result = LiveTesting.mergeDiscoveredTests existing incoming
     result.Length |> Expect.equal "both tests present" 2
@@ -1298,12 +1298,12 @@ let mergeDiscoveredTestsTests = testList "LiveTesting.mergeDiscoveredTests" [
   test "second eval with empty incoming does not wipe tests" {
     // Simulates: first eval discovers 3454 tests, second eval discovers 0 from FSI
     let projectTests = [|
-      { Id = TestId.create "proj.test1" "expecto"; FullName = "proj.test1"
+      { Id = TestId.create "proj.test1" TestFramework.Expecto; FullName = "proj.test1"
         DisplayName = "t1"; Origin = TestOrigin.ReflectionOnly; Labels = []
-        Framework = "expecto"; Category = TestCategory.Unit }
-      { Id = TestId.create "proj.test2" "expecto"; FullName = "proj.test2"
+        Framework = TestFramework.Expecto; Category = TestCategory.Unit }
+      { Id = TestId.create "proj.test2" TestFramework.Expecto; FullName = "proj.test2"
         DisplayName = "t2"; Origin = TestOrigin.ReflectionOnly; Labels = []
-        Framework = "expecto"; Category = TestCategory.Unit } |]
+        Framework = TestFramework.Expecto; Category = TestCategory.Unit } |]
     let afterFirstEval = LiveTesting.mergeDiscoveredTests [||] projectTests
     // Second eval: FSI dynamic assembly has no tests
     let afterSecondEval = LiveTesting.mergeDiscoveredTests afterFirstEval [||]
@@ -1323,22 +1323,22 @@ let affectedExecutionTriggerTests = testList "AffectedTestsComputed execution tr
     { LiveTestPipelineState.empty with
         TestState = mkState tests }
   let tc1 = {
-    Id = TestId.create "ns.t1" "expecto"
+    Id = TestId.create "ns.t1" TestFramework.Expecto
     FullName = "ns.t1"; DisplayName = "t1"
     Origin = TestOrigin.ReflectionOnly
-    Labels = []; Framework = "expecto"; Category = TestCategory.Unit
+    Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit
   }
   let tc2 = {
-    Id = TestId.create "ns.t2" "expecto"
+    Id = TestId.create "ns.t2" TestFramework.Expecto
     FullName = "ns.t2"; DisplayName = "t2"
     Origin = TestOrigin.ReflectionOnly
-    Labels = []; Framework = "expecto"; Category = TestCategory.Integration
+    Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Integration
   }
   let tc3 = {
-    Id = TestId.create "ns.t3" "expecto"
+    Id = TestId.create "ns.t3" TestFramework.Expecto
     FullName = "ns.t3"; DisplayName = "t3"
     Origin = TestOrigin.ReflectionOnly
-    Labels = []; Framework = "expecto"; Category = TestCategory.Unit
+    Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit
   }
 
   test "empty affected IDs produce no effects" {
@@ -1390,7 +1390,7 @@ let affectedExecutionTriggerTests = testList "AffectedTestsComputed execution tr
 
   test "affected IDs not in discovered tests are ignored" {
     let ps = mkPipelineState [| tc1 |]
-    let unknownId = TestId.create "unknown" "expecto"
+    let unknownId = TestId.create "unknown" TestFramework.Expecto
     let effects = LiveTestPipelineState.triggerExecutionForAffected [| unknownId |] RunTrigger.FileSave None ps
     effects
     |> Expect.isEmpty "unknown test IDs should not produce effects"
@@ -1402,14 +1402,14 @@ let affectedExecutionTriggerTests = testList "AffectedTestsComputed execution tr
 [<Tests>]
 let findAffectedTestsFixTests =
   let mkTC id name fw =
-    { Id = TestId.create id name; FullName = name
+    { Id = TestId.create name fw; FullName = name
       DisplayName = name.Split('.').[name.Split('.').Length - 1]
       Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = fw
       Category = TestCategory.Unit }
   let sampleTests = [|
-    mkTC "t1" "MyModule.Tests.test_add" "expecto"
-    mkTC "t2" "MyModule.Tests.test_sub" "expecto"
-    mkTC "t3" "Other.Tests.test_mul" "xunit"
+    mkTC "t1" "MyModule.Tests.test_add" TestFramework.Expecto
+    mkTC "t2" "MyModule.Tests.test_sub" TestFramework.Expecto
+    mkTC "t3" "Other.Tests.test_mul" TestFramework.XUnit
   |]
   testList "findAffectedTests fixed semantics" [
     test "empty method names returns empty array" {
@@ -1438,13 +1438,13 @@ let findAffectedTestsFixTests =
 [<Tests>]
 let findAllTestIdsTests =
   let mkTC id name fw =
-    { Id = TestId.create id name; FullName = name
+    { Id = TestId.create name fw; FullName = name
       DisplayName = name.Split('.').[name.Split('.').Length - 1]
       Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = fw
       Category = TestCategory.Unit }
   let sampleTests = [|
-    mkTC "t1" "A.test1" "xunit"
-    mkTC "t2" "B.test2" "xunit"
+    mkTC "t1" "A.test1" TestFramework.XUnit
+    mkTC "t2" "B.test2" TestFramework.XUnit
   |]
   testList "findAllTestIds" [
     test "returns all test IDs" {
@@ -1462,14 +1462,14 @@ let findAllTestIdsTests =
 [<Tests>]
 let filterTestsForExplicitRunTests =
   let mkTC id name fw =
-    { Id = TestId.create id name; FullName = name
+    { Id = TestId.create name fw; FullName = name
       DisplayName = name.Split('.').[name.Split('.').Length - 1]
       Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = fw
       Category = TestCategory.Unit }
   let sampleTests = [|
-    mkTC "t1" "MyModule.Tests.test_add" "expecto"
-    mkTC "t2" "MyModule.Tests.test_sub" "expecto"
-    mkTC "t3" "Other.Tests.test_mul" "xunit"
+    mkTC "t1" "MyModule.Tests.test_add" TestFramework.Expecto
+    mkTC "t2" "MyModule.Tests.test_sub" TestFramework.Expecto
+    mkTC "t3" "Other.Tests.test_mul" TestFramework.XUnit
   |]
   testList "filterTestsForExplicitRun" [
     test "no filters returns all" {
@@ -1484,8 +1484,8 @@ let filterTestsForExplicitRunTests =
     }
     test "category filter" {
       let mixedTests = [|
-        mkTC "t1" "Unit.test1" "xunit"
-        { mkTC "t2" "Integration.test2" "xunit" with Category = TestCategory.Integration }
+        mkTC "t1" "Unit.test1" TestFramework.XUnit
+        { mkTC "t2" "Integration.test2" TestFramework.XUnit with Category = TestCategory.Integration }
       |]
       LiveTestPipelineState.filterTestsForExplicitRun mixedTests None None (Some TestCategory.Unit)
       |> Array.length
@@ -1493,9 +1493,9 @@ let filterTestsForExplicitRunTests =
     }
     test "file filter works for SourceMapped" {
       let mappedTests = [|
-        { mkTC "t1" "Test1" "xunit" with Origin = TestOrigin.SourceMapped ("foo.fs", 10) }
-        { mkTC "t2" "Test2" "xunit" with Origin = TestOrigin.SourceMapped ("bar.fs", 20) }
-        mkTC "t3" "Test3" "xunit"
+        { mkTC "t1" "Test1" TestFramework.XUnit with Origin = TestOrigin.SourceMapped ("foo.fs", 10) }
+        { mkTC "t2" "Test2" TestFramework.XUnit with Origin = TestOrigin.SourceMapped ("bar.fs", 20) }
+        mkTC "t3" "Test3" TestFramework.XUnit
       |]
       LiveTestPipelineState.filterTestsForExplicitRun mappedTests (Some "foo.fs") None None
       |> Array.length
@@ -1503,9 +1503,9 @@ let filterTestsForExplicitRunTests =
     }
     test "combined filters intersect" {
       let mixedTests = [|
-        mkTC "t1" "MyModule.add_test" "xunit"
-        { mkTC "t2" "MyModule.db_test" "xunit" with Category = TestCategory.Integration }
-        mkTC "t3" "Other.add_test" "xunit"
+        mkTC "t1" "MyModule.add_test" TestFramework.XUnit
+        { mkTC "t2" "MyModule.db_test" TestFramework.XUnit with Category = TestCategory.Integration }
+        mkTC "t3" "Other.add_test" TestFramework.XUnit
       |]
       LiveTestPipelineState.filterTestsForExplicitRun mixedTests None (Some "add_test") (Some TestCategory.Unit)
       |> Array.length
@@ -1600,14 +1600,14 @@ let flakyDetectionTests = testList "FlakyDetection" [
   }
 
   test "recordResult creates window for new test" {
-    let tid = TestId.create "t1" "expecto"
+    let tid = TestId.create "t1" TestFramework.Expecto
     let updated = FlakyDetection.recordResult tid (TestResult.Passed (TimeSpan.FromMilliseconds 5.0)) Map.empty
     Expect.isTrue "should have entry" (Map.containsKey tid updated)
     (Map.find tid updated).Count |> Expect.equal "1 result" 1
   }
 
   test "assessTest returns Insufficient for unknown test" {
-    FlakyDetection.assessTest (TestId.create "unknown" "expecto") Map.empty
+    FlakyDetection.assessTest (TestId.create "unknown" TestFramework.Expecto) Map.empty
     |> Expect.equal "unknown = Insufficient" TestStability.Insufficient
   }
 

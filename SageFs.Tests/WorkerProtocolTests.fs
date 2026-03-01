@@ -84,7 +84,7 @@ let workerProtocolTests =
             DisplayName = "myTest"
             Origin = TestOrigin.ReflectionOnly
             Labels = []
-            Framework = "expecto"
+            Framework = TestFramework.Expecto
             Category = TestCategory.Unit }
         let msg = WorkerMessage.RunTests([| tc |], 4, "r-run1")
         let _, result = roundTrip<WorkerMessage> msg
@@ -309,7 +309,7 @@ let workerProtocolTests =
         let domainRef: SageFs.Features.LiveTesting.SymbolReference = {
           SymbolFullName = "Helpers.parseInput"
           UseKind = SageFs.Features.LiveTesting.SymbolUseKind.Reference
-          UsedInTestId = Some (SageFs.Features.LiveTesting.TestId.create "parseTests.should_parse" "expecto")
+          UsedInTestId = Some (SageFs.Features.LiveTesting.TestId.create "parseTests.should_parse" TestFramework.Expecto)
           FilePath = "Helpers.fs"
           Line = 42
         }

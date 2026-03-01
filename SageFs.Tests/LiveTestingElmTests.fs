@@ -50,8 +50,8 @@ let elmIntegrationTests = testList "LiveTesting Elm Integration" [
   testList "Update behavior" [
     test "TestsDiscovered updates DiscoveredTests" {
       let tc : TestCase =
-        { Id = mkTestId "myTest" "expecto"; DisplayName = "myTest"
-          FullName = "MyModule.myTest"; Framework = "expecto"
+        { Id = mkTestId "myTest" TestFramework.Expecto; DisplayName = "myTest"
+          FullName = "MyModule.myTest"; Framework = TestFramework.Expecto
           Origin = TestOrigin.ReflectionOnly; Labels = []
           Category = TestCategory.Unit }
       let model', _ =
@@ -62,7 +62,7 @@ let elmIntegrationTests = testList "LiveTesting Elm Integration" [
       |> Expect.equal "should have 1 test" 1
     }
     test "TestRunStarted sets RunPhases to Running and AffectedTests" {
-      let tid = mkTestId "t1" "x"
+      let tid = mkTestId "t1" (TestFramework.Unknown "x")
       let model', _ =
         SageFsUpdate.update
           (SageFsMsg.Event (SageFsEvent.TestRunStarted ([| tid |], Some "s")))
@@ -78,7 +78,7 @@ let elmIntegrationTests = testList "LiveTesting Elm Integration" [
         { SageFsModel.initial with
             LiveTesting =
               { SageFsModel.initial.LiveTesting with TestState = { SageFsModel.initial.LiveTesting.TestState with RunPhases = Map.ofList ["s", Running gen]; LastGeneration = gen } } }
-      let tid = mkTestId "t1" "x"
+      let tid = mkTestId "t1" (TestFramework.Unknown "x")
       let r : TestRunResult =
         { TestId = tid; TestName = "t1"
           Result = LTTestResult.Passed (ts 5.0)
@@ -109,8 +109,8 @@ let elmIntegrationTests = testList "LiveTesting Elm Integration" [
       |> Expect.equal "should be inactive" LiveTestingActivation.Inactive
     }
     test "AffectedTestsComputed sets AffectedTests" {
-      let t1 = mkTestId "t1" "x"
-      let t2 = mkTestId "t2" "x"
+      let t1 = mkTestId "t1" (TestFramework.Unknown "x")
+      let t2 = mkTestId "t2" (TestFramework.Unknown "x")
       let model', _ =
         SageFsUpdate.update
           (SageFsMsg.Event (SageFsEvent.AffectedTestsComputed [| t1; t2 |]))
@@ -127,7 +127,7 @@ let elmIntegrationTests = testList "LiveTesting Elm Integration" [
       |> Expect.equal "should be OnSaveOnly" RunPolicy.OnSaveOnly
     }
     test "ProvidersDetected updates providers" {
-      let p = ProviderDescription.Custom { Name = "expecto"; AssemblyMarker = "Expecto" }
+      let p = ProviderDescription.Custom { Name = TestFramework.Expecto; AssemblyMarker = "Expecto" }
       let model', _ =
         SageFsUpdate.update
           (SageFsMsg.Event (SageFsEvent.ProvidersDetected [p]))
@@ -163,13 +163,13 @@ let elmIntegrationTests = testList "LiveTesting Elm Integration" [
 [<Tests>]
 let stalenessTests = testList "Staleness" [
   let test1 =
-    { Id = TestId.create "Module.Tests.test1" "expecto"; FullName = "Module.Tests.test1"
+    { Id = TestId.create "Module.Tests.test1" TestFramework.Expecto; FullName = "Module.Tests.test1"
       DisplayName = "test1"; Origin = TestOrigin.ReflectionOnly
-      Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+      Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
   let test2 =
-    { Id = TestId.create "Module.Tests.test2" "expecto"; FullName = "Module.Tests.test2"
+    { Id = TestId.create "Module.Tests.test2" TestFramework.Expecto; FullName = "Module.Tests.test2"
       DisplayName = "test2"; Origin = TestOrigin.ReflectionOnly
-      Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+      Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
   let mkResult tid res =
     { TestId = tid; TestName = ""; Result = res; Timestamp = DateTimeOffset.UtcNow; Output = None }
   let depGraph = {
@@ -229,7 +229,7 @@ let stalenessTests = testList "Staleness" [
   }
 
   test "affected test with no prior result shows Queued status" {
-    let tc3 = mkTestCase "Module.Tests.newTest" "expecto" TestCategory.Unit
+    let tc3 = mkTestCase "Module.Tests.newTest" TestFramework.Expecto TestCategory.Unit
     let graph2 = {
       TestDependencyGraph.empty with
         SymbolToTests = Map.ofList [ "Module.add", [| tc3.Id |] ]
@@ -285,12 +285,12 @@ let elmWiringBehavioralTests = testList "Elm Wiring Behavioral Scenarios" [
 
   test "full pipeline: keystroke through FCS debounce" {
     let tc =
-      { Id = TestId.create "T.t1" "expecto"
+      { Id = TestId.create "T.t1" TestFramework.Expecto
         FullName = "T.t1"
         DisplayName = "t1"
         Origin = TestOrigin.ReflectionOnly
         Labels = []
-        Framework = "expecto"
+        Framework = TestFramework.Expecto
         Category = TestCategory.Unit }
     let t0 = DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)
     let depGraph =
@@ -336,12 +336,12 @@ let elmWiringBehavioralTests = testList "Elm Wiring Behavioral Scenarios" [
 
   test "test result merge updates status entries" {
     let tc =
-      { Id = TestId.create "T.t1" "expecto"
+      { Id = TestId.create "T.t1" TestFramework.Expecto
         FullName = "T.t1"
         DisplayName = "t1"
         Origin = TestOrigin.ReflectionOnly
         Labels = []
-        Framework = "expecto"
+        Framework = TestFramework.Expecto
         Category = TestCategory.Unit }
     let now = DateTimeOffset.UtcNow
     let state =
@@ -363,12 +363,12 @@ let elmWiringBehavioralTests = testList "Elm Wiring Behavioral Scenarios" [
 
   test "staleness then re-run clears stale" {
     let tc =
-      { Id = TestId.create "T.t1" "expecto"
+      { Id = TestId.create "T.t1" TestFramework.Expecto
         FullName = "T.t1"
         DisplayName = "t1"
         Origin = TestOrigin.ReflectionOnly
         Labels = []
-        Framework = "expecto"
+        Framework = TestFramework.Expecto
         Category = TestCategory.Unit }
     let now = DateTimeOffset.UtcNow
     let result : TestRunResult =
@@ -404,12 +404,12 @@ let elmWiringBehavioralTests = testList "Elm Wiring Behavioral Scenarios" [
 
   test "disabled policy shows PolicyDisabled in status entries" {
     let tc =
-      { Id = TestId.create "T.t1" "expecto"
+      { Id = TestId.create "T.t1" TestFramework.Expecto
         FullName = "T.t1"
         DisplayName = "t1"
         Origin = TestOrigin.ReflectionOnly
         Labels = []
-        Framework = "expecto"
+        Framework = TestFramework.Expecto
         Category = TestCategory.Unit }
     let state =
       { LiveTestState.empty with
@@ -470,7 +470,7 @@ let fileContentChangedTests = testList "FileContentChanged" [
 [<Tests>]
 let fcsTypeCheckResultTests = testList "FcsTypeCheckResult" [
   test "Success updates symbol graph via onFcsComplete" {
-    let tc = mkTestCase "MyApp.Tests.testAdd" "expecto" TestCategory.Unit
+    let tc = mkTestCase "MyApp.Tests.testAdd" TestFramework.Expecto TestCategory.Unit
     let refs = [
       { SymbolReference.SymbolFullName = "MyApp.Tests.testAdd"
         UseKind = SymbolUseKind.Definition; UsedInTestId = None
@@ -491,7 +491,7 @@ let fcsTypeCheckResultTests = testList "FcsTypeCheckResult" [
   }
 
   test "Success with changed symbols triggers RunAffectedTests" {
-    let tc = mkTestCase "MyApp.Tests.testAdd" "expecto" TestCategory.Unit
+    let tc = mkTestCase "MyApp.Tests.testAdd" TestFramework.Expecto TestCategory.Unit
     let refs = [
       { SymbolReference.SymbolFullName = "MyApp.Tests.testAdd"
         UseKind = SymbolUseKind.Definition; UsedInTestId = None
@@ -567,7 +567,7 @@ let fcsTypeCheckResultTests = testList "FcsTypeCheckResult" [
   }
 
   test "Elm wiring: FcsTypeCheckCompleted Success updates model and emits effects" {
-    let tc = mkTestCase "MyApp.Tests.testAdd" "expecto" TestCategory.Unit
+    let tc = mkTestCase "MyApp.Tests.testAdd" TestFramework.Expecto TestCategory.Unit
     let refs = [
       { SymbolReference.SymbolFullName = "MyApp.Tests.testAdd"
         UseKind = SymbolUseKind.Definition; UsedInTestId = None; FilePath = "Test.fs"; Line = 1 }
@@ -619,7 +619,7 @@ let triggerWiringTests = testList "RunTrigger wiring" [
   }
 
   test "handleFcsResult uses stored FileSave trigger for OnSaveOnly tests" {
-    let tc = mkTestCase "MyApp.Tests.archTest" "expecto" TestCategory.Architecture
+    let tc = mkTestCase "MyApp.Tests.archTest" TestFramework.Expecto TestCategory.Architecture
     let refs = [
       { SymbolReference.SymbolFullName = "MyApp.Tests.archTest"
         UseKind = SymbolUseKind.Definition; UsedInTestId = None
@@ -645,7 +645,7 @@ let triggerWiringTests = testList "RunTrigger wiring" [
   }
 
   test "handleFcsResult with Keystroke trigger filters out OnSaveOnly tests" {
-    let tc = mkTestCase "MyApp.Tests.archTest" "expecto" TestCategory.Architecture
+    let tc = mkTestCase "MyApp.Tests.archTest" TestFramework.Expecto TestCategory.Architecture
     let refs = [
       { SymbolReference.SymbolFullName = "MyApp.Tests.archTest"
         UseKind = SymbolUseKind.Definition; UsedInTestId = None
@@ -731,13 +731,13 @@ let mkPassedResult tid =
 [<Tests>]
 let runningToStaleOnKeystrokeTests = testList "Running → Stale on keystroke" [
   test "keystroke while tests running transitions to RunningButEdited" {
-    let tid = TestId.create "TestA" "expecto"
+    let tid = TestId.create "TestA" TestFramework.Expecto
     let gen = RunGeneration.next RunGeneration.zero
     let s = {
       LiveTestPipelineState.empty with
         TestState = {
           LiveTestState.empty with
-            DiscoveredTests = [| mkSourceMappedTestCase "TestA" "expecto" |]
+            DiscoveredTests = [| mkSourceMappedTestCase "TestA" TestFramework.Expecto |]
             RunPhases = Map.ofList ["s", Running gen]; LastGeneration = gen
             AffectedTests = Set.singleton tid
         }
@@ -749,13 +749,13 @@ let runningToStaleOnKeystrokeTests = testList "Running → Stale on keystroke" [
   }
 
   test "keystroke while tests running preserves AffectedTests" {
-    let tid = TestId.create "TestA" "expecto"
+    let tid = TestId.create "TestA" TestFramework.Expecto
     let gen = RunGeneration.next RunGeneration.zero
     let s = {
       LiveTestPipelineState.empty with
         TestState = {
           LiveTestState.empty with
-            DiscoveredTests = [| mkSourceMappedTestCase "TestA" "expecto" |]
+            DiscoveredTests = [| mkSourceMappedTestCase "TestA" TestFramework.Expecto |]
             RunPhases = Map.ofList ["s", Running gen]; LastGeneration = gen
             AffectedTests = Set.singleton tid
         }
@@ -766,13 +766,13 @@ let runningToStaleOnKeystrokeTests = testList "Running → Stale on keystroke" [
   }
 
   test "status shows Passed after keystroke during running (streaming shows available result)" {
-    let tid = TestId.create "TestA" "expecto"
+    let tid = TestId.create "TestA" TestFramework.Expecto
     let gen = RunGeneration.next RunGeneration.zero
     let s = {
       LiveTestPipelineState.empty with
         TestState = {
           LiveTestState.empty with
-            DiscoveredTests = [| mkSourceMappedTestCase "TestA" "expecto" |]
+            DiscoveredTests = [| mkSourceMappedTestCase "TestA" TestFramework.Expecto |]
             RunPhases = Map.ofList ["s", Running gen]; LastGeneration = gen
             AffectedTests = Set.singleton tid
             LastResults = Map.ofList [ tid, mkPassedResult tid ]
@@ -787,13 +787,13 @@ let runningToStaleOnKeystrokeTests = testList "Running → Stale on keystroke" [
   }
 
   test "status shows Queued for never-run affected test after keystroke" {
-    let tid = TestId.create "TestA" "expecto"
+    let tid = TestId.create "TestA" TestFramework.Expecto
     let gen = RunGeneration.next RunGeneration.zero
     let s = {
       LiveTestPipelineState.empty with
         TestState = {
           LiveTestState.empty with
-            DiscoveredTests = [| mkSourceMappedTestCase "TestA" "expecto" |]
+            DiscoveredTests = [| mkSourceMappedTestCase "TestA" TestFramework.Expecto |]
             RunPhases = Map.ofList ["s", Running gen]; LastGeneration = gen
             AffectedTests = Set.singleton tid
         }
@@ -816,13 +816,13 @@ let runningToStaleOnKeystrokeTests = testList "Running → Stale on keystroke" [
 [<Tests>]
 let runningToStaleOnFileSaveTests = testList "Running → Stale on file save" [
   test "save while tests running transitions to RunningButEdited" {
-    let tid = TestId.create "TestA" "expecto"
+    let tid = TestId.create "TestA" TestFramework.Expecto
     let gen = RunGeneration.next RunGeneration.zero
     let s = {
       LiveTestPipelineState.empty with
         TestState = {
           LiveTestState.empty with
-            DiscoveredTests = [| mkSourceMappedTestCase "TestA" "expecto" |]
+            DiscoveredTests = [| mkSourceMappedTestCase "TestA" TestFramework.Expecto |]
             RunPhases = Map.ofList ["s", Running gen]; LastGeneration = gen
             AffectedTests = Set.singleton tid
             LastResults = Map.ofList [ tid, mkPassedResult tid ]
@@ -845,12 +845,12 @@ let runningToStaleOnFileSaveTests = testList "Running → Stale on file save" [
 [<Tests>]
 let mergeResultsStalenessFixTests = testList "mergeResults staleness handling" [
   test "mergeResults preserves AffectedTests (no clearing)" {
-    let tid = TestId.create "TestA" "expecto"
+    let tid = TestId.create "TestA" TestFramework.Expecto
     let result = mkResult tid (TestResult.Passed (TimeSpan.FromMilliseconds 10.0))
     let gen = RunGeneration.next RunGeneration.zero
     let s = {
       LiveTestState.empty with
-        DiscoveredTests = [| mkSourceMappedTestCase "TestA" "expecto" |]
+        DiscoveredTests = [| mkSourceMappedTestCase "TestA" TestFramework.Expecto |]
         RunPhases = Map.ofList ["s", RunningButEdited gen]; LastGeneration = gen
         AffectedTests = Set.singleton tid
     }
@@ -860,12 +860,12 @@ let mergeResultsStalenessFixTests = testList "mergeResults staleness handling" [
   }
 
   test "streaming result shows Passed while RunPhase is still Running" {
-    let tid = TestId.create "TestA" "expecto"
+    let tid = TestId.create "TestA" TestFramework.Expecto
     let result = mkResult tid (TestResult.Passed (TimeSpan.FromMilliseconds 10.0))
     let gen = RunGeneration.next RunGeneration.zero
     let s = {
       LiveTestState.empty with
-        DiscoveredTests = [| mkSourceMappedTestCase "TestA" "expecto" |]
+        DiscoveredTests = [| mkSourceMappedTestCase "TestA" TestFramework.Expecto |]
         RunPhases = Map.ofList ["s", Running gen]; LastGeneration = gen
         AffectedTests = Set.singleton tid
     }
@@ -877,12 +877,12 @@ let mergeResultsStalenessFixTests = testList "mergeResults staleness handling" [
   }
 
   test "mergeResults preserves RunPhase as Running" {
-    let tid = TestId.create "TestA" "expecto"
+    let tid = TestId.create "TestA" TestFramework.Expecto
     let result = mkResult tid (TestResult.Passed (TimeSpan.FromMilliseconds 10.0))
     let gen = RunGeneration.next RunGeneration.zero
     let s = {
       LiveTestState.empty with
-        DiscoveredTests = [| mkSourceMappedTestCase "TestA" "expecto" |]
+        DiscoveredTests = [| mkSourceMappedTestCase "TestA" TestFramework.Expecto |]
         RunPhases = Map.ofList ["s", Running gen]; LastGeneration = gen
         AffectedTests = Set.singleton tid
     }
@@ -939,11 +939,11 @@ let sessionScopedIsolationTests = testList "session-scoped isolation" [
       { LiveTestState.empty with
           StatusEntries = [|
             { TestId = TestId.TestId "t1"; DisplayName = "session-a test"; FullName = "session-a test"
-              Origin = TestOrigin.ReflectionOnly; Framework = "expecto"
+              Origin = TestOrigin.ReflectionOnly; Framework = TestFramework.Expecto
               Category = TestCategory.Unit; CurrentPolicy = RunPolicy.OnEveryChange
               Status = TestRunStatus.Detected; PreviousStatus = TestRunStatus.Detected }
             { TestId = TestId.TestId "t2"; DisplayName = "session-b test"; FullName = "session-b test"
-              Origin = TestOrigin.ReflectionOnly; Framework = "xunit"
+              Origin = TestOrigin.ReflectionOnly; Framework = TestFramework.XUnit
               Category = TestCategory.Unit; CurrentPolicy = RunPolicy.OnEveryChange
               Status = TestRunStatus.Detected; PreviousStatus = TestRunStatus.Detected }
           |]
@@ -958,7 +958,7 @@ let sessionScopedIsolationTests = testList "session-scoped isolation" [
       { LiveTestState.empty with
           StatusEntries = [|
             { TestId = TestId.TestId "t1"; DisplayName = "test1"; FullName = "test1"
-              Origin = TestOrigin.ReflectionOnly; Framework = "expecto"
+              Origin = TestOrigin.ReflectionOnly; Framework = TestFramework.Expecto
               Category = TestCategory.Unit; CurrentPolicy = RunPolicy.OnEveryChange
               Status = TestRunStatus.Detected; PreviousStatus = TestRunStatus.Detected }
           |] }
@@ -1051,10 +1051,10 @@ let testRunPhaseTests = testList "TestRunPhase state machine" [
 [<Tests>]
 let batchPayloadTests = testList "TestResultsBatchPayload" [
   test "create with fresh results computes summary" {
-    let tid = TestId.create "Tests.payload_fresh" "expecto"
+    let tid = TestId.create "Tests.payload_fresh" TestFramework.Expecto
     let entry = {
       TestId = tid; DisplayName = "payload_fresh"; FullName = "Tests.payload_fresh"
-      Origin = TestOrigin.ReflectionOnly; Framework = "expecto"
+      Origin = TestOrigin.ReflectionOnly; Framework = TestFramework.Expecto
       Category = TestCategory.Unit; CurrentPolicy = RunPolicy.OnEveryChange
       Status = TestRunStatus.Passed (System.TimeSpan.FromMilliseconds 5.0)
       PreviousStatus = TestRunStatus.Detected }
@@ -1085,10 +1085,10 @@ let batchPayloadTests = testList "TestResultsBatchPayload" [
   }
 
   test "isEmpty returns false for non-empty entries" {
-    let tid = TestId.create "Tests.not_empty" "expecto"
+    let tid = TestId.create "Tests.not_empty" TestFramework.Expecto
     let entry = {
       TestId = tid; DisplayName = "not_empty"; FullName = "Tests.not_empty"
-      Origin = TestOrigin.ReflectionOnly; Framework = "expecto"
+      Origin = TestOrigin.ReflectionOnly; Framework = TestFramework.Expecto
       Category = TestCategory.Unit; CurrentPolicy = RunPolicy.OnEveryChange
       Status = TestRunStatus.Detected; PreviousStatus = TestRunStatus.Detected }
     let gen = RunGeneration.zero
@@ -1101,10 +1101,10 @@ let batchPayloadTests = testList "TestResultsBatchPayload" [
 let elmUpdateStatusRecomputationTests = testList "Elm update StatusEntries recomputation" [
   test "TestsDiscovered recomputes StatusEntries" {
     let tests = [|
-      { Id = TestId.create "t1" "test1"
+      { Id = TestId.create "t1" (TestFramework.Unknown "test1")
         FullName = "M.test1"; DisplayName = "test1"
         Origin = TestOrigin.SourceMapped ("editor", 5)
-        Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+        Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
 
     let model0 = SageFsModel.initial
@@ -1117,11 +1117,11 @@ let elmUpdateStatusRecomputationTests = testList "Elm update StatusEntries recom
   }
 
   test "AffectedTestsComputed recomputes StatusEntries to Queued" {
-    let tid = TestId.create "t1" "test1"
+    let tid = TestId.create "t1" (TestFramework.Unknown "test1")
     let tests = [|
       { Id = tid; FullName = "M.test1"; DisplayName = "test1"
         Origin = TestOrigin.SourceMapped ("editor", 5)
-        Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+        Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
 
     let model0 = SageFsModel.initial
@@ -1139,10 +1139,10 @@ let elmUpdateStatusRecomputationTests = testList "Elm update StatusEntries recom
 
   test "annotationsForFile works after TestsDiscovered event" {
     let tests = [|
-      { Id = TestId.create "t1" "test1"
+      { Id = TestId.create "t1" (TestFramework.Unknown "test1")
         FullName = "M.test1"; DisplayName = "test1"
         Origin = TestOrigin.SourceMapped ("editor", 5)
-        Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+        Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
 
     let model0 = SageFsModel.initial
@@ -1156,11 +1156,11 @@ let elmUpdateStatusRecomputationTests = testList "Elm update StatusEntries recom
   }
 
   test "TestRunStarted shows Running status" {
-    let tid = TestId.create "t1" "test1"
+    let tid = TestId.create "t1" (TestFramework.Unknown "test1")
     let tests = [|
       { Id = tid; FullName = "M.test1"; DisplayName = "test1"
         Origin = TestOrigin.SourceMapped ("editor", 5)
-        Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+        Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
 
     let model0 = SageFsModel.initial
@@ -1175,10 +1175,10 @@ let elmUpdateStatusRecomputationTests = testList "Elm update StatusEntries recom
 
   test "RunPolicyChanged to Disabled shows PolicyDisabled status" {
     let tests = [|
-      { Id = TestId.create "t1" "test1"
+      { Id = TestId.create "t1" (TestFramework.Unknown "test1")
         FullName = "M.test1"; DisplayName = "test1"
         Origin = TestOrigin.SourceMapped ("editor", 5)
-        Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+        Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
 
     let model0 = SageFsModel.initial
@@ -1192,15 +1192,15 @@ let elmUpdateStatusRecomputationTests = testList "Elm update StatusEntries recom
   }
 
   test "Full lifecycle: Discovered → Started → Completed shows pass/fail annotations" {
-    let tid1 = TestId.create "t1" "test1"
-    let tid2 = TestId.create "t2" "test2"
+    let tid1 = TestId.create "t1" (TestFramework.Unknown "test1")
+    let tid2 = TestId.create "t2" (TestFramework.Unknown "test2")
     let tests = [|
       { Id = tid1; FullName = "M.test1"; DisplayName = "test1"
         Origin = TestOrigin.SourceMapped ("editor", 5)
-        Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+        Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
       { Id = tid2; FullName = "M.test2"; DisplayName = "test2"
         Origin = TestOrigin.SourceMapped ("editor", 10)
-        Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+        Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
     let results = [|
       { TestId = tid1; TestName = "test1"

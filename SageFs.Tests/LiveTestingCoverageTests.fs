@@ -13,8 +13,8 @@ open SageFs.Tests.LiveTestingTestHelpers
 [<Tests>]
 let dependencyGraphTests = testList "TestDependencyGraph" [
   test "findAffected returns tests that reference changed symbol" {
-    let t1 = mkTestId "test1" "x"
-    let t2 = mkTestId "test2" "x"
+    let t1 = mkTestId "test1" (TestFramework.Unknown "x")
+    let t2 = mkTestId "test2" (TestFramework.Unknown "x")
     let graph = {
       SymbolToTests = Map.ofList [ "MyModule.add", [| t1 |]; "MyModule.sub", [| t2 |] ]
       TransitiveCoverage = Map.ofList [ "MyModule.add", [| t1 |]; "MyModule.sub", [| t2 |] ]; SourceVersion = 1
@@ -25,8 +25,8 @@ let dependencyGraphTests = testList "TestDependencyGraph" [
   }
 
   test "findAffected returns union of tests for multiple symbols" {
-    let t1 = mkTestId "test1" "x"
-    let t2 = mkTestId "test2" "x"
+    let t1 = mkTestId "test1" (TestFramework.Unknown "x")
+    let t2 = mkTestId "test2" (TestFramework.Unknown "x")
     let graph = {
       SymbolToTests = Map.ofList [ "A.f", [| t1 |]; "B.g", [| t2 |] ]
       TransitiveCoverage = Map.ofList [ "A.f", [| t1 |]; "B.g", [| t2 |] ]; SourceVersion = 1
@@ -37,7 +37,7 @@ let dependencyGraphTests = testList "TestDependencyGraph" [
   }
 
   test "findAffected deduplicates when test references multiple changed symbols" {
-    let t1 = mkTestId "test1" "x"
+    let t1 = mkTestId "test1" (TestFramework.Unknown "x")
     let graph = {
       SymbolToTests = Map.ofList [ "A.f", [| t1 |]; "A.g", [| t1 |] ]
       TransitiveCoverage = Map.ofList [ "A.f", [| t1 |]; "A.g", [| t1 |] ]; SourceVersion = 1
@@ -49,8 +49,8 @@ let dependencyGraphTests = testList "TestDependencyGraph" [
 
   test "findAffected returns empty for unknown symbols" {
     let graph = {
-      SymbolToTests = Map.ofList [ "A.f", [| mkTestId "t" "x" |] ]
-      TransitiveCoverage = Map.ofList [ "A.f", [| mkTestId "t" "x" |] ]; SourceVersion = 1
+      SymbolToTests = Map.ofList [ "A.f", [| mkTestId "t" (TestFramework.Unknown "x") |] ]
+      TransitiveCoverage = Map.ofList [ "A.f", [| mkTestId "t" (TestFramework.Unknown "x") |] ]; SourceVersion = 1
       PerFileIndex = Map.empty
     }
     TestDependencyGraph.findAffected ["Unknown.sym"] graph
@@ -86,7 +86,7 @@ let coverageProjectionTests = testList "CoverageProjection" [
   }
 
   test "symbol reachable by passing tests is Covered with allPassing=true" {
-    let tid = mkTestId "t1" "x"
+    let tid = mkTestId "t1" (TestFramework.Unknown "x")
     let graph = {
       TestDependencyGraph.empty with
         TransitiveCoverage = Map.ofList [ "MyModule.add", [| tid |] ]
@@ -98,7 +98,7 @@ let coverageProjectionTests = testList "CoverageProjection" [
   }
 
   test "symbol reachable by failing test is Covered with allPassing=false" {
-    let tid = mkTestId "t1" "x"
+    let tid = mkTestId "t1" (TestFramework.Unknown "x")
     let graph = {
       TestDependencyGraph.empty with
         TransitiveCoverage = Map.ofList [ "MyModule.add", [| tid |] ]
@@ -111,8 +111,8 @@ let coverageProjectionTests = testList "CoverageProjection" [
   }
 
   test "symbol reachable by mixed results has allPassing=false" {
-    let t1 = mkTestId "t1" "x"
-    let t2 = mkTestId "t2" "x"
+    let t1 = mkTestId "t1" (TestFramework.Unknown "x")
+    let t2 = mkTestId "t2" (TestFramework.Unknown "x")
     let graph = {
       TestDependencyGraph.empty with
         TransitiveCoverage = Map.ofList [ "MyModule.add", [| t1; t2 |] ]
@@ -128,7 +128,7 @@ let coverageProjectionTests = testList "CoverageProjection" [
   }
 
   test "symbol reachable by tests with no results yet has allPassing=false" {
-    let tid = mkTestId "t1" "x"
+    let tid = mkTestId "t1" (TestFramework.Unknown "x")
     let graph = {
       TestDependencyGraph.empty with
         TransitiveCoverage = Map.ofList [ "MyModule.add", [| tid |] ]
@@ -139,7 +139,7 @@ let coverageProjectionTests = testList "CoverageProjection" [
   }
 
   test "computeAll produces coverage for every symbol in graph" {
-    let t1 = mkTestId "t1" "x"
+    let t1 = mkTestId "t1" (TestFramework.Unknown "x")
     let graph = {
       TestDependencyGraph.empty with
         TransitiveCoverage = Map.ofList [ "A.f", [| t1 |]; "B.g", Array.empty ]
@@ -276,7 +276,7 @@ let instrumentationTests = testList "LiveTestingInstrumentation" [
 [<Tests>]
 let transitiveClosureTests = testList "TransitiveCoverage" [
   test "single symbol with direct test stays in result" {
-    let t1 = TestId.create "test1" "x"
+    let t1 = TestId.create "test1" (TestFramework.Unknown "x")
     let direct = Map.ofList [ "A", [| t1 |] ]
     let callGraph = Map.empty<string, string array>
     let result = TestDependencyGraph.computeTransitiveCoverage callGraph direct
@@ -285,7 +285,7 @@ let transitiveClosureTests = testList "TransitiveCoverage" [
   }
 
   test "callee of tested symbol is transitively covered" {
-    let t1 = TestId.create "test1" "x"
+    let t1 = TestId.create "test1" (TestFramework.Unknown "x")
     let direct = Map.ofList [ "A", [| t1 |] ]
     let callGraph = Map.ofList [ "A", [| "B" |] ]
     let result = TestDependencyGraph.computeTransitiveCoverage callGraph direct
@@ -294,7 +294,7 @@ let transitiveClosureTests = testList "TransitiveCoverage" [
   }
 
   test "two-hop transitive coverage" {
-    let t1 = TestId.create "test1" "x"
+    let t1 = TestId.create "test1" (TestFramework.Unknown "x")
     let direct = Map.ofList [ "A", [| t1 |] ]
     let callGraph = Map.ofList [ "A", [| "B" |]; "B", [| "C" |] ]
     let result = TestDependencyGraph.computeTransitiveCoverage callGraph direct
@@ -303,8 +303,8 @@ let transitiveClosureTests = testList "TransitiveCoverage" [
   }
 
   test "multiple tests merge at shared callee" {
-    let t1 = TestId.create "test1" "x"
-    let t2 = TestId.create "test2" "x"
+    let t1 = TestId.create "test1" (TestFramework.Unknown "x")
+    let t2 = TestId.create "test2" (TestFramework.Unknown "x")
     let direct = Map.ofList [ "A", [| t1 |]; "B", [| t2 |] ]
     let callGraph = Map.ofList [ "A", [| "C" |]; "B", [| "C" |] ]
     let result = TestDependencyGraph.computeTransitiveCoverage callGraph direct
@@ -314,7 +314,7 @@ let transitiveClosureTests = testList "TransitiveCoverage" [
   }
 
   test "cycle in call graph terminates" {
-    let t1 = TestId.create "test1" "x"
+    let t1 = TestId.create "test1" (TestFramework.Unknown "x")
     let direct = Map.ofList [ "A", [| t1 |] ]
     let callGraph = Map.ofList [ "A", [| "B" |]; "B", [| "A" |] ]
     let result = TestDependencyGraph.computeTransitiveCoverage callGraph direct
@@ -323,14 +323,14 @@ let transitiveClosureTests = testList "TransitiveCoverage" [
   }
 
   test "empty call graph returns direct mapping" {
-    let t1 = TestId.create "test1" "x"
+    let t1 = TestId.create "test1" (TestFramework.Unknown "x")
     let direct = Map.ofList [ "A", [| t1 |] ]
     let result = TestDependencyGraph.computeTransitiveCoverage Map.empty direct
     result |> Expect.equal "same as direct" direct
   }
 
   test "callee symbol with no direct tests gets attributed" {
-    let t1 = TestId.create "test1" "x"
+    let t1 = TestId.create "test1" (TestFramework.Unknown "x")
     let direct = Map.ofList [ "A", [| t1 |] ]
     let callGraph = Map.ofList [ "A", [| "B" |] ]
     let result = TestDependencyGraph.computeTransitiveCoverage callGraph direct
@@ -340,7 +340,7 @@ let transitiveClosureTests = testList "TransitiveCoverage" [
 
   test "diamond call graph merges correctly" {
     // A calls B and C, both B and C call D
-    let t1 = TestId.create "test1" "x"
+    let t1 = TestId.create "test1" (TestFramework.Unknown "x")
     let direct = Map.ofList [ "A", [| t1 |] ]
     let callGraph = Map.ofList [ "A", [| "B"; "C" |]; "B", [| "D" |]; "C", [| "D" |] ]
     let result = TestDependencyGraph.computeTransitiveCoverage callGraph direct
@@ -349,7 +349,7 @@ let transitiveClosureTests = testList "TransitiveCoverage" [
   }
 
   test "symbols only in call graph but not tested are included" {
-    let t1 = TestId.create "test1" "x"
+    let t1 = TestId.create "test1" (TestFramework.Unknown "x")
     let direct = Map.ofList [ "A", [| t1 |] ]
     let callGraph = Map.ofList [ "A", [| "B" |]; "B", [| "C" |]; "C", [| "D" |] ]
     let result = TestDependencyGraph.computeTransitiveCoverage callGraph direct
@@ -379,12 +379,12 @@ let sourceMappingTests = testList "SourceMapping" [
   }
 
   test "attributeMatchesFramework matches Fact to xunit" {
-    SourceMapping.attributeMatchesFramework "xunit" "Fact"
+    SourceMapping.attributeMatchesFramework TestFramework.XUnit "Fact"
     |> Expect.isTrue "Fact is xunit"
   }
 
   test "attributeMatchesFramework does not match Fact to nunit" {
-    SourceMapping.attributeMatchesFramework "nunit" "Fact"
+    SourceMapping.attributeMatchesFramework TestFramework.NUnit "Fact"
     |> Expect.isFalse "Fact is not nunit"
   }
 
@@ -394,10 +394,10 @@ let sourceMappingTests = testList "SourceMapping" [
         FilePath = "Tests.fs"; Line = 10; Column = 0 }
     |]
     let tests = [|
-      { Id = TestId.create "Mod.Tests.shouldAdd" "xunit"
+      { Id = TestId.create "Mod.Tests.shouldAdd" TestFramework.XUnit
         FullName = "Mod.Tests.shouldAdd"; DisplayName = "shouldAdd"
         Origin = TestOrigin.ReflectionOnly; Labels = []
-        Framework = "xunit"; Category = TestCategory.Unit }
+        Framework = TestFramework.XUnit; Category = TestCategory.Unit }
     |]
     let result = SourceMapping.mergeSourceLocations locations tests
     result.[0].Origin
@@ -410,14 +410,14 @@ let sourceMappingTests = testList "SourceMapping" [
         FilePath = "MyTests.fs"; Line = 5; Column = 0 }
     |]
     let tests = [|
-      { Id = TestId.create "Ns.Mod.allMyTests/group/test1" "expecto"
+      { Id = TestId.create "Ns.Mod.allMyTests/group/test1" TestFramework.Expecto
         FullName = "Ns.Mod.allMyTests/group/test1"; DisplayName = "test1"
         Origin = TestOrigin.ReflectionOnly; Labels = []
-        Framework = "expecto"; Category = TestCategory.Unit }
-      { Id = TestId.create "Ns.Mod.allMyTests/group/test2" "expecto"
+        Framework = TestFramework.Expecto; Category = TestCategory.Unit }
+      { Id = TestId.create "Ns.Mod.allMyTests/group/test2" TestFramework.Expecto
         FullName = "Ns.Mod.allMyTests/group/test2"; DisplayName = "test2"
         Origin = TestOrigin.ReflectionOnly; Labels = []
-        Framework = "expecto"; Category = TestCategory.Unit }
+        Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
     let result = SourceMapping.mergeSourceLocations locations tests
     result.[0].Origin
@@ -432,10 +432,10 @@ let sourceMappingTests = testList "SourceMapping" [
         FilePath = "New.fs"; Line = 99; Column = 0 }
     |]
     let tests = [|
-      { Id = TestId.create "Mod.myTests" "expecto"
+      { Id = TestId.create "Mod.myTests" TestFramework.Expecto
         FullName = "Mod.myTests"; DisplayName = "myTests"
         Origin = TestOrigin.SourceMapped("Old.fs", 42); Labels = []
-        Framework = "expecto"; Category = TestCategory.Unit }
+        Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
     let result = SourceMapping.mergeSourceLocations locations tests
     result.[0].Origin
@@ -444,10 +444,10 @@ let sourceMappingTests = testList "SourceMapping" [
 
   test "mergeSourceLocations returns tests unchanged when no locations" {
     let tests = [|
-      { Id = TestId.create "T.x" "xunit"
+      { Id = TestId.create "T.x" TestFramework.XUnit
         FullName = "T.x"; DisplayName = "x"
         Origin = TestOrigin.ReflectionOnly; Labels = []
-        Framework = "xunit"; Category = TestCategory.Unit }
+        Framework = TestFramework.XUnit; Category = TestCategory.Unit }
     |]
     let result = SourceMapping.mergeSourceLocations [||] tests
     result.[0].Origin
@@ -462,10 +462,10 @@ let sourceMappingTests = testList "SourceMapping" [
         FilePath = "Xunit.fs"; Line = 20; Column = 0 }
     |]
     let tests = [|
-      { Id = TestId.create "Suite.validate" "xunit"
+      { Id = TestId.create "Suite.validate" TestFramework.XUnit
         FullName = "Suite.validate"; DisplayName = "validate"
         Origin = TestOrigin.ReflectionOnly; Labels = []
-        Framework = "xunit"; Category = TestCategory.Unit }
+        Framework = TestFramework.XUnit; Category = TestCategory.Unit }
     |]
     let result = SourceMapping.mergeSourceLocations locations tests
     result.[0].Origin
@@ -476,9 +476,9 @@ let sourceMappingTests = testList "SourceMapping" [
 [<Tests>]
 let annotationTests = testList "Gutter Annotations" [
   let test1 =
-    { Id = TestId.create "Module.Tests.test1" "expecto"; FullName = "Module.Tests.test1"
+    { Id = TestId.create "Module.Tests.test1" TestFramework.Expecto; FullName = "Module.Tests.test1"
       DisplayName = "test1"; Origin = TestOrigin.SourceMapped ("test.fs", 10)
-      Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+      Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
   let mkResult tid res =
     { TestId = tid; TestName = ""; Result = res; Timestamp = DateTimeOffset.UtcNow; Output = None }
 
@@ -592,13 +592,13 @@ let annotationTests = testList "Gutter Annotations" [
 [<Tests>]
 let coverageProjectionExtendedTests = testList "Coverage Projection Extended" [
   let test1 =
-    { Id = TestId.create "Module.Tests.test1" "expecto"; FullName = "Module.Tests.test1"
+    { Id = TestId.create "Module.Tests.test1" TestFramework.Expecto; FullName = "Module.Tests.test1"
       DisplayName = "test1"; Origin = TestOrigin.ReflectionOnly
-      Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+      Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
   let test2 =
-    { Id = TestId.create "Module.Tests.test2" "expecto"; FullName = "Module.Tests.test2"
+    { Id = TestId.create "Module.Tests.test2" TestFramework.Expecto; FullName = "Module.Tests.test2"
       DisplayName = "test2"; Origin = TestOrigin.ReflectionOnly
-      Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+      Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
   let mkResult tid res =
     { TestId = tid; TestName = ""; Result = res; Timestamp = DateTimeOffset.UtcNow; Output = None }
   let results = Map.ofList [
@@ -690,13 +690,13 @@ let coverageProjectionExtendedTests = testList "Coverage Projection Extended" [
 [<Tests>]
 let depGraphBfsTests = testList "TestDependencyGraph BFS" [
   let test1 =
-    { Id = TestId.create "Module.Tests.test1" "expecto"; FullName = "Module.Tests.test1"
+    { Id = TestId.create "Module.Tests.test1" TestFramework.Expecto; FullName = "Module.Tests.test1"
       DisplayName = "test1"; Origin = TestOrigin.ReflectionOnly
-      Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+      Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
   let test2 =
-    { Id = TestId.create "Module.Tests.test2" "expecto"; FullName = "Module.Tests.test2"
+    { Id = TestId.create "Module.Tests.test2" TestFramework.Expecto; FullName = "Module.Tests.test2"
       DisplayName = "test2"; Origin = TestOrigin.ReflectionOnly
-      Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+      Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
   let depGraph = {
     SymbolToTests = Map.ofList [
       "Module.add", [| test1.Id |]
@@ -784,14 +784,14 @@ let coverageCorrelationTests = testList "CoverageCorrelation" [
   }
 
   test "testsForSymbol returns Covered with test info when tests exist" {
-    let tid1 = TestId.create "test1" "expecto"
-    let tid2 = TestId.create "test2" "expecto"
+    let tid1 = TestId.create "test1" TestFramework.Expecto
+    let tid2 = TestId.create "test2" TestFramework.Expecto
     let graph = { TestDependencyGraph.empty with TransitiveCoverage = Map.ofList ["MyModule.add", [| tid1; tid2 |]] }
     let tests = [|
       { Id = tid1; FullName = "Tests.test1"; DisplayName = "test1"; Origin = TestOrigin.ReflectionOnly
-        Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+        Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
       { Id = tid2; FullName = "Tests.test2"; DisplayName = "test2"; Origin = TestOrigin.ReflectionOnly
-        Labels = []; Framework = "expecto"; Category = TestCategory.Unit }
+        Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
     let results = Map.ofList [
       tid1, { TestId = tid1; TestName = "test1"; Result = TestResult.Passed (TimeSpan.FromMilliseconds 5.0); Timestamp = DateTimeOffset.UtcNow; Output = None }
@@ -806,7 +806,7 @@ let coverageCorrelationTests = testList "CoverageCorrelation" [
   }
 
   test "testsForSymbol uses TestId hash when test not in discovered" {
-    let tid = TestId.create "orphan" "xunit"
+    let tid = TestId.create "orphan" TestFramework.XUnit
     let graph = { TestDependencyGraph.empty with TransitiveCoverage = Map.ofList ["Mod.fn", [| tid |]] }
     match CoverageCorrelation.testsForSymbol graph Array.empty Map.empty "Mod.fn" with
     | CoverageDetail.Covered infos ->
@@ -821,10 +821,10 @@ let coverageCorrelationTests = testList "CoverageCorrelation" [
   }
 
   test "testsForLine chains through annotation to graph" {
-    let tid = TestId.create "lineTest" "expecto"
+    let tid = TestId.create "lineTest" TestFramework.Expecto
     let graph = { TestDependencyGraph.empty with TransitiveCoverage = Map.ofList ["Prod.validate", [| tid |]] }
     let annotations = [| { Symbol = "Prod.validate"; FilePath = "prod.fs"; DefinitionLine = 42; Status = CoverageStatus.Covered (1, CoverageHealth.AllPassing) } |]
-    let tests = [| { Id = tid; FullName = "Tests.lineTest"; DisplayName = "lineTest"; Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "expecto"; Category = TestCategory.Unit } |]
+    let tests = [| { Id = tid; FullName = "Tests.lineTest"; DisplayName = "lineTest"; Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit } |]
     let results = Map.ofList [ tid, { TestId = tid; TestName = "lineTest"; Result = TestResult.Passed (TimeSpan.FromMilliseconds 3.0); Timestamp = DateTimeOffset.UtcNow; Output = None } ]
     match CoverageCorrelation.testsForLine annotations graph tests results "prod.fs" 42 with
     | CoverageDetail.Covered infos ->
@@ -848,8 +848,8 @@ let coverageCorrelationTests = testList "CoverageCorrelation" [
 [<Tests>]
 let coverageBitmapWiringTests = testList "CoverageBitmap Pipeline Wiring" [
   test "CoverageBitmapCollected populates TestCoverageBitmaps map" {
-    let tid1 = mkTestId "ns" "t1"
-    let tid2 = mkTestId "ns" "t2"
+    let tid1 = mkTestId "ns" (TestFramework.Unknown "t1")
+    let tid2 = mkTestId "ns" (TestFramework.Unknown "t2")
     let hits = [| true; false; true; true; false; false; true |]
     let bitmap = CoverageBitmap.ofBoolArray hits
     let model', _ =
@@ -868,9 +868,9 @@ let coverageBitmapWiringTests = testList "CoverageBitmap Pipeline Wiring" [
   }
 
   test "subsequent CoverageBitmapCollected merges into existing map" {
-    let tid1 = mkTestId "ns" "t1"
-    let tid2 = mkTestId "ns" "t2"
-    let tid3 = mkTestId "ns" "t3"
+    let tid1 = mkTestId "ns" (TestFramework.Unknown "t1")
+    let tid2 = mkTestId "ns" (TestFramework.Unknown "t2")
+    let tid3 = mkTestId "ns" (TestFramework.Unknown "t3")
     let bm1 = CoverageBitmap.ofBoolArray [| true; false |]
     let bm2 = CoverageBitmap.ofBoolArray [| false; true |]
     let model1, _ =
@@ -889,7 +889,7 @@ let coverageBitmapWiringTests = testList "CoverageBitmap Pipeline Wiring" [
   }
 
   test "CoverageBitmapCollected overwrites stale entry for same test" {
-    let tid = mkTestId "ns" "t1"
+    let tid = mkTestId "ns" (TestFramework.Unknown "t1")
     let bm1 = CoverageBitmap.ofBoolArray [| true; false; false |]
     let bm2 = CoverageBitmap.ofBoolArray [| false; true; true |]
     let model1, _ =
@@ -944,8 +944,8 @@ let coverageSelectionTests = testList "Coverage-based test selection" [
       { File = "A.fs"; Line = 2; Column = 0; EndLine = 0; EndColumn = 0; BranchId = 1 }
       { File = "B.fs"; Line = 1; Column = 0; EndLine = 0; EndColumn = 0; BranchId = 2 }
     |]; TotalProbes = 3; TrackerTypeName = "t"; HitsFieldName = "h" } |]
-    let t1 = mkTestId "ns" "test_a"
-    let t2 = mkTestId "ns" "test_b"
+    let t1 = mkTestId "ns" (TestFramework.Unknown "test_a")
+    let t2 = mkTestId "ns" (TestFramework.Unknown "test_b")
     let bm1 = CoverageBitmap.ofBoolArray [| true; false; false |]
     let bm2 = CoverageBitmap.ofBoolArray [| false; false; true |]
     let bitmaps = Map.ofList [ t1, bm1; t2, bm2 ]
@@ -968,7 +968,7 @@ let coverageSelectionTests = testList "Coverage-based test selection" [
       { File = "A.fs"; Line = 1; Column = 0; EndLine = 0; EndColumn = 0; BranchId = 0 }
       { File = "A.fs"; Line = 2; Column = 0; EndLine = 0; EndColumn = 0; BranchId = 1 }
     |]; TotalProbes = 2; TrackerTypeName = "t"; HitsFieldName = "h" } |]
-    let t1 = mkTestId "ns" "t1"
+    let t1 = mkTestId "ns" (TestFramework.Unknown "t1")
     let bm_wrong_size = CoverageBitmap.ofBoolArray [| true; false; true |]
     let bitmaps = Map.ofList [ t1, bm_wrong_size ]
     let affected = CoverageBitmap.findCoverageAffected "A.fs" maps bitmaps
@@ -976,15 +976,15 @@ let coverageSelectionTests = testList "Coverage-based test selection" [
   }
 
   test "afterTypeCheck unions symbol and coverage affected tests" {
-    let tid1 = mkTestId "Tests.t1" "expecto"
-    let tid2 = mkTestId "Tests.t2" "expecto"
+    let tid1 = mkTestId "Tests.t1" TestFramework.Expecto
+    let tid2 = mkTestId "Tests.t2" TestFramework.Expecto
     let tc1 = { Id = tid1; FullName = "Tests.t1"; DisplayName = "t1"
                 Origin = TestOrigin.ReflectionOnly
-                Labels = []; Framework = "expecto"
+                Labels = []; Framework = TestFramework.Expecto
                 Category = TestCategory.Unit }
     let tc2 = { Id = tid2; FullName = "Tests.t2"; DisplayName = "t2"
                 Origin = TestOrigin.ReflectionOnly
-                Labels = []; Framework = "expecto"
+                Labels = []; Framework = TestFramework.Expecto
                 Category = TestCategory.Unit }
     let graph =
       { SymbolToTests = Map.empty
@@ -1352,7 +1352,7 @@ let coveragePipelineVerificationTests = testList "Coverage Pipeline Verification
         Activation = LiveTestingActivation.Active
         DiscoveredTests = [|
           { TestCase.Id = tid; FullName = "ns.test1"; DisplayName = "test1"
-            Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "Expecto"
+            Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.Expecto
             Category = TestCategory.Unit }
         |]
         TestCoverageBitmaps = Map.ofList [ tid, bitmap ]
@@ -1381,7 +1381,7 @@ let coveragePipelineVerificationTests = testList "Coverage Pipeline Verification
         Activation = LiveTestingActivation.Active
         DiscoveredTests = [|
           { TestCase.Id = tid; FullName = "ns.test2"; DisplayName = "test2"
-            Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = "Expecto"
+            Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.Expecto
             Category = TestCategory.Unit }
         |]
         TestCoverageBitmaps = Map.empty

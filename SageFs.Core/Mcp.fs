@@ -1397,8 +1397,8 @@ module McpTools =
         Timing = timing |> Option.map Features.LiveTesting.PipelineTiming.toStatusBar |> Option.defaultValue "no timing yet"
         Providers = state.DetectedProviders |> List.map (fun p ->
           match p with
-          | Features.LiveTesting.ProviderDescription.AttributeBased a -> a.Name
-          | Features.LiveTesting.ProviderDescription.Custom c -> c.Name)
+          | Features.LiveTesting.ProviderDescription.AttributeBased a -> Features.LiveTesting.TestFramework.toString a.Name
+          | Features.LiveTesting.ProviderDescription.Custom c -> Features.LiveTesting.TestFramework.toString c.Name)
         Policies = state.RunPolicies |> Map.toList |> List.map (fun (c, p) -> sprintf "%A: %A" c p)
       |}
       Task.FromResult (JsonSerializer.Serialize(resp, liveTestJsonOpts))

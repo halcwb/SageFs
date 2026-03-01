@@ -10,28 +10,28 @@ let liveTestingTypesTests = testList "LiveTestingTypes" [
 
   testList "TestId" [
     test "create is deterministic" {
-      let id1 = TestId.create "My.Test.name" "xunit"
-      let id2 = TestId.create "My.Test.name" "xunit"
+      let id1 = TestId.create "My.Test.name" TestFramework.XUnit
+      let id2 = TestId.create "My.Test.name" TestFramework.XUnit
       id1 |> Expect.equal "same inputs same id" id2
     }
     test "create produces 16-char hex" {
-      let (TestId.TestId id) = TestId.create "hello" "expecto"
+      let (TestId.TestId id) = TestId.create "hello" TestFramework.Expecto
       id.Length |> Expect.equal "should be 16 chars" 16
       id |> Seq.forall (fun c -> Char.IsAsciiHexDigit c)
       |> Expect.isTrue "should be hex chars"
     }
     test "different fullName produces different id" {
-      let id1 = TestId.create "test.A" "xunit"
-      let id2 = TestId.create "test.B" "xunit"
+      let id1 = TestId.create "test.A" TestFramework.XUnit
+      let id2 = TestId.create "test.B" TestFramework.XUnit
       id1 = id2 |> Expect.isFalse "should differ"
     }
     test "different framework produces different id" {
-      let id1 = TestId.create "test.A" "xunit"
-      let id2 = TestId.create "test.A" "nunit"
+      let id1 = TestId.create "test.A" TestFramework.XUnit
+      let id2 = TestId.create "test.A" TestFramework.NUnit
       id1 = id2 |> Expect.isFalse "should differ"
     }
     test "empty input still produces valid id" {
-      let (TestId.TestId id) = TestId.create "" ""
+      let (TestId.TestId id) = TestId.create "" (TestFramework.Unknown "")
       id.Length |> Expect.equal "should be 16 chars" 16
     }
   ]
@@ -233,12 +233,12 @@ let liveTestingTypesTests = testList "LiveTestingTypes" [
       |> Expect.equal "not run maps to Pass" TestOutcome.Pass
     }
     test "recordResult adds to empty history" {
-      let tid = TestId.create "test" "xunit"
+      let tid = TestId.create "test" TestFramework.XUnit
       let history = FlakyDetection.recordResult tid (TestResult.Passed TimeSpan.Zero) Map.empty
       history |> Map.containsKey tid |> Expect.isTrue "should have entry"
     }
     test "assessTest on recorded history" {
-      let tid = TestId.create "test" "xunit"
+      let tid = TestId.create "test" TestFramework.XUnit
       let history =
         Map.empty
         |> FlakyDetection.recordResult tid (TestResult.Passed TimeSpan.Zero)
@@ -364,67 +364,67 @@ let liveTestingTypesTests = testList "LiveTestingTypes" [
 
   testList "CategoryDetection" [
     test "integration label maps to Integration" {
-      CategoryDetection.categorize ["Integration"] "My.Test" "xunit" [||]
+      CategoryDetection.categorize ["Integration"] "My.Test" TestFramework.XUnit [||]
       |> Expect.equal "should be Integration" TestCategory.Integration
     }
     test "browser label maps to Browser" {
-      CategoryDetection.categorize ["Browser"] "My.Test" "xunit" [||]
+      CategoryDetection.categorize ["Browser"] "My.Test" TestFramework.XUnit [||]
       |> Expect.equal "should be Browser" TestCategory.Browser
     }
     test "e2e label maps to Browser" {
-      CategoryDetection.categorize ["E2E"] "My.Test" "xunit" [||]
+      CategoryDetection.categorize ["E2E"] "My.Test" TestFramework.XUnit [||]
       |> Expect.equal "should be Browser" TestCategory.Browser
     }
     test "benchmark label maps to Benchmark" {
-      CategoryDetection.categorize ["Benchmark"] "My.Test" "xunit" [||]
+      CategoryDetection.categorize ["Benchmark"] "My.Test" TestFramework.XUnit [||]
       |> Expect.equal "should be Benchmark" TestCategory.Benchmark
     }
     test "property label maps to Property" {
-      CategoryDetection.categorize ["Property"] "My.Test" "expecto" [||]
+      CategoryDetection.categorize ["Property"] "My.Test" TestFramework.Expecto [||]
       |> Expect.equal "should be Property" TestCategory.Property
     }
     test "architecture label maps to Architecture" {
-      CategoryDetection.categorize ["Architecture"] "My.Test" "nunit" [||]
+      CategoryDetection.categorize ["Architecture"] "My.Test" TestFramework.NUnit [||]
       |> Expect.equal "should be Architecture" TestCategory.Architecture
     }
     test "arch label maps to Architecture" {
-      CategoryDetection.categorize ["arch"] "My.Test" "nunit" [||]
+      CategoryDetection.categorize ["arch"] "My.Test" TestFramework.NUnit [||]
       |> Expect.equal "should be Architecture" TestCategory.Architecture
     }
     test "Playwright assembly maps to Browser" {
-      CategoryDetection.categorize [] "My.Test" "xunit" [| "Microsoft.Playwright" |]
+      CategoryDetection.categorize [] "My.Test" TestFramework.XUnit [| "Microsoft.Playwright" |]
       |> Expect.equal "should be Browser" TestCategory.Browser
     }
     test "BenchmarkDotNet assembly maps to Benchmark" {
-      CategoryDetection.categorize [] "My.Test" "xunit" [| "BenchmarkDotNet" |]
+      CategoryDetection.categorize [] "My.Test" TestFramework.XUnit [| "BenchmarkDotNet" |]
       |> Expect.equal "should be Benchmark" TestCategory.Benchmark
     }
     test "integration in fullName maps to Integration" {
-      CategoryDetection.categorize [] "My.IntegrationTests.test1" "xunit" [||]
+      CategoryDetection.categorize [] "My.IntegrationTests.test1" TestFramework.XUnit [||]
       |> Expect.equal "should be Integration" TestCategory.Integration
     }
     test "e2e in fullName maps to Browser" {
-      CategoryDetection.categorize [] "My.E2ETests.test1" "xunit" [||]
+      CategoryDetection.categorize [] "My.E2ETests.test1" TestFramework.XUnit [||]
       |> Expect.equal "should be Browser" TestCategory.Browser
     }
     test "no signals defaults to Unit" {
-      CategoryDetection.categorize [] "My.Tests.simpleTest" "expecto" [||]
+      CategoryDetection.categorize [] "My.Tests.simpleTest" TestFramework.Expecto [||]
       |> Expect.equal "should be Unit" TestCategory.Unit
     }
     test "label detection is case-insensitive" {
-      CategoryDetection.categorize ["INTEGRATION"] "My.Test" "xunit" [||]
+      CategoryDetection.categorize ["INTEGRATION"] "My.Test" TestFramework.XUnit [||]
       |> Expect.equal "should be Integration" TestCategory.Integration
     }
   ]
 
   testList "PolicyFilter" [
     let mkTest cat = {
-      Id = TestId.create "t" "f"
+      Id = TestId.create "t" (TestFramework.Unknown "f")
       FullName = "t"
       DisplayName = "t"
       Origin = TestOrigin.ReflectionOnly
       Labels = []
-      Framework = "xunit"
+      Framework = TestFramework.XUnit
       Category = cat
     }
     let defaults = RunPolicyDefaults.defaults
@@ -474,21 +474,21 @@ let liveTestingTypesTests = testList "LiveTestingTypes" [
       g.TransitiveCoverage |> Map.isEmpty |> Expect.isTrue "should be empty"
     }
     test "findAffected returns tests for changed symbol" {
-      let tid1 = TestId.create "test1" "xunit"
-      let tid2 = TestId.create "test2" "xunit"
+      let tid1 = TestId.create "test1" TestFramework.XUnit
+      let tid2 = TestId.create "test2" TestFramework.XUnit
       let g = TestDependencyGraph.fromDirect (Map.ofList ["MyModule.add", [| tid1; tid2 |]])
       TestDependencyGraph.findAffected ["MyModule.add"] g
       |> Array.length
       |> Expect.equal "should find 2 tests" 2
     }
     test "findAffected returns empty for unknown symbol" {
-      let g = TestDependencyGraph.fromDirect (Map.ofList ["MyModule.add", [| TestId.create "t" "x" |]])
+      let g = TestDependencyGraph.fromDirect (Map.ofList ["MyModule.add", [| TestId.create "t" (TestFramework.Unknown "x") |]])
       TestDependencyGraph.findAffected ["Unknown.func"] g
       |> Array.length
       |> Expect.equal "should find 0 tests" 0
     }
     test "findAffected deduplicates across symbols" {
-      let tid = TestId.create "test1" "xunit"
+      let tid = TestId.create "test1" TestFramework.XUnit
       let g = TestDependencyGraph.fromDirect (Map.ofList [
         "A.f1", [| tid |]
         "A.f2", [| tid |]
@@ -516,7 +516,7 @@ let liveTestingTypesTests = testList "LiveTestingTypes" [
       reachable |> List.length |> Expect.equal "should not infinite loop" 2
     }
     test "computeTransitiveCoverage propagates through call graph" {
-      let tid = TestId.create "test1" "xunit"
+      let tid = TestId.create "test1" TestFramework.XUnit
       let callGraph = Map.ofList [ "testFunc", [| "helperA"; "helperB" |] ]
       let direct = Map.ofList [ "testFunc", [| tid |] ]
       let transitive = TestDependencyGraph.computeTransitiveCoverage callGraph direct
@@ -524,8 +524,8 @@ let liveTestingTypesTests = testList "LiveTestingTypes" [
       transitive |> Map.containsKey "helperB" |> Expect.isTrue "helper should be covered"
     }
     test "mergePerFileIndexes combines across files" {
-      let tid1 = TestId.create "t1" "x"
-      let tid2 = TestId.create "t2" "x"
+      let tid1 = TestId.create "t1" (TestFramework.Unknown "x")
+      let tid2 = TestId.create "t2" (TestFramework.Unknown "x")
       let perFile = Map.ofList [
         "file1.fs", Map.ofList [ "sym", [| tid1 |] ]
         "file2.fs", Map.ofList [ "sym", [| tid2 |] ]
@@ -550,27 +550,27 @@ let liveTestingTypesTests = testList "LiveTestingTypes" [
       |> Expect.equal "should return as-is" "simpleTest"
     }
     test "attributeMatchesFramework xunit Fact" {
-      SourceMapping.attributeMatchesFramework "xunit" "Fact"
+      SourceMapping.attributeMatchesFramework TestFramework.XUnit "Fact"
       |> Expect.isTrue "Fact matches xunit"
     }
     test "attributeMatchesFramework xunit FactAttribute" {
-      SourceMapping.attributeMatchesFramework "xunit" "FactAttribute"
+      SourceMapping.attributeMatchesFramework TestFramework.XUnit "FactAttribute"
       |> Expect.isTrue "FactAttribute matches xunit"
     }
     test "attributeMatchesFramework expecto Tests" {
-      SourceMapping.attributeMatchesFramework "expecto" "Tests"
+      SourceMapping.attributeMatchesFramework TestFramework.Expecto "Tests"
       |> Expect.isTrue "Tests matches expecto"
     }
     test "attributeMatchesFramework nunit Test" {
-      SourceMapping.attributeMatchesFramework "nunit" "Test"
+      SourceMapping.attributeMatchesFramework TestFramework.NUnit "Test"
       |> Expect.isTrue "Test matches nunit"
     }
     test "attributeMatchesFramework mstest TestMethod" {
-      SourceMapping.attributeMatchesFramework "mstest" "TestMethod"
+      SourceMapping.attributeMatchesFramework TestFramework.MSTest "TestMethod"
       |> Expect.isTrue "TestMethod matches mstest"
     }
     test "attributeMatchesFramework unknown returns false" {
-      SourceMapping.attributeMatchesFramework "unknown" "Fact"
+      SourceMapping.attributeMatchesFramework (TestFramework.Unknown "unknown") "Fact"
       |> Expect.isFalse "unknown framework shouldn't match"
     }
   ]
