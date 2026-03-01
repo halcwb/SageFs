@@ -108,6 +108,7 @@
         <Compile Include="SseFeatureFormatTests.fs" />
         <Compile Include="FeatureHookTests.fs" />
         <Compile Include="AlgebraicPropertyTests.fs" />
+        <Compile Include="EventFoldPropertyTests.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 
