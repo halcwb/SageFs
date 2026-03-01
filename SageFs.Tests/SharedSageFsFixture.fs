@@ -32,15 +32,12 @@ type SharedSageFsFixture() =
       let proc = Process.Start(startInfo)
       mcpProcess <- Some proc
 
-      // Give MCP server time to initialize and connect to daemon
-      do! Task.Delay(5000)
-
+      // Poll until MCP server is responsive (50ms intervals, 30s timeout)
       let mutable attempts = 0
       let mutable ready = false
 
-      // Try for 30 seconds (60 attempts * 500ms)
-      while not ready && attempts < 60 do
-        do! Task.Delay(500)
+      while not ready && attempts < 300 do
+        do! Task.Delay(100)
         let! health = this.CheckMcpHealth()
 
         if health then

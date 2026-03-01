@@ -80,7 +80,7 @@ let actorSplitTests =
     testCase "GetDiagnostics responds during long eval"
     <| fun _ ->
       let result = createActorResult ()
-      Thread.Sleep(500)
+      Thread.Sleep(50)
 
       let evalTask =
         async {

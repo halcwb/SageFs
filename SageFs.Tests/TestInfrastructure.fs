@@ -4,6 +4,7 @@ open SageFs.ActorCreation
 open SageFs.AppState
 open SageFs.McpTools
 open System.Collections.Concurrent
+open System.Threading
 
 let quietLogger =
   { new SageFs.Utils.ILogger with
@@ -11,6 +12,27 @@ let quietLogger =
       member _.LogInfo msg = ()
       member _.LogError msg = ()
       member _.LogWarning msg = ()
+  }
+
+/// Poll a condition with 10ms intervals until it returns true or timeout expires.
+/// Returns the final condition value.
+let waitFor (timeoutMs: int) (condition: unit -> bool) =
+  let sw = System.Diagnostics.Stopwatch.StartNew()
+  while not (condition ()) && sw.ElapsedMilliseconds < int64 timeoutMs do
+    Thread.Sleep 10
+  condition ()
+
+/// Async version of waitFor for task-based tests.
+let waitForAsync (timeoutMs: int) (condition: unit -> System.Threading.Tasks.Task<bool>) =
+  task {
+    let sw = System.Diagnostics.Stopwatch.StartNew()
+    let mutable result = false
+    while not result && sw.ElapsedMilliseconds < int64 timeoutMs do
+      let! ok = condition ()
+      result <- ok
+      if not result then
+        do! System.Threading.Tasks.Task.Delay 50
+    return result
   }
 
 /// Shared Marten store for tests — uses the same Testcontainer as EventStoreTests

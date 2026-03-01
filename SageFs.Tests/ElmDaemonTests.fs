@@ -195,7 +195,6 @@ let elmDaemonTests =
             EditorAction.Submit))
 
         // Wait for effect handler to execute
-        Threading.Thread.Sleep(500)
         tracker.WaitForUpdate 500
 
         // The effect handler should have been called

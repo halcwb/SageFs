@@ -207,7 +207,7 @@ let daemonLifecycleTests =
         let mutable attempts = 0
         let mutable info : DaemonInfo option = None
         while attempts < 60 && info.IsNone do
-          Thread.Sleep(500)
+          Thread.Sleep(100)
           info <- DaemonState.readOnPort port
           attempts <- attempts + 1
 
@@ -248,10 +248,12 @@ let daemonLifecycleTests =
         stopProc.ExitCode |> Expect.equal "stop exits 0" 0
         stopOutput |> Expect.stringContains "says shutting down" "hutting down"
 
-        // Verify daemon process actually exited
-        Thread.Sleep(2000)
-        let exited =
-          try daemonProc.HasExited with _ -> true
+        // Verify daemon process actually exited (poll with timeout)
+        let mutable exited = false
+        let sw = System.Diagnostics.Stopwatch.StartNew()
+        while not exited && sw.ElapsedMilliseconds < 5000L do
+          exited <- try daemonProc.HasExited with _ -> true
+          if not exited then Thread.Sleep(100)
         exited |> Expect.isTrue "daemon process should have exited"
 
         // Verify daemon is no longer responding

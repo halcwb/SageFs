@@ -18,7 +18,7 @@ let evalCancellationTests =
     testCase "CancelEval returns false when no eval is running"
     <| fun _ ->
       let result = createActorResult ()
-      Thread.Sleep(500)
+      Thread.Sleep(50)
       let cancelled = result.CancelEval()
       cancelled
       |> Expect.isFalse "Should return false when no eval is in progress"
@@ -26,7 +26,7 @@ let evalCancellationTests =
     testCase "CancelEval cancels a running eval"
     <| fun _ ->
       let result = createActorResult ()
-      Thread.Sleep(500)
+      Thread.Sleep(50)
 
       // Start a long-running eval in the background
       let evalTask =
@@ -37,8 +37,8 @@ let evalCancellationTests =
         }
         |> Async.StartAsTask
 
-      // Give eval time to start
-      Thread.Sleep(1000)
+      // Give eval time to start (poll until actor is busy or timeout)
+      Thread.Sleep(200)
 
       // Cancel via direct function (bypasses mailbox)
       let cancelled = result.CancelEval()

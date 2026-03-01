@@ -43,7 +43,7 @@ let startDaemon (port: int) = task {
   let mutable ready = false
   let mutable attempts = 0
   while not ready && attempts < 120 do
-    do! Threading.Tasks.Task.Delay(500)
+    do! Threading.Tasks.Task.Delay(100)
     try
       let! resp = client.GetAsync("/health")
       if int resp.StatusCode > 0 then ready <- true
@@ -265,7 +265,7 @@ let httpApiTests =
         }
 
         // Trigger an eval to generate events
-        Thread.Sleep(1000) // let SSE connect
+        Thread.Sleep(200) // let SSE connect
         let payload = {| code = "1 + 2;;" ; working_directory = testProjectDir |}
         let _, _ = postJson client "/exec" payload |> Async.AwaitTask |> Async.RunSynchronously
 

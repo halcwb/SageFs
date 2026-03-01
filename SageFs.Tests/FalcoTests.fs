@@ -154,9 +154,6 @@ printfn "Web app started on port {port}"
           failtestf "Failed to create Falco app: %s\nDiagnostics: %A" ex.Message response.Diagnostics
         | Ok _ -> printfn "App created successfully"
 
-        // Give the server time to start
-        do! Task.Delay(500)
-
         // Test the endpoint with retries
         printfn "Testing HTTP endpoint..."
         let! result = testHttpGetWithRetry $"http://localhost:{port}/" 10 200
@@ -220,8 +217,6 @@ printfn "Initial app started on port {port}"
         | Error ex -> failtestf "Failed to create initial app: %s\nDiagnostics: %A" ex.Message response1.Diagnostics
         | Ok _ -> printfn "Initial app created"
 
-        do! Task.Delay(500)
-
         // Test initial content with retries
         printfn "Testing initial content..."
         let! result1 = testHttpGetWithRetry $"http://localhost:{port}/" 10 200
@@ -255,8 +250,6 @@ printfn "Handler updated"
         match response2.EvaluationResult with
         | Error ex -> failtestf "Failed to update markup: %s" ex.Message
         | Ok _ -> printfn "Markup updated"
-
-        do! Task.Delay(500)
 
         // Test updated content with retries
         printfn "Testing updated content..."

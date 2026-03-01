@@ -11,7 +11,7 @@ let waitFor (condition: unit -> bool) (timeoutMs: int) =
   condition ()
 
 let wait () =
-  System.Threading.Thread.Sleep 500
+  System.Threading.Thread.Sleep 50
 
 [<Tests>]
 let elmLoopResilienceTests =
