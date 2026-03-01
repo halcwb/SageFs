@@ -1,4 +1,4 @@
-module SageFs.Tests.DrawAndRectCoverageTests
+module SageFs.Tests.DrawAndRectPrimitivesTests
 
 open Expecto
 open Expecto.Flip

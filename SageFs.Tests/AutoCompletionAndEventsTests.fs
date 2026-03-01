@@ -1,4 +1,4 @@
-module SageFs.Tests.FeaturesCoverageTests
+module SageFs.Tests.AutoCompletionAndEventsTests
 
 open Expecto
 open Expecto.Flip
@@ -272,7 +272,7 @@ let instrumentationTests = testList "LiveTestingInstrumentation" [
 // ═══════════════════════════════════════════════════════════
 
 [<Tests>]
-let allFeaturesCoverageTests = testList "Features coverage" [
+let allAutoCompletionAndEventsTests = testList "Auto-completion and events" [
   testList "AutoCompletion" [
     scoreCandidateTests
     scoreCandidatePropertyTests

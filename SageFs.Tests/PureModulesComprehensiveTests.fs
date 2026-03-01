@@ -1,4 +1,4 @@
-module SageFs.Tests.PureFunctionCoverageTests
+module SageFs.Tests.PureModulesComprehensiveTests
 
 open Expecto
 open Expecto.Flip
@@ -2805,7 +2805,7 @@ let sseWriterFormatTests = testList "SseWriter format" [
 ]
 
 [<Tests>]
-let allPureFunctionCoverageTests = testList "Pure function coverage" [
+let allPureModulesTests = testList "Pure modules comprehensive" [
   testList "HotReloading" [
     isTopLevelFunctionBindingTests
     isStaticMemberFunctionTests

@@ -1,4 +1,4 @@
-module SageFs.Tests.CoverageBoostTests
+module SageFs.Tests.SessionPredicatesAndUiTests
 
 open System
 open Expecto

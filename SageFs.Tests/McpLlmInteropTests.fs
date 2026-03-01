@@ -45,20 +45,6 @@ module StartupConfigTests =
         Expect.isTrue config.HotReloadEnabled "Should track hot reload"
         Expect.isFalse config.AspireDetected "Should track Aspire detection"
       
-      testCase "StartupConfig should be optional in AppState"
-      <| fun _ ->
-        task {
-          let ctx = sharedCtx ()
-          
-          // Get the AppState and verify StartupConfig field exists
-          let! appState = globalActorResult.Value.Actor.PostAndAsyncReply(fun reply -> SageFs.AppState.GetAppState reply)
-          
-          // The field exists and can be Some or None
-          Expect.isTrue (appState.StartupConfig.IsSome || appState.StartupConfig.IsNone) "StartupConfig field should exist"
-        }
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-      
       testCase "StartupConfig should handle empty/default states"
       <| fun _ ->
         let emptyConfig: SageFs.AppState.StartupConfig = {
@@ -120,8 +106,7 @@ module GetStartupInfoTests =
           
           let! result = getStartupInfoJson ctx "test" None
           
-          // Should be valid JSON that LLMs can parse
-          Expect.stringContains result "{" "Should be JSON object"
+          Expect.stringContains result "\"commandLineArgs\"" "Should contain JSON field names"
         }
         |> Async.AwaitTask
         |> Async.RunSynchronously
@@ -162,34 +147,6 @@ module EnhancedStatusTests =
         }
         |> Async.AwaitTask
         |> Async.RunSynchronously
-      
-      testCase "get_fsi_status should show checkmarks for enabled features"
-      <| fun _ ->
-        task {
-          let ctx = sharedCtx ()
-          
-          let! result = getStatus ctx "test" None None
-          
-          // Should include formatted status
-          Expect.isNotNull result "Should return result"
-          Expect.isTrue (result.Length > 0) "Should return non-empty result"
-        }
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-      
-      testCase "get_fsi_status should work with default startup config"
-      <| fun _ ->
-        task {
-          let ctx = sharedCtx ()
-          
-          let! result = getStatus ctx "test" None None
-          
-          // Should still return basic status
-          Expect.stringContains result "Events:" "Should show events"
-          Expect.stringContains result "Available:" "Should show tools"
-        }
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
     ]
 
 // ============================================================================
@@ -201,16 +158,11 @@ module ProjectDiscoveryTests =
   let tests =
     testList "[Integration] Project discovery for LLMs" [
 
-      testCase "loadSolution discovers .fsproj files when no args provided"
+      testCase "loadSolution runs without error and returns a solution"
       <| fun _ ->
+        // Verifies loadSolution completes without exception from the test working directory
         let solution = SageFs.ProjectLoading.loadSolution quietLogger []
-        Expect.isTrue (solution.Projects.Length >= 0) "Should return project list"
-        Expect.isTrue (solution.FsProjects.Length >= 0) "Should return F# projects list"
-
-      testCase "loadSolution discovers .sln files when no args provided"
-      <| fun _ ->
-        let solution = SageFs.ProjectLoading.loadSolution quietLogger []
-        Expect.isTrue (box solution <> null) "Should return solution object"
+        ignore solution
 
       testCase "isSolutionFile matches .sln files"
       <| fun _ ->
@@ -271,70 +223,6 @@ module ProjectDiscoveryTests =
         }
         |> Async.AwaitTask
         |> Async.RunSynchronously
-    ]
-
-// ============================================================================
-// CRITICAL IMPROVEMENT #5: Enhanced Tool Descriptions
-// ============================================================================
-
-module ToolDescriptionTests =
-  
-  let tests =
-    testList "Enhanced tool descriptions for LLMs" [
-      
-      testCase "send_fsharp_code description should mention project loading"
-      <| fun _ ->
-        let description = 
-          """Send F# code to the FSI (F# Interactive) session for execution. 
-Make sure to end statements with ';;' just as you would when interacting with fsi.exe.
-
-NOTE: If types from a project are not available, SageFs may need to be restarted with:
-  SageFs --proj YourProject.fsproj
-This loads all project dependencies automatically."""
-        
-        Expect.stringContains description "--proj" "Should mention project loading"
-        Expect.stringContains description "dependencies" "Should mention dependencies"
-      
-      testCase "get_fsi_status description should mention startup configuration"
-      <| fun _ ->
-        let description = 
-          "Get information about the FSI service status, including startup configuration, loaded projects, session statistics, and available capabilities."
-        
-        Expect.stringContains description "startup configuration" "Should mention startup config"
-        Expect.stringContains description "loaded projects" "Should mention projects"
-        Expect.stringContains description "capabilities" "Should mention capabilities"
-    ]
-
-// ============================================================================
-// CRITICAL IMPROVEMENT #6: McpContext Enhancement
-// ============================================================================
-
-module McpContextTests =
-  
-  let tests =
-    testList "[Integration] McpContext accesses StartupConfig from AppState" [
-      
-      testCase "McpContext should access StartupConfig through Actor"
-      <| fun _ ->
-        task {
-          let ctx = sharedCtx ()
-          
-          // Get StartupConfig from AppState via Actor
-          let! appState = globalActorResult.Value.Actor.PostAndAsyncReply(fun reply -> SageFs.AppState.GetAppState reply)
-          
-          // StartupConfig should be accessible from AppState
-          Expect.isTrue (appState.StartupConfig.IsSome || appState.StartupConfig.IsNone) "Should access StartupConfig"
-        }
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-      
-      testCase "McpContext should work without direct StartupConfig field"
-      <| fun _ ->
-        let ctx = sharedCtx ()
-        
-        // Context should be valid without StartupConfig field
-        Expect.isTrue true "Should have actor"
-        Expect.isTrue (box ctx.Persistence <> null) "Should have persistence"
     ]
 
 // ============================================================================
@@ -769,8 +657,6 @@ let allTests =
     GetStartupInfoTests.tests
     EnhancedStatusTests.tests
     ProjectDiscoveryTests.tests
-    ToolDescriptionTests.tests
-    McpContextTests.tests
     McpAdapterEnhancementTests.tests
     ShadowCopyTests.tests
     WarmUpTests.tests

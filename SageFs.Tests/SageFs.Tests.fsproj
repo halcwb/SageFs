@@ -85,14 +85,14 @@
         <Compile Include="RetryPolicyTests.fs" />
         <Compile Include="FsiRewriteTests.fs" />
         <Compile Include="LiveTestingTypesTests.fs" />
-        <Compile Include="CoverageBoostTests.fs" />
+        <Compile Include="SessionPredicatesAndUiTests.fs" />
         <Compile Include="SessionManagerCqrsTests.fs" />
-        <Compile Include="FeaturesCoverageTests.fs" />
-        <Compile Include="DrawAndRectCoverageTests.fs" />
-        <Compile Include="MiscCoverageTests.fs" />
+        <Compile Include="AutoCompletionAndEventsTests.fs" />
+        <Compile Include="DrawAndRectPrimitivesTests.fs" />
+        <Compile Include="ThemesGutterAndDiagnosticsTests.fs" />
         <Compile Include="InstrumentationTests.fs" />
         <Compile Include="LayoutAndInputTests.fs" />
-        <Compile Include="PureFunctionCoverageTests.fs" />
+        <Compile Include="PureModulesComprehensiveTests.fs" />
         <Compile Include="CoverageInstrumenterTests.fs" />
         <Compile Include="EvalDiffTests.fs" />
         <Compile Include="CellDependencyGraphTests.fs" />
@@ -108,7 +108,6 @@
         <PackageReference Include="Expecto" />
         <PackageReference Include="Expecto.FsCheck" />
         <PackageReference Include="Expecto.Hopac" />
-        <PackageReference Include="Fabulous.AST" />
         <PackageReference Include="FsCheck" />
         <PackageReference Include="YoloDev.Expecto.TestSdk" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" />
@@ -118,7 +117,6 @@
         <PackageReference Include="Falco.Markup" />
         <PackageReference Include="FSharp.SystemTextJson" />
         <PackageReference Include="Verify.Expecto" />
-        <PackageReference Include="AltCover" />
         <PackageReference Include="Microsoft.Playwright" />
         <PackageReference Include="Testcontainers.PostgreSql" />
         <FrameworkReference Include="Microsoft.AspNetCore.App" />

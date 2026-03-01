@@ -1,4 +1,4 @@
-module SageFs.Tests.MiscCoverageTests
+module SageFs.Tests.ThemesGutterAndDiagnosticsTests
 
 open System
 open Expecto

@@ -12,7 +12,7 @@ open SageFs
 let tests =
   testList "MCP HTTP Handler tests" [
 
-    test "MCP handler processes initialize request" {
+    test "formatEvalResult and formatStatus produce expected content" {
       // Test MCP protocol initialize handshake
       // Verify the McpAdapter module and its functions exist
       
@@ -31,7 +31,7 @@ let tests =
       Expect.stringContains status "test-session" "formatStatus should work"
     }
 
-    test "MCP handler processes tools/list request" {
+    test "formatEvents and parseScriptFile produce expected content" {
       // Test tools listing functionality
       // Verify that McpTools functions exist by checking their signatures
       
