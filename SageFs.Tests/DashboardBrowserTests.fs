@@ -137,12 +137,8 @@ let tests = testList "Dashboard browser tests" [
     Expect.equal title "SageFs Dashboard" "page title"
   })
 
-  playwrightTest "h1 shows version" (fun page -> task {
-    let h1 = page.Locator("h1")
-    let! text = h1.TextContentAsync()
-    Expect.isTrue (text.Contains("SageFs Dashboard")) "h1 text"
-    Expect.isTrue (text.Contains("v")) "h1 version prefix"
-  })
+  // NOTE: h1, eval textarea, eval button, reset/hard-reset buttons, clear button
+  // moved to shellStructureTests in DashboardSnapshotTests.fs (no browser needed)
 
   playwrightTest "output panel has log-box class" (fun page -> task {
     let panel = page.Locator("#output-panel")
@@ -150,35 +146,6 @@ let tests = testList "Dashboard browser tests" [
       LocatorWaitForOptions(State = WaitForSelectorState.Visible))
     let! cls = panel.GetAttributeAsync("class")
     Expect.isTrue (cls.Contains("log-box")) "log-box class"
-  })
-
-  playwrightTest "evaluate section has textarea with placeholder" (fun page -> task {
-    let textarea = page.Locator(".eval-input").First
-    do! PlaywrightExpect.isVisibleAsync textarea "textarea visible"
-    let! placeholder = textarea.GetAttributeAsync("placeholder")
-    Expect.isTrue (placeholder.Contains("F# code")) "placeholder"
-  })
-
-  playwrightTest "eval button is present" (fun page -> task {
-    let evalBtn = page.GetByRole(
-      AriaRole.Button, PageGetByRoleOptions(Name = "Eval"))
-    do! PlaywrightExpect.isVisibleAsync evalBtn "Eval button"
-  })
-
-  playwrightTest "reset and hard reset buttons are present" (fun page -> task {
-    let resetBtn = page.GetByRole(
-      AriaRole.Button, PageGetByRoleOptions(Name = "↻ Reset"))
-    do! PlaywrightExpect.isVisibleAsync resetBtn "Reset"
-    let hardResetBtn = page.GetByRole(
-      AriaRole.Button, PageGetByRoleOptions(Name = "⟳ Hard Reset"))
-    do! PlaywrightExpect.isVisibleAsync hardResetBtn "Hard Reset"
-  })
-
-  playwrightTest "clear output button in panel header" (fun page -> task {
-    let clearBtn = page.Locator("#output-section .panel-header-btn")
-    do! PlaywrightExpect.isVisibleAsync clearBtn "Clear button"
-    let! text = clearBtn.TextContentAsync()
-    Expect.equal text "Clear" "button text"
   })
 
   playwrightTest "keyboard help toggles on click" (fun page -> task {
@@ -212,21 +179,7 @@ let tests = testList "Dashboard browser tests" [
     do! PlaywrightExpect.waitForText 10_000 stats "evals"
   })
 
-  playwrightTest "create session section has all inputs" (fun page -> task {
-    let dirInput = page.Locator("""input[placeholder*="path"]""")
-    do! PlaywrightExpect.isVisibleAsync dirInput "working dir input"
-
-    let discoverBtn = page.GetByRole(
-      AriaRole.Button, PageGetByRoleOptions(Name = "🔍 Discover"))
-    do! PlaywrightExpect.isVisibleAsync discoverBtn "discover button"
-
-    let manualInput = page.Locator("""input[placeholder*="fsproj"]""")
-    do! PlaywrightExpect.isVisibleAsync manualInput "manual projects input"
-
-    let createBtn = page.GetByRole(
-      AriaRole.Button, PageGetByRoleOptions(Name = "➕ Create Session"))
-    do! PlaywrightExpect.isVisibleAsync createBtn "create session button"
-  })
+  // NOTE: "create session section has all inputs" moved to shellStructureTests in DashboardSnapshotTests.fs
 
   playwrightTest "Tab inserts 2 spaces in textarea" (fun page -> task {
     // Wait for Datastar to fully initialize and bind handlers
@@ -399,15 +352,7 @@ let tests = testList "Dashboard browser tests" [
   // The banner must NOT use Datastar signals (data-show) because the server
   // can't push signal updates when it's dead. Banner starts hidden; JS shows
   // it only when problems occur.
-
-  playwrightTest "server-status banner does not have data-show attribute" (fun page -> task {
-    let banner = page.Locator("#server-status")
-    let! attached = banner.IsVisibleAsync()
-    // Banner might be hidden (correct) or visible — either way check for data-show
-    let! dataShow = banner.GetAttributeAsync("data-show")
-    Expect.isNull dataShow
-      "Banner should not use data-show (Datastar signal). Use JS lifecycle instead."
-  })
+  // NOTE: data-show absence is now verified by shellStructureTests in DashboardSnapshotTests.fs
 
   playwrightTest "server-status banner is invisible when connected" (fun page -> task {
     // Give SSE time to connect

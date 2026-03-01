@@ -232,6 +232,59 @@ let mkRegion id content = {
   LineAnnotations = [||]
 }
 
+let shellStructureTests = testList "shell structure (replaces browser existence checks)" [
+  testTask "renderShell snapshot" {
+    let html = renderShell "0.0.0-test" |> renderNode
+    do! verifyDashboard "dashboard_shell" html
+  }
+
+  test "h1 shows version" {
+    let html = renderShell "1.2.3" |> renderNode
+    Expect.stringContains html "SageFs" "h1 has SageFs"
+    Expect.stringContains html "v1.2.3" "h1 has version"
+  }
+
+  test "evaluate section has textarea with placeholder" {
+    let html = renderShell "0.0.0" |> renderNode
+    Expect.stringContains html "eval-input" "has eval-input class"
+    Expect.stringContains html "F# code" "placeholder mentions F#"
+  }
+
+  test "eval button is present" {
+    let html = renderShell "0.0.0" |> renderNode
+    Expect.stringContains html "Eval" "has Eval button"
+  }
+
+  test "reset and hard reset buttons are present" {
+    let html = renderShell "0.0.0" |> renderNode
+    Expect.stringContains html "Reset" "has Reset button"
+    Expect.stringContains html "Hard Reset" "has Hard Reset button"
+  }
+
+  test "clear output button in panel header" {
+    let html = renderShell "0.0.0" |> renderNode
+    Expect.stringContains html "Clear" "has Clear button"
+  }
+
+  test "create session section has all inputs" {
+    let html = renderShell "0.0.0" |> renderNode
+    Expect.stringContains html "path" "has working dir placeholder"
+    Expect.stringContains html "Discover" "has Discover button"
+    Expect.stringContains html "fsproj" "has fsproj placeholder"
+    Expect.stringContains html "Create" "has Create Session button"
+  }
+
+  test "server-status banner has no data-show attribute" {
+    let html = renderShell "0.0.0" |> renderNode
+    // The banner element should NOT use Datastar data-show (server can't push when dead)
+    let bannerStart = html.IndexOf("id=\"server-status\"")
+    Expect.isTrue (bannerStart > -1) "server-status exists"
+    let tagEnd = html.IndexOf(">", bannerStart)
+    let tag = html.Substring(bannerStart, tagEnd - bannerStart)
+    Expect.isFalse (tag.Contains("data-show")) "banner must not use data-show"
+  }
+]
+
 let standbyBadgeSseTests = testList "SSE standby badge" [
 
   test "ready standby shows green badge" {
@@ -327,6 +380,7 @@ let allDashboardSnapshotTests = testList "Dashboard Snapshots" [
   keyboardHelpSnapshotTests
   edgeCaseSnapshotTests
   parserTests
+  shellStructureTests
   standbyBadgeSseTests
   warmupProgressSseTests
 ]
