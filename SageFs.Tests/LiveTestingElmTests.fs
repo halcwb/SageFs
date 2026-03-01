@@ -633,7 +633,8 @@ let triggerWiringTests = testList "RunTrigger wiring" [
       LiveTestPipelineState.empty with
         TestState = { LiveTestState.empty with
                         DiscoveredTests = [| tc |]
-                        RunPolicies = RunPolicyDefaults.defaults }
+                        RunPolicies = RunPolicyDefaults.defaults
+                        Activation = LiveTestingActivation.Active }
     }
     let s1 = s0 |> LiveTestPipelineState.onFileSave "Test.fs" now
     let effects, _ =
@@ -658,7 +659,8 @@ let triggerWiringTests = testList "RunTrigger wiring" [
       LiveTestPipelineState.empty with
         TestState = { LiveTestState.empty with
                         DiscoveredTests = [| tc |]
-                        RunPolicies = RunPolicyDefaults.defaults }
+                        RunPolicies = RunPolicyDefaults.defaults
+                        Activation = LiveTestingActivation.Active }
     }
     let s1 = s0 |> LiveTestPipelineState.onKeystroke "let x = 1" "Test.fs" now
     let effects, _ =
