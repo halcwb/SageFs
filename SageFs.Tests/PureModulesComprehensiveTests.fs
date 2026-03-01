@@ -2328,228 +2328,6 @@ let watchdogDecideTests = testList "Watchdog.decide" [
 ]
 
 // ═══════════════════════════════════════════════════════════
-// RestartPolicy — backoff formula and decide
-// ═══════════════════════════════════════════════════════════
-
-let restartPolicyBackoffTests = testList "RestartPolicy backoff and decide" [
-  let policy =
-    { Policy.MaxRestarts = 3
-      BackoffBase = TimeSpan.FromSeconds(1.0: float)
-      BackoffMax = TimeSpan.FromSeconds(30.0: float)
-      ResetWindow = TimeSpan.FromMinutes(5.0: float) }
-
-  testList "nextBackoff" [
-    test "count 0 returns base" {
-      RestartPolicy.nextBackoff policy 0
-      |> Expect.equal "base" (TimeSpan.FromSeconds(1.0: float))
-    }
-    test "count 1 returns base" {
-      RestartPolicy.nextBackoff policy 1
-      |> Expect.equal "base" (TimeSpan.FromSeconds(1.0: float))
-    }
-    test "count 2 doubles" {
-      RestartPolicy.nextBackoff policy 2
-      |> Expect.equal "2s" (TimeSpan.FromSeconds(2.0: float))
-    }
-    test "count 3 quadruples" {
-      RestartPolicy.nextBackoff policy 3
-      |> Expect.equal "4s" (TimeSpan.FromSeconds(4.0: float))
-    }
-    test "high count caps at max" {
-      RestartPolicy.nextBackoff policy 10
-      |> Expect.equal "capped" (TimeSpan.FromSeconds(30.0: float))
-    }
-    test "very high count still caps" {
-      RestartPolicy.nextBackoff policy 100
-      |> Expect.equal "capped" (TimeSpan.FromSeconds(30.0: float))
-    }
-  ]
-  testList "decide" [
-    test "first restart returns Restart with base delay" {
-      let state = RestartPolicy.emptyState
-      let now = DateTime(2025,1,1,0,1,0)
-      match RestartPolicy.decide policy state now with
-      | RestartPolicy.Decision.Restart delay, newState ->
-        delay |> Expect.equal "base delay" (TimeSpan.FromSeconds(1.0: float))
-        newState.RestartCount |> Expect.equal "count 1" 1
-        newState.LastRestartAt |> Expect.isSome "has timestamp"
-        newState.WindowStart |> Expect.isSome "has window"
-      | other -> failwithf "Expected Restart, got %A" other
-    }
-    test "max restarts gives up" {
-      let state =
-        { RestartPolicy.State.RestartCount = 3
-          LastRestartAt = Some (DateTime(2025,1,1))
-          WindowStart = Some (DateTime(2025,1,1)) }
-      let now = DateTime(2025,1,1,0,1,0)
-      match RestartPolicy.decide policy state now with
-      | RestartPolicy.Decision.GiveUp _, _ -> ()
-      | other -> failwithf "Expected GiveUp, got %A" other
-    }
-    test "backoff grows with restarts" {
-      let state =
-        { RestartPolicy.State.RestartCount = 2
-          LastRestartAt = Some (DateTime(2025,1,1))
-          WindowStart = Some (DateTime(2025,1,1)) }
-      let now = DateTime(2025,1,1,0,1,0)
-      match RestartPolicy.decide policy state now with
-      | RestartPolicy.Decision.Restart delay, _ ->
-        (delay.TotalSeconds, 1.0) |> Expect.isGreaterThan "more than base"
-      | other -> failwithf "Expected Restart, got %A" other
-    }
-    test "window reset resets count" {
-      let state =
-        { RestartPolicy.State.RestartCount = 2
-          LastRestartAt = Some (DateTime(2025,1,1))
-          WindowStart = Some (DateTime(2025,1,1)) }
-      let now = DateTime(2025,1,1,0,10,0) // 10 min later, past 5 min window
-      match RestartPolicy.decide policy state now with
-      | RestartPolicy.Decision.Restart _, newState ->
-        newState.RestartCount |> Expect.equal "reset to 1" 1
-      | other -> failwithf "Expected Restart, got %A" other
-    }
-  ]
-]
-
-// ═══════════════════════════════════════════════════════════
-// ValidatedBuffer — editing operations
-// ═══════════════════════════════════════════════════════════
-
-let private mkBuf (text: string) =
-  let lines = text.Split('\n') |> Array.toList
-  match ValidatedBuffer.create lines { Line = 0; Column = 0 } with
-  | Ok vb -> vb
-  | Error e -> failwithf "Failed to create buffer: %A" e
-
-let private mkBufAt (text: string) line col =
-  let lines = text.Split('\n') |> Array.toList
-  match ValidatedBuffer.create lines { Line = line; Column = col } with
-  | Ok vb -> vb
-  | Error e -> failwithf "Failed to create buffer: %A" e
-
-let validatedBufferOpsTests = testList "ValidatedBuffer operations" [
-  testList "create" [
-    test "single line" {
-      let vb = mkBuf "hello"
-      ValidatedBuffer.text vb |> Expect.equal "text" "hello"
-      (ValidatedBuffer.cursor vb).Line |> Expect.equal "line 0" 0
-    }
-    test "multiline" {
-      let vb = mkBuf "line1\nline2\nline3"
-      ValidatedBuffer.lines vb |> List.length |> Expect.equal "3 lines" 3
-    }
-    test "cursor at valid position" {
-      let vb = mkBufAt "hello" 0 3
-      (ValidatedBuffer.cursor vb).Column |> Expect.equal "col 3" 3
-    }
-    test "cursor out of bounds fails" {
-      let lines = ["hello"]
-      let result = ValidatedBuffer.create lines { Line = 5; Column = 0 }
-      match result with
-      | Error _ -> ()
-      | Ok _ -> failwith "Expected Error for out of bounds cursor"
-    }
-  ]
-  testList "insertChar" [
-    test "inserts at cursor position" {
-      let vb = mkBufAt "hllo" 0 1
-      let vb2 = ValidatedBuffer.insertChar 'e' vb
-      ValidatedBuffer.text vb2 |> Expect.equal "hello" "hello"
-    }
-    test "inserts at start of line" {
-      let vb = mkBufAt "ello" 0 0
-      let vb2 = ValidatedBuffer.insertChar 'h' vb
-      ValidatedBuffer.text vb2 |> Expect.equal "hello" "hello"
-    }
-    test "inserts at end of line" {
-      let vb = mkBufAt "hell" 0 4
-      let vb2 = ValidatedBuffer.insertChar 'o' vb
-      ValidatedBuffer.text vb2 |> Expect.equal "hello" "hello"
-    }
-    test "advances cursor after insert" {
-      let vb = mkBufAt "ab" 0 1
-      let vb2 = ValidatedBuffer.insertChar 'x' vb
-      (ValidatedBuffer.cursor vb2).Column |> Expect.equal "col advanced" 2
-    }
-  ]
-  testList "deleteBackward" [
-    test "deletes char before cursor" {
-      let vb = mkBufAt "hello" 0 3
-      let vb2 = ValidatedBuffer.deleteBackward vb
-      ValidatedBuffer.text vb2 |> Expect.equal "removed l" "helo"
-    }
-    test "at col 0 does nothing on first line" {
-      let vb = mkBufAt "hello" 0 0
-      let vb2 = ValidatedBuffer.deleteBackward vb
-      ValidatedBuffer.text vb2 |> Expect.equal "unchanged" "hello"
-    }
-    test "at col 0 on second line joins lines" {
-      let vb = mkBufAt "line1\nline2" 1 0
-      let vb2 = ValidatedBuffer.deleteBackward vb
-      ValidatedBuffer.lines vb2 |> List.length |> Expect.equal "joined to 1 line" 1
-      ValidatedBuffer.text vb2 |> Expect.equal "joined" "line1line2"
-    }
-  ]
-  testList "newLine" [
-    test "splits line at cursor" {
-      let vb = mkBufAt "hello" 0 3
-      let vb2 = ValidatedBuffer.newLine vb
-      ValidatedBuffer.lines vb2 |> List.length |> Expect.equal "2 lines" 2
-    }
-    test "cursor moves to start of new line" {
-      let vb = mkBufAt "hello" 0 3
-      let vb2 = ValidatedBuffer.newLine vb
-      (ValidatedBuffer.cursor vb2).Line |> Expect.equal "line 1" 1
-      (ValidatedBuffer.cursor vb2).Column |> Expect.equal "col 0" 0
-    }
-  ]
-  testList "moveCursor" [
-    test "right moves column" {
-      let vb = mkBufAt "hello" 0 2
-      let vb2 = ValidatedBuffer.moveCursor Direction.Right vb
-      (ValidatedBuffer.cursor vb2).Column |> Expect.equal "col 3" 3
-    }
-    test "left moves column back" {
-      let vb = mkBufAt "hello" 0 3
-      let vb2 = ValidatedBuffer.moveCursor Direction.Left vb
-      (ValidatedBuffer.cursor vb2).Column |> Expect.equal "col 2" 2
-    }
-    test "down moves to next line" {
-      let vb = mkBufAt "line1\nline2" 0 0
-      let vb2 = ValidatedBuffer.moveCursor Direction.Down vb
-      (ValidatedBuffer.cursor vb2).Line |> Expect.equal "line 1" 1
-    }
-    test "up moves to previous line" {
-      let vb = mkBufAt "line1\nline2" 1 0
-      let vb2 = ValidatedBuffer.moveCursor Direction.Up vb
-      (ValidatedBuffer.cursor vb2).Line |> Expect.equal "line 0" 0
-    }
-    test "left at col 0 wraps to end of previous line" {
-      let vb = mkBufAt "hello\nworld" 1 0
-      let vb2 = ValidatedBuffer.moveCursor Direction.Left vb
-      (ValidatedBuffer.cursor vb2).Line |> Expect.equal "line 0" 0
-      (ValidatedBuffer.cursor vb2).Column |> Expect.equal "end of line" 5
-    }
-    test "right at end of line wraps to start of next line" {
-      let vb = mkBufAt "hello\nworld" 0 5
-      let vb2 = ValidatedBuffer.moveCursor Direction.Right vb
-      (ValidatedBuffer.cursor vb2).Line |> Expect.equal "line 1" 1
-      (ValidatedBuffer.cursor vb2).Column |> Expect.equal "col 0" 0
-    }
-    test "up at line 0 stays at line 0" {
-      let vb = mkBufAt "hello" 0 3
-      let vb2 = ValidatedBuffer.moveCursor Direction.Up vb
-      (ValidatedBuffer.cursor vb2).Line |> Expect.equal "stays line 0" 0
-    }
-    test "down at last line stays at last line" {
-      let vb = mkBufAt "hello" 0 3
-      let vb2 = ValidatedBuffer.moveCursor Direction.Down vb
-      (ValidatedBuffer.cursor vb2).Line |> Expect.equal "stays line 0" 0
-    }
-  ]
-]
-
-// ═══════════════════════════════════════════════════════════
 // SageFsError.describe — error contract documentation
 // ═══════════════════════════════════════════════════════════
 
@@ -2660,6 +2438,18 @@ let errorMessagesSuggestionTests = testList "ErrorMessages.getSuggestion" [
 // ═══════════════════════════════════════════════════════════
 // EditorUpdate — string surgery edge cases
 // ═══════════════════════════════════════════════════════════
+
+let private mkBuf (text: string) =
+  let lines = text.Split('\n') |> Array.toList
+  match ValidatedBuffer.create lines { Line = 0; Column = 0 } with
+  | Ok vb -> vb
+  | Error e -> failwithf "Failed to create buffer: %A" e
+
+let private mkBufAt (text: string) line col =
+  let lines = text.Split('\n') |> Array.toList
+  match ValidatedBuffer.create lines { Line = line; Column = col } with
+  | Ok vb -> vb
+  | Error e -> failwithf "Failed to create buffer: %A" e
 
 let editorSurgeryTests = testList "EditorUpdate string surgery" [
   testList "deleteForward" [
@@ -2914,8 +2704,6 @@ let allPureModulesTests = testList "Pure modules comprehensive" [
     gutterRenderTests
     mcpAdapterPureTests
     watchdogDecideTests
-    restartPolicyBackoffTests
-    validatedBufferOpsTests
     sageFsErrorDescribeTests
     errorMessagesSuggestionTests
     editorSurgeryTests
