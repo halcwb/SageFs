@@ -102,6 +102,7 @@
         <Compile Include="NotebookExportTests.fs" />
         <Compile Include="SseFeatureFormatTests.fs" />
         <Compile Include="FeatureHookTests.fs" />
+        <Compile Include="AlgebraicPropertyTests.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 
