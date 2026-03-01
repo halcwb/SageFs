@@ -52,7 +52,7 @@ let tests = testList "SseDedupKey" [
       let before = SseDedupKey.fromModel baseModel
       let after =
         baseModel
-        |> withActivation LiveTestingActivation.Inactive
+        |> withActivation LiveTestingActivation.Active
         |> SseDedupKey.fromModel
       (before <> after)
       |> Expect.isTrue "must detect activation change"

@@ -798,7 +798,7 @@ let elmIntegrationTests = testList "LiveTesting Elm Integration" [
       TestRunPhase.isAnyRunning model.LiveTesting.TestState.RunPhases
       |> Expect.isFalse "not running"
       model.LiveTesting.TestState.Activation
-      |> Expect.equal "enabled" LiveTestingActivation.Active
+      |> Expect.equal "inactive by default" LiveTestingActivation.Inactive
     }
   ]
 
@@ -1739,6 +1739,7 @@ let annotationTests = testList "Gutter Annotations" [
   test "recomputeEditorAnnotations returns annotations when enabled" {
     let filePath = "Tests.fs"
     let state = { LiveTestState.empty with
+                    Activation = LiveTestingActivation.Active
                     SourceLocations = [|
                       { AttributeName = "Fact"; FunctionName = "test1"; FilePath = filePath; Line = 5; Column = 0 }
                       { AttributeName = "Test"; FunctionName = "test2"; FilePath = filePath; Line = 10; Column = 0 }
@@ -1761,6 +1762,7 @@ let annotationTests = testList "Gutter Annotations" [
   test "recomputeEditorAnnotations matches annotationsForFile" {
     let filePath = "Tests.fs"
     let state = { LiveTestState.empty with
+                    Activation = LiveTestingActivation.Active
                     SourceLocations = [|
                       { AttributeName = "Fact"; FunctionName = "test1"; FilePath = filePath; Line = 5; Column = 0 }
                     |] }
@@ -5981,6 +5983,7 @@ let coverageSelectionTests = testList "Coverage-based test selection" [
     let bm = CoverageBitmap.ofBoolArray [| true |]
     let state =
       { LiveTestState.empty with
+          Activation = LiveTestingActivation.Active
           DiscoveredTests = [| tc1; tc2 |]
           TestCoverageBitmaps = Map.ofList [ tid2, bm ]
           TestSessionMap = Map.ofList [ tid1, "s"; tid2, "s" ] }
