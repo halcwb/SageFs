@@ -57,6 +57,8 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       match otelConfigured with
       | true ->
         builder.AddOpenTelemetry(fun otel ->
+          otel.IncludeFormattedMessage <- true
+          otel.IncludeScopes <- true
           otel.AddOtlpExporter() |> ignore
         ) |> ignore
       | false -> ()

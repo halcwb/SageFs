@@ -410,15 +410,7 @@ let startMcpServer (cfg: McpServerConfig) =
                     | false -> ()
                 )
 
-            match otelConfigured with
-            | true ->
-              otelBuilder.WithLogging(fun logging ->
-                logging.AddOtlpExporter() |> ignore
-              ) |> ignore
-            | false ->
-              otelBuilder |> ignore
-
-            // Configure standard logging (file and console)
+            // Configure standard logging (file, console, and OTEL)
             builder.WebHost.ConfigureLogging(fun logging -> 
                 logging.AddConsole() |> ignore
                 logging.AddFile(logPath, minimumLevel = LogLevel.Information) |> ignore
@@ -430,6 +422,15 @@ let startMcpServer (cfg: McpServerConfig) =
                 logging.AddFilter("ModelContextProtocol.AspNetCore.SseHandler", LogLevel.Warning) |> ignore
                 // Let SageFs-namespaced logs flow through at Information+ for OTEL
                 logging.AddFilter("SageFs", LogLevel.Information) |> ignore
+                // Wire ILogger → OTEL structured logs (traces alone don't carry log messages)
+                match otelConfigured with
+                | true ->
+                  logging.AddOpenTelemetry(fun otel ->
+                    otel.IncludeFormattedMessage <- true
+                    otel.IncludeScopes <- true
+                    otel.AddOtlpExporter() |> ignore
+                  ) |> ignore
+                | false -> ()
             ) |> ignore
             
             // Map typed DU events to strings for McpContext (SageFs.Core can't reference DaemonStateChange)
