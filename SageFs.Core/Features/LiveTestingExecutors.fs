@@ -447,11 +447,13 @@ module TestOrchestrator =
       let! result =
         async {
           try
-            let testTask = Async.StartAsTask(runTest testCase)
+            use cts = new Threading.CancellationTokenSource()
+            let testTask = Async.StartAsTask(runTest testCase, cancellationToken = cts.Token)
             let timeoutTask = Threading.Tasks.Task.Delay(perTestTimeout)
             let! winner = Threading.Tasks.Task.WhenAny(testTask, timeoutTask) |> Async.AwaitTask
             match Object.ReferenceEquals(winner, timeoutTask) with
             | true ->
+              cts.Cancel()
               sw.Stop()
               return TestResult.Skipped (sprintf "Timed out after %gs" perTestTimeout.TotalSeconds)
             | false ->
@@ -524,13 +526,15 @@ module TestOrchestrator =
     (ct: Threading.CancellationToken)
     : Async<unit> =
     async {
+      use globalCts = Threading.CancellationTokenSource.CreateLinkedTokenSource(ct)
+      globalCts.CancelAfter(TimeSpan.FromMinutes 2.0)
       let totalSw = Stopwatch.StartNew()
       let totalChunks = (tests.Length + maxParallelism - 1) / maxParallelism
       let mutable chunkIndex = 0
       // Process in chunks to avoid scheduling all tests to ThreadPool at once
       let chunkSize = maxParallelism
       for chunkStart in 0 .. chunkSize .. tests.Length - 1 do
-        ct.ThrowIfCancellationRequested()
+        globalCts.Token.ThrowIfCancellationRequested()
         let chunkEnd = min (chunkStart + chunkSize) tests.Length
         let chunk = tests.[chunkStart .. chunkEnd - 1]
         let chunkActivity = LiveTestingInstrumentation.activitySource.StartActivity("live_testing.chunk")

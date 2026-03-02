@@ -107,31 +107,38 @@ module HttpWorkerClient =
         use reader = new IO.StreamReader(stream)
         let mutable keepReading = true
         let mutable isCoverageEvent = false
+        let readTimeout = TimeSpan.FromSeconds(30.0)
         while keepReading do
-          let! line = reader.ReadLineAsync() |> Async.AwaitTask
-          match isNull line with
-          | true -> keepReading <- false
-          | false ->
-            match line.StartsWith("event: done") with
+          let readTask = reader.ReadLineAsync()
+          let timeoutTask = Threading.Tasks.Task.Delay(readTimeout)
+          let! _ = Threading.Tasks.Task.WhenAny(readTask :> Threading.Tasks.Task, timeoutTask) |> Async.AwaitTask
+          match readTask.IsCompleted with
+          | false -> keepReading <- false // read timed out — worker stalled
+          | true ->
+            let line = readTask.Result
+            match isNull line with
             | true -> keepReading <- false
             | false ->
-              match line.StartsWith("event: coverage") with
-              | true -> isCoverageEvent <- true
+              match line.StartsWith("event: done") with
+              | true -> keepReading <- false
               | false ->
-                match line.StartsWith("data: ") with
-                | true ->
-                  let json = line.Substring(6)
-                  match isCoverageEvent with
+                match line.StartsWith("event: coverage") with
+                | true -> isCoverageEvent <- true
+                | false ->
+                  match line.StartsWith("data: ") with
                   | true ->
-                    isCoverageEvent <- false
-                    // Coverage data is ignored here — collected via separate proxy
-                  | false ->
-                    match json <> "{}" with
+                    let json = line.Substring(6)
+                    match isCoverageEvent with
                     | true ->
-                      let result = Serialization.deserialize<Features.LiveTesting.TestRunResult> json
-                      onResult result
-                    | false -> ()
-                | false -> ()
+                      isCoverageEvent <- false
+                      // Coverage data is ignored here — collected via separate proxy
+                    | false ->
+                      match json <> "{}" with
+                      | true ->
+                        let result = Serialization.deserialize<Features.LiveTesting.TestRunResult> json
+                        onResult result
+                      | false -> ()
+                  | false -> ()
       }
 
   /// Streaming test proxy that also collects IL coverage hits.
@@ -154,34 +161,41 @@ module HttpWorkerClient =
         use reader = new IO.StreamReader(stream)
         let mutable keepReading = true
         let mutable isCoverageEvent = false
+        let readTimeout = TimeSpan.FromSeconds(30.0)
         while keepReading do
-          let! line = reader.ReadLineAsync() |> Async.AwaitTask
-          match isNull line with
-          | true -> keepReading <- false
-          | false ->
-            match line.StartsWith("event: done") with
+          let readTask = reader.ReadLineAsync()
+          let timeoutTask = Threading.Tasks.Task.Delay(readTimeout)
+          let! _ = Threading.Tasks.Task.WhenAny(readTask :> Threading.Tasks.Task, timeoutTask) |> Async.AwaitTask
+          match readTask.IsCompleted with
+          | false -> keepReading <- false // read timed out — worker stalled
+          | true ->
+            let line = readTask.Result
+            match isNull line with
             | true -> keepReading <- false
             | false ->
-              match line.StartsWith("event: coverage") with
-              | true -> isCoverageEvent <- true
+              match line.StartsWith("event: done") with
+              | true -> keepReading <- false
               | false ->
-                match line.StartsWith("data: ") with
-                | true ->
-                  let json = line.Substring(6)
-                  match isCoverageEvent with
+                match line.StartsWith("event: coverage") with
+                | true -> isCoverageEvent <- true
+                | false ->
+                  match line.StartsWith("data: ") with
                   | true ->
-                    isCoverageEvent <- false
-                    try
-                      let doc = System.Text.Json.JsonDocument.Parse(json)
-                      let hitsArr = doc.RootElement.GetProperty("hits")
-                      let hits = [| for i in 0 .. hitsArr.GetArrayLength() - 1 -> hitsArr.[i].GetBoolean() |]
-                      onCoverage hits
-                    with _ -> ()
-                  | false ->
-                    match json <> "{}" with
+                    let json = line.Substring(6)
+                    match isCoverageEvent with
                     | true ->
-                      let result = Serialization.deserialize<Features.LiveTesting.TestRunResult> json
-                      onResult result
-                    | false -> ()
-                | false -> ()
+                      isCoverageEvent <- false
+                      try
+                        let doc = System.Text.Json.JsonDocument.Parse(json)
+                        let hitsArr = doc.RootElement.GetProperty("hits")
+                        let hits = [| for i in 0 .. hitsArr.GetArrayLength() - 1 -> hitsArr.[i].GetBoolean() |]
+                        onCoverage hits
+                      with _ -> ()
+                    | false ->
+                      match json <> "{}" with
+                      | true ->
+                        let result = Serialization.deserialize<Features.LiveTesting.TestRunResult> json
+                        onResult result
+                      | false -> ()
+                  | false -> ()
       }
