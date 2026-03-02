@@ -18,6 +18,200 @@ type OutputLine = {
   SessionId: string
 }
 
+/// Fixed-capacity circular buffer for output lines.
+/// O(1) add, cache-friendly iteration, zero GC pressure during steady state.
+/// Mutable internally — safe because ElmLoop is single-writer (CAS drain).
+[<Sealed>]
+type OutputRingBuffer(capacity: int) =
+  let items = Array.zeroCreate<OutputLine> capacity
+  let mutable writeIdx = 0
+  let mutable count = 0
+
+  member _.Capacity = capacity
+  member _.Count = count
+  member _.Length = count
+  member _.IsEmpty = count = 0
+
+  /// Add a single line. Overwrites oldest when full.
+  member _.Add(line: OutputLine) =
+    items.[writeIdx] <- line
+    writeIdx <- (writeIdx + 1) % capacity
+    match count < capacity with
+    | true -> count <- count + 1
+    | false -> ()
+
+  /// Add multiple lines in order. Overwrites oldest when full.
+  member rb.AddRange(lines: OutputLine seq) =
+    for line in lines do rb.Add(line)
+
+  /// Clear all items.
+  member _.Clear() =
+    writeIdx <- 0
+    count <- 0
+
+  /// Newest-first indexer: .[0] = most recently added (backward-compat with old list).
+  member _.Item(index: int) =
+    match index >= count with
+    | true -> raise (System.IndexOutOfRangeException())
+    | false ->
+      let i = (writeIdx - 1 - index + capacity) % capacity
+      items.[i]
+
+  /// Render filtered output directly into StringBuilder (oldest→newest).
+  /// Zero intermediate allocations — the hot path.
+  member _.RenderFiltered(sessionId: string, sb: System.Text.StringBuilder) =
+    let start = match count < capacity with | true -> 0 | false -> writeIdx
+    let mutable first = true
+    for i = 0 to count - 1 do
+      let line = items.[(start + i) % capacity]
+      match String.IsNullOrEmpty line.SessionId || line.SessionId = sessionId with
+      | true ->
+        match first with
+        | true -> first <- false
+        | false -> sb.Append('\n') |> ignore
+        let kindLabel =
+          match line.Kind with
+          | OutputKind.Result -> "result"
+          | OutputKind.Error -> "error"
+          | OutputKind.Info -> "info"
+          | OutputKind.System -> "system"
+        sb.Append('[').Append(line.Timestamp.ToString("HH:mm:ss")).Append("] [")
+          .Append(kindLabel).Append("] ").Append(line.Text) |> ignore
+      | false -> ()
+
+  /// Render all output directly into StringBuilder (oldest→newest).
+  /// No session filtering — use when buffer is already per-session.
+  member _.RenderAll(sb: System.Text.StringBuilder) =
+    let start = match count < capacity with | true -> 0 | false -> writeIdx
+    for i = 0 to count - 1 do
+      let line = items.[(start + i) % capacity]
+      match i > 0 with
+      | true -> sb.Append('\n') |> ignore
+      | false -> ()
+      let kindLabel =
+        match line.Kind with
+        | OutputKind.Result -> "result"
+        | OutputKind.Error -> "error"
+        | OutputKind.Info -> "info"
+        | OutputKind.System -> "system"
+      sb.Append('[').Append(line.Timestamp.ToString("HH:mm:ss")).Append("] [")
+        .Append(kindLabel).Append("] ").Append(line.Text) |> ignore
+
+  /// Check if any line matches a predicate (newest-first search).
+  member _.Exists(predicate: OutputLine -> bool) =
+    let mutable found = false
+    let mutable i = 0
+    while not found && i < count do
+      let idx = (writeIdx - 1 - i + capacity) % capacity
+      match predicate items.[idx] with
+      | true -> found <- true
+      | false -> ()
+      i <- i + 1
+    found
+
+  /// Filter to list (newest-first, for backward compat with old code).
+  member _.FilterToList(predicate: OutputLine -> bool) =
+    [ for i = 0 to count - 1 do
+        let idx = (writeIdx - 1 - i + capacity) % capacity
+        let line = items.[idx]
+        match predicate line with
+        | true -> yield line
+        | false -> () ]
+
+  /// Create from list (list is newest-first, like old model convention).
+  static member ofList (lines: OutputLine list) =
+    let rb = OutputRingBuffer(max (List.length lines) 500)
+    for line in List.rev lines do rb.Add(line)
+    rb
+
+  static member empty with get() = OutputRingBuffer(500)
+
+  interface System.Collections.Generic.IEnumerable<OutputLine> with
+    member this.GetEnumerator() =
+      let arr = [| for i = 0 to count - 1 do yield this.[i] |]
+      (arr :> System.Collections.Generic.IEnumerable<_>).GetEnumerator()
+
+  interface System.Collections.IEnumerable with
+    member this.GetEnumerator() =
+      (this :> System.Collections.Generic.IEnumerable<_>).GetEnumerator() :> _
+
+/// Per-session output storage. Each session gets its own ring buffer.
+/// Global lines (empty SessionId) broadcast to all existing session buffers.
+/// Pre-session globals are held in a staging buffer and merged into the first session.
+[<Sealed>]
+type SessionOutputStore(bufferCapacity: int) =
+  let buffers = System.Collections.Generic.Dictionary<string, OutputRingBuffer>()
+  let staging = OutputRingBuffer(bufferCapacity)
+
+  new() = SessionOutputStore(500)
+
+  member _.GetOrCreate(sessionId: string) =
+    match buffers.TryGetValue(sessionId) with
+    | true, buf -> buf
+    | false, _ ->
+      let buf = OutputRingBuffer(bufferCapacity)
+      // New session inherits staged globals (oldest-first)
+      match staging.Count > 0 with
+      | true ->
+        let globals = staging |> Seq.toArray |> Array.rev
+        for line in globals do buf.Add(line)
+      | false -> ()
+      buffers.[sessionId] <- buf
+      buf
+
+  /// Route a line to the correct session buffer. Global lines broadcast to all.
+  member this.Add(line: OutputLine) =
+    match System.String.IsNullOrEmpty line.SessionId with
+    | true ->
+      staging.Add(line)
+      for kvp in buffers do kvp.Value.Add(line)
+    | false ->
+      let buf = this.GetOrCreate(line.SessionId)
+      buf.Add(line)
+
+  /// Add multiple lines, routing each to the correct session buffer.
+  member this.AddRange(lines: OutputLine seq) =
+    for line in lines do this.Add(line)
+
+  /// Get the buffer for a specific session. Returns empty for unknown sessions.
+  member _.GetBuffer(sessionId: string) =
+    match buffers.TryGetValue(sessionId) with
+    | true, buf -> buf
+    | false, _ -> OutputRingBuffer.empty
+
+  /// Get the buffer for the active session (resolves ActiveSession DU).
+  member this.GetActiveBuffer(active: ActiveSession) =
+    match active with
+    | ActiveSession.Viewing sid -> this.GetBuffer(sid)
+    | ActiveSession.AwaitingSession -> staging
+
+  /// Clear a specific session's buffer.
+  member _.Clear(sessionId: string) =
+    match buffers.TryGetValue(sessionId) with
+    | true, buf -> buf.Clear()
+    | false, _ -> ()
+
+  /// Clear all session buffers and staging.
+  member _.ClearAll() =
+    for kvp in buffers do kvp.Value.Clear()
+    staging.Clear()
+
+  member _.SessionCount = buffers.Count
+
+  /// True if the active session's buffer is empty.
+  member this.IsEmpty(active: ActiveSession) = this.GetActiveBuffer(active).IsEmpty
+
+  /// Count of lines in the active session's buffer.
+  member this.ActiveCount(active: ActiveSession) = this.GetActiveBuffer(active).Count
+
+  /// Create from list of lines (newest-first convention). Routes each to its session.
+  static member ofLines (lines: OutputLine list) =
+    let store = SessionOutputStore(500)
+    for line in List.rev lines do store.Add(line)
+    store
+
+  static member empty with get() = SessionOutputStore(500)
+
 /// File change actions for the event system
 [<RequireQualifiedAccess>]
 type FileWatchAction =

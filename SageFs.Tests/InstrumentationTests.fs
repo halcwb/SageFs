@@ -38,12 +38,13 @@ let instrumentationTests = testSequenced (testList "Instrumentation" [
     Instrumentation.testCycleEndToEnd |> Expect.isNotNull "testCycleEndToEnd"
   }
   test "allSources has expected entries" {
-    Instrumentation.allSources |> Expect.hasLength "5 sources" 5
+    Instrumentation.allSources |> Expect.hasLength "6 sources" 6
     Instrumentation.allSources |> Expect.contains "has SessionManager" "SageFs.SessionManager"
     Instrumentation.allSources |> Expect.contains "has cycle" "SageFs.TestCycle"
     Instrumentation.allSources |> Expect.contains "has LiveTesting" "SageFs.LiveTesting"
     Instrumentation.allSources |> Expect.contains "has Mcp" "SageFs.Mcp"
     Instrumentation.allSources |> Expect.contains "has Marten" "Marten"
+    Instrumentation.allSources |> Expect.contains "has ElmLoop" "SageFs.ElmLoop"
   }
   test "allMeters has expected entries" {
     Instrumentation.allMeters |> Expect.hasLength "5 meters" 5

@@ -324,7 +324,7 @@ let fullLoopTests = testList "Full ElmLoop + EffectHandler" [
         lastModel <- Some model
         lastRegions <- regions
     }
-    let dispatch = (ElmLoop.start program SageFsModel.initial).Dispatch
+    let dispatch = (ElmLoop.start program (SageFsModel.initial())).Dispatch
     dispatch (SageFsMsg.Editor (EditorAction.InsertChar '4'))
     dispatch (SageFsMsg.Editor (EditorAction.InsertChar '2'))
     dispatch (SageFsMsg.Editor EditorAction.Submit)
@@ -333,12 +333,17 @@ let fullLoopTests = testList "Full ElmLoop + EffectHandler" [
       System.Threading.Thread.Sleep 10
     log.EvalCalls |> Expect.hasLength "1 eval" 1
     let sw2 = System.Diagnostics.Stopwatch.StartNew()
-    while (lastModel.IsNone || lastModel.Value.RecentOutput.IsEmpty)
-          && sw2.ElapsedMilliseconds < 2000L do
+    let hasResult () =
+      match lastModel with
+      | None -> false
+      | Some m ->
+        let active = m.RecentOutput.GetActiveBuffer(m.Sessions.ActiveSessionId)
+        let testSess = m.RecentOutput.GetBuffer("test-session")
+        active |> Seq.exists (fun o -> o.Text.Contains "val it = 42")
+        || testSess |> Seq.exists (fun o -> o.Text.Contains "val it = 42")
+    while not (hasResult()) && sw2.ElapsedMilliseconds < 2000L do
       System.Threading.Thread.Sleep 10
-    lastModel.Value.RecentOutput
-    |> List.exists (fun o -> o.Text.Contains "val it = 42")
-    |> Expect.isTrue "should have eval result in output"
+    hasResult() |> Expect.isTrue "should have eval result in output"
     lastRegions
     |> List.exists (fun r -> r.Id = "output")
     |> Expect.isTrue "should have output region"
@@ -355,7 +360,7 @@ let fullLoopTests = testList "Full ElmLoop + EffectHandler" [
       ExecuteEffect = SageFsEffectHandler.execute deps
       OnModelChanged = fun model _ -> lastModel <- Some model
     }
-    let dispatch = (ElmLoop.start program SageFsModel.initial).Dispatch
+    let dispatch = (ElmLoop.start program (SageFsModel.initial())).Dispatch
     dispatch (SageFsMsg.Editor
       (EditorAction.CreateSession ["New.fsproj"]))
     let sw = System.Diagnostics.Stopwatch.StartNew()
@@ -390,7 +395,7 @@ let fullLoopTests = testList "Full ElmLoop + EffectHandler" [
       ExecuteEffect = SageFsEffectHandler.execute deps
       OnModelChanged = fun model _ -> lastModel <- Some model
     }
-    let dispatch = (ElmLoop.start program SageFsModel.initial).Dispatch
+    let dispatch = (ElmLoop.start program (SageFsModel.initial())).Dispatch
     dispatch (SageFsMsg.Editor EditorAction.TriggerCompletion)
     let sw = System.Diagnostics.Stopwatch.StartNew()
     while (lastModel.IsNone || lastModel.Value.Editor.CompletionMenu.IsNone)

@@ -167,8 +167,8 @@ let multiConsumerTests = testList "multi-consumer consistency" [
 
   testCase "render → serialize → parse produces same content for all consumers" <| fun _ ->
     let model =
-      { SageFsModel.initial with
-          RecentOutput = [
+      { (SageFsModel.initial()) with
+          RecentOutput = SessionOutputStore.ofLines [
             { Kind = OutputKind.Result; Text = "val x: int = 1"; Timestamp = System.DateTime.UtcNow; SessionId = "" }
             { Kind = OutputKind.Result; Text = """val y: string = "hello" """; Timestamp = System.DateTime.UtcNow; SessionId = "" }
           ] }
@@ -189,8 +189,8 @@ let multiConsumerTests = testList "multi-consumer consistency" [
 
   testCase "Elm model render is deterministic across calls" <| fun _ ->
     let model =
-      { SageFsModel.initial with
-          RecentOutput = [
+      { (SageFsModel.initial()) with
+          RecentOutput = SessionOutputStore.ofLines [
             { Kind = OutputKind.Result; Text = "output line"; Timestamp = System.DateTime.UtcNow; SessionId = "" }
           ]
           Diagnostics = Map.ofList [
@@ -271,7 +271,7 @@ let mkSnapshot id projects isActive : SessionSnapshot =
     WorkingDirectory = "" }
 
 let threeSessionModel =
-  let m0 = SageFsModel.initial
+  let m0 = (SageFsModel.initial())
   let apply evt m = SageFsUpdate.update (SageFsMsg.Event evt) m |> fst
   m0
   |> apply (SageFsEvent.SessionCreated (mkSnapshot "sess-a" ["A.fsproj"] false))
@@ -353,14 +353,14 @@ let elmSessionCyclingTests = testList "Elm session cycling" [
     | other -> failtest (sprintf "unexpected effect: %A" other)
 
   testCase "CycleNext with single session produces no effects" <| fun _ ->
-    let m0 = SageFsModel.initial
+    let m0 = (SageFsModel.initial())
     let m1, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.SessionCreated (mkSnapshot "only" ["X.fsproj"] true))) m0
     let model = { m1 with Editor = { m1.Editor with SelectedSessionIndex = Some 0 } }
     let _, effs = SageFsUpdate.update (SageFsMsg.Editor EditorAction.SessionCycleNext) model
     effs |> List.length |> Expect.equal "no effects for single session" 0
 
   testCase "CyclePrev with no sessions produces no effects" <| fun _ ->
-    let _, effs = SageFsUpdate.update (SageFsMsg.Editor EditorAction.SessionCyclePrev) SageFsModel.initial
+    let _, effs = SageFsUpdate.update (SageFsMsg.Editor EditorAction.SessionCyclePrev) (SageFsModel.initial())
     effs |> List.length |> Expect.equal "no effects" 0
 
   testCase "CycleNext with no SelectedSessionIndex defaults to index 0 then cycles" <| fun _ ->
@@ -398,7 +398,7 @@ let elmSessionEventTests = testList "Elm session events" [
     |> Expect.isTrue "new session exists"
 
   testCase "SessionCreated auto-activates first session" <| fun _ ->
-    let m0 = SageFsModel.initial
+    let m0 = (SageFsModel.initial())
     m0.Sessions.ActiveSessionId |> Expect.equal "initially awaiting" ActiveSession.AwaitingSession
     let snap = mkSnapshot "first" ["X.fsproj"] false
     let m1, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.SessionCreated snap)) m0
@@ -614,7 +614,7 @@ let keyMapSessionTests = testList "keymap session shortcuts" [
 
 let multiSessionLifecycleTests = testList "multi-session lifecycle" [
   testCase "create 3 sessions, cycle through all, verify each becomes active" <| fun _ ->
-    let m0 = SageFsModel.initial
+    let m0 = (SageFsModel.initial())
     let m1, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.SessionCreated (mkSnapshot "s1" ["A.fsproj"] false))) m0
     let m2, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.SessionCreated (mkSnapshot "s2" ["B.fsproj"] false))) m1
     let m3, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.SessionCreated (mkSnapshot "s3" ["C.fsproj"] false))) m2
@@ -643,7 +643,7 @@ let multiSessionLifecycleTests = testList "multi-session lifecycle" [
     |> Expect.containsAll "remaining" ["sess-b"; "sess-c"]
 
   testCase "create, switch, stop, switch back — full lifecycle" <| fun _ ->
-    let m0 = SageFsModel.initial
+    let m0 = (SageFsModel.initial())
     let m1, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.SessionCreated (mkSnapshot "s1" ["A.fsproj"] false))) m0
     m1.Sessions.ActiveSessionId |> Expect.equal "s1 active" (ActiveSession.Viewing "s1")
     let m2, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.SessionCreated (mkSnapshot "s2" ["B.fsproj"] false))) m1
@@ -671,7 +671,7 @@ let multiSessionLifecycleTests = testList "multi-session lifecycle" [
     Expect.isTrue "clamped" (m'.Editor.SelectedSessionIndex.Value <= 2)
 
   testCase "all UIs see same session list after create+switch+stop" <| fun _ ->
-    let m0 = SageFsModel.initial
+    let m0 = (SageFsModel.initial())
     let m1, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.SessionCreated (mkSnapshot "s1" ["A.fsproj"] false))) m0
     let m2, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.SessionCreated (mkSnapshot "s2" ["B.fsproj"] false))) m1
     let m3, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.SessionCreated (mkSnapshot "s3" ["C.fsproj"] false))) m2

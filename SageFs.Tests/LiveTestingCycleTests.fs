@@ -1188,7 +1188,7 @@ let adaptiveDebounceTests = testList "AdaptiveDebounce" [
 [<Tests>]
 let TestCycleTimingDispatchTests = testList "cycle timing dispatch" [
   test "TestCycleTimingRecorded stores LastTiming in model" {
-    let model0 = SageFsModel.initial
+    let model0 = (SageFsModel.initial())
     model0.LiveTesting.LastTiming
     |> Expect.isNone "initial model should have no timing"
 
@@ -1273,7 +1273,7 @@ let TestCycleTimingDispatchTests = testList "cycle timing dispatch" [
       Timestamp = System.DateTimeOffset.UtcNow
     }
 
-    let model0 = SageFsModel.initial
+    let model0 = (SageFsModel.initial())
     let model1, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.TestCycleTimingRecorded timing1)) model0
     let model2, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.TestCycleTimingRecorded timing2)) model1
 
@@ -1458,7 +1458,7 @@ let e2eCycleFlowTests = testList "E2E cycle Flow" [
       TestCase.Id = tid; DisplayName = "myTest should work"; FullName = "MyModule.myTest should work"
       Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit
     }
-    let model0 = SageFsModel.initial
+    let model0 = (SageFsModel.initial())
     let snap = {
       SessionSnapshot.Id = sessionId; Name = Some "TestSession"; Projects = ["MyProject.fsproj"]
       Status = SessionDisplayStatus.Running; LastActivity = System.DateTime.UtcNow
@@ -1501,7 +1501,7 @@ let e2eCycleFlowTests = testList "E2E cycle Flow" [
     let tid2 = TestId.TestId "test.in.session2"
     let tc1 = { TestCase.Id = tid1; FullName = "test.in.session1"; DisplayName = "t1"; Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     let tc2 = { TestCase.Id = tid2; FullName = "test.in.session2"; DisplayName = "t2"; Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
-    let m0 = SageFsModel.initial
+    let m0 = (SageFsModel.initial())
     let snap1 = { SessionSnapshot.Id = "s1"; Name = Some "S1"; Projects = ["A.fsproj"]; Status = SessionDisplayStatus.Running; LastActivity = System.DateTime.UtcNow; EvalCount = 0; UpSince = System.DateTime.UtcNow; IsActive = true; WorkingDirectory = "C:\\A" }
     let snap2 = { SessionSnapshot.Id = "s2"; Name = Some "S2"; Projects = ["B.fsproj"]; Status = SessionDisplayStatus.Running; LastActivity = System.DateTime.UtcNow; EvalCount = 0; UpSince = System.DateTime.UtcNow; IsActive = false; WorkingDirectory = "C:\\B" }
     let m1, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.SessionCreated snap1)) m0

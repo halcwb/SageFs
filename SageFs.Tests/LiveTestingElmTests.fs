@@ -20,8 +20,8 @@ let elmIntegrationTests = testList "LiveTesting Elm Integration" [
       |> Expect.isTrue "SageFsModel should have LiveTesting field"
     }
 
-    test "SageFsModel.initial has empty LiveTestState" {
-      let model = SageFsModel.initial
+    test "(SageFsModel.initial()) has empty LiveTestState" {
+      let model = (SageFsModel.initial())
       model.LiveTesting.TestState.DiscoveredTests
       |> Expect.equal "no discovered tests" Array.empty
       TestRunPhase.isAnyRunning model.LiveTesting.TestState.RunPhases
@@ -57,7 +57,7 @@ let elmIntegrationTests = testList "LiveTesting Elm Integration" [
       let model', _ =
         SageFsUpdate.update
           (SageFsMsg.Event (SageFsEvent.TestsDiscovered ("test-session", [| tc |])))
-          SageFsModel.initial
+          (SageFsModel.initial())
       model'.LiveTesting.TestState.DiscoveredTests.Length
       |> Expect.equal "should have 1 test" 1
     }
@@ -66,7 +66,7 @@ let elmIntegrationTests = testList "LiveTesting Elm Integration" [
       let model', _ =
         SageFsUpdate.update
           (SageFsMsg.Event (SageFsEvent.TestRunStarted ([| tid |], Some "s")))
-          SageFsModel.initial
+          (SageFsModel.initial())
       TestRunPhase.isAnyRunning model'.LiveTesting.TestState.RunPhases
       |> Expect.isTrue "should be running"
       Set.contains tid model'.LiveTesting.TestState.AffectedTests
@@ -75,9 +75,9 @@ let elmIntegrationTests = testList "LiveTesting Elm Integration" [
     test "TestResultsBatch merges results but keeps RunPhase (cleared by TestRunCompleted)" {
       let gen = RunGeneration.next RunGeneration.zero
       let m =
-        { SageFsModel.initial with
+        { (SageFsModel.initial()) with
             LiveTesting =
-              { SageFsModel.initial.LiveTesting with TestState = { SageFsModel.initial.LiveTesting.TestState with RunPhases = Map.ofList ["s", Running gen]; LastGeneration = gen } } }
+              { (SageFsModel.initial()).LiveTesting with TestState = { (SageFsModel.initial()).LiveTesting.TestState with RunPhases = Map.ofList ["s", Running gen]; LastGeneration = gen } } }
       let tid = mkTestId "t1" (TestFramework.Unknown "x")
       let r : TestRunResult =
         { TestId = tid; TestName = "t1"
@@ -96,7 +96,7 @@ let elmIntegrationTests = testList "LiveTesting Elm Integration" [
       let model', _ =
         SageFsUpdate.update
           (SageFsMsg.Event SageFsEvent.LiveTestingEnabled)
-          SageFsModel.initial
+          (SageFsModel.initial())
       model'.LiveTesting.TestState.Activation
       |> Expect.equal "should be active" LiveTestingActivation.Active
     }
@@ -104,7 +104,7 @@ let elmIntegrationTests = testList "LiveTesting Elm Integration" [
       let model', _ =
         SageFsUpdate.update
           (SageFsMsg.Event SageFsEvent.LiveTestingDisabled)
-          SageFsModel.initial
+          (SageFsModel.initial())
       model'.LiveTesting.TestState.Activation
       |> Expect.equal "should be inactive" LiveTestingActivation.Inactive
     }
@@ -114,7 +114,7 @@ let elmIntegrationTests = testList "LiveTesting Elm Integration" [
       let model', _ =
         SageFsUpdate.update
           (SageFsMsg.Event (SageFsEvent.AffectedTestsComputed [| t1; t2 |]))
-          SageFsModel.initial
+          (SageFsModel.initial())
       Set.count model'.LiveTesting.TestState.AffectedTests
       |> Expect.equal "should have 2 affected" 2
     }
@@ -122,7 +122,7 @@ let elmIntegrationTests = testList "LiveTesting Elm Integration" [
       let model', _ =
         SageFsUpdate.update
           (SageFsMsg.Event (SageFsEvent.RunPolicyChanged (TestCategory.Integration, RunPolicy.OnSaveOnly)))
-          SageFsModel.initial
+          (SageFsModel.initial())
       Map.find TestCategory.Integration model'.LiveTesting.TestState.RunPolicies
       |> Expect.equal "should be OnSaveOnly" RunPolicy.OnSaveOnly
     }
@@ -131,7 +131,7 @@ let elmIntegrationTests = testList "LiveTesting Elm Integration" [
       let model', _ =
         SageFsUpdate.update
           (SageFsMsg.Event (SageFsEvent.ProvidersDetected [p]))
-          SageFsModel.initial
+          (SageFsModel.initial())
       model'.LiveTesting.TestState.DetectedProviders.Length
       |> Expect.equal "should have 1 provider" 1
     }
@@ -144,7 +144,7 @@ let elmIntegrationTests = testList "LiveTesting Elm Integration" [
       let model', _ =
         SageFsUpdate.update
           (SageFsMsg.Event (SageFsEvent.CoverageUpdated cs))
-          SageFsModel.initial
+          (SageFsModel.initial())
       model'.LiveTesting.TestState.CoverageAnnotations.Length
       |> Expect.equal "should have 2 annotations" 2
     }
@@ -152,7 +152,7 @@ let elmIntegrationTests = testList "LiveTesting Elm Integration" [
       let _, effects =
         SageFsUpdate.update
           (SageFsMsg.Event SageFsEvent.LiveTestingEnabled)
-          SageFsModel.initial
+          (SageFsModel.initial())
       effects |> Expect.isEmpty "should produce no effects"
     }
   ]
@@ -427,7 +427,7 @@ let elmWiringBehavioralTests = testList "Elm Wiring Behavioral Scenarios" [
 [<Tests>]
 let fileContentChangedTests = testList "FileContentChanged" [
   test "feeds content to cycle debounce when enabled" {
-    let model = { SageFsModel.initial with LiveTesting = { LiveTestCycleState.empty with TestState = { LiveTestState.empty with Activation = LiveTestingActivation.Active } } }
+    let model = { (SageFsModel.initial()) with LiveTesting = { LiveTestCycleState.empty with TestState = { LiveTestState.empty with Activation = LiveTestingActivation.Active } } }
     let newModel, _effects = SageFsUpdate.update (SageFsMsg.FileContentChanged("src/MyModule.fs", "let x = 1")) model
     newModel.LiveTesting.ActiveFile
     |> Expect.equal "active file set" (Some "src/MyModule.fs")
@@ -438,14 +438,14 @@ let fileContentChangedTests = testList "FileContentChanged" [
   }
 
   test "is no-op when live testing is disabled" {
-    let model = { SageFsModel.initial with LiveTesting = { LiveTestCycleState.empty with TestState = { LiveTestState.empty with Activation = LiveTestingActivation.Inactive } } }
+    let model = { (SageFsModel.initial()) with LiveTesting = { LiveTestCycleState.empty with TestState = { LiveTestState.empty with Activation = LiveTestingActivation.Inactive } } }
     let newModel, _effects = SageFsUpdate.update (SageFsMsg.FileContentChanged("src/MyModule.fs", "let x = 1")) model
     newModel.LiveTesting.ActiveFile
     |> Expect.equal "active file unchanged" model.LiveTesting.ActiveFile
   }
 
   test "cycle tick after debounce fires tree-sitter effect" {
-    let model = { SageFsModel.initial with LiveTesting = { LiveTestCycleState.empty with TestState = { LiveTestState.empty with Activation = LiveTestingActivation.Active } } }
+    let model = { (SageFsModel.initial()) with LiveTesting = { LiveTestCycleState.empty with TestState = { LiveTestState.empty with Activation = LiveTestingActivation.Active } } }
     let afterKeystroke, _ = SageFsUpdate.update (SageFsMsg.FileContentChanged("src/MyModule.fs", "let x = 1")) model
     let cycle = afterKeystroke.LiveTesting
     let t51 = DateTimeOffset.UtcNow.AddMilliseconds(51.0)
@@ -459,7 +459,7 @@ let fileContentChangedTests = testList "FileContentChanged" [
   }
 
   test "multiple file changes supersede earlier ones" {
-    let model = { SageFsModel.initial with LiveTesting = { LiveTestCycleState.empty with TestState = { LiveTestState.empty with Activation = LiveTestingActivation.Active } } }
+    let model = { (SageFsModel.initial()) with LiveTesting = { LiveTestCycleState.empty with TestState = { LiveTestState.empty with Activation = LiveTestingActivation.Active } } }
     let after1, _ = SageFsUpdate.update (SageFsMsg.FileContentChanged("src/First.fs", "let a = 1")) model
     let after2, _ = SageFsUpdate.update (SageFsMsg.FileContentChanged("src/Second.fs", "let b = 2")) after1
     after2.LiveTesting.ActiveFile
@@ -575,7 +575,7 @@ let fcsTypeCheckResultTests = testList "FcsTypeCheckResult" [
         UseKind = SymbolUseKind.Reference; UsedInTestId = None; FilePath = "Test.fs"; Line = 5 }
     ]
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         LiveTesting = {
           LiveTestCycleState.empty with
             TestState = { LiveTestState.empty with DiscoveredTests = [|tc|]; Activation = LiveTestingActivation.Active }
@@ -595,7 +595,7 @@ let fcsTypeCheckResultTests = testList "FcsTypeCheckResult" [
   }
 
   test "Elm wiring: FcsTypeCheckCompleted Failed is no-op" {
-    let model = SageFsModel.initial
+    let model = (SageFsModel.initial())
     let msg = SageFsMsg.FcsTypeCheckCompleted (FcsTypeCheckResult.Failed ("test.fs", ["error"]))
     let model', effects = SageFsUpdate.update msg model
     effects |> Expect.isEmpty "no effects on failure"
@@ -1107,7 +1107,7 @@ let elmUpdateStatusRecomputationTests = testList "Elm update StatusEntries recom
         Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
 
-    let model0 = SageFsModel.initial
+    let model0 = (SageFsModel.initial())
     let model1 = { model0 with LiveTesting = { model0.LiveTesting with TestState = { model0.LiveTesting.TestState with Activation = LiveTestingActivation.Active } } }
     let model2, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.TestsDiscovered ("test-session", tests))) model1
 
@@ -1124,7 +1124,7 @@ let elmUpdateStatusRecomputationTests = testList "Elm update StatusEntries recom
         Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
 
-    let model0 = SageFsModel.initial
+    let model0 = (SageFsModel.initial())
     let stateWithTests = { model0.LiveTesting.TestState with Activation = LiveTestingActivation.Active; DiscoveredTests = tests }
     let stateRecomputed = { stateWithTests with StatusEntries = LiveTesting.computeStatusEntries stateWithTests }
     let model1 = { model0 with LiveTesting = { model0.LiveTesting with TestState = stateRecomputed } }
@@ -1145,7 +1145,7 @@ let elmUpdateStatusRecomputationTests = testList "Elm update StatusEntries recom
         Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
 
-    let model0 = SageFsModel.initial
+    let model0 = (SageFsModel.initial())
     let model1 = { model0 with LiveTesting = { model0.LiveTesting with TestState = { model0.LiveTesting.TestState with Activation = LiveTestingActivation.Active } } }
     let model2, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.TestsDiscovered ("test-session", tests))) model1
 
@@ -1163,7 +1163,7 @@ let elmUpdateStatusRecomputationTests = testList "Elm update StatusEntries recom
         Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
 
-    let model0 = SageFsModel.initial
+    let model0 = (SageFsModel.initial())
     let model1, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.TestsDiscovered ("test-session", tests))) { model0 with LiveTesting = { model0.LiveTesting with TestState = { model0.LiveTesting.TestState with Activation = LiveTestingActivation.Active } } }
     let model2, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.TestRunStarted ([| tid |], Some "test-session"))) model1
 
@@ -1181,7 +1181,7 @@ let elmUpdateStatusRecomputationTests = testList "Elm update StatusEntries recom
         Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
 
-    let model0 = SageFsModel.initial
+    let model0 = (SageFsModel.initial())
     let model1, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.TestsDiscovered ("test-session", tests))) { model0 with LiveTesting = { model0.LiveTesting with TestState = { model0.LiveTesting.TestState with Activation = LiveTestingActivation.Active } } }
     let model2, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.RunPolicyChanged (TestCategory.Unit, RunPolicy.Disabled))) model1
 
@@ -1211,7 +1211,7 @@ let elmUpdateStatusRecomputationTests = testList "Elm update StatusEntries recom
         Timestamp = DateTimeOffset.UtcNow; Output = None }
     |]
 
-    let model0 = SageFsModel.initial
+    let model0 = (SageFsModel.initial())
     let m1, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.TestsDiscovered ("test-session", tests))) { model0 with LiveTesting = { model0.LiveTesting with TestState = { model0.LiveTesting.TestState with Activation = LiveTestingActivation.Active } } }
     let m2, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.TestRunStarted ([| tid1; tid2 |], Some "test-session"))) m1
     let m3, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.TestResultsBatch results)) m2

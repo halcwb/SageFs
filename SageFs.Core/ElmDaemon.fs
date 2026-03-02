@@ -60,7 +60,7 @@ let start
   (onModelChanged: SageFsModel -> RenderRegion list -> unit)
   : ElmRuntime<SageFsModel, SageFsMsg, RenderRegion> =
   let program = createProgram deps onModelChanged
-  ElmLoop.start program SageFsModel.initial
+  ElmLoop.start program (SageFsModel.initial())
 
 /// Dispatch a message and wait for the model to update.
 /// Returns the model state after the dispatch has been processed.
@@ -74,4 +74,4 @@ let dispatchAndWait
   dispatch msg
   waitForUpdate timeoutMs
   getLatest ()
-  |> Option.defaultValue SageFsModel.initial
+  |> Option.defaultValue (SageFsModel.initial())

@@ -19,14 +19,14 @@ let mkSnap id = {
 
 let creatingSessionGuardTests = testList "CreatingSession guard" [
   testCase "model starts with CreatingSession = false" <| fun () ->
-    SageFsModel.initial.CreatingSession
+    (SageFsModel.initial()).CreatingSession
     |> Expect.isFalse "should start false"
 
   testCase "CreateSession action sets CreatingSession true" <| fun () ->
     let model', effects =
       SageFsUpdate.update
         (SageFsMsg.Editor (EditorAction.CreateSession ["test.fsproj"]))
-        SageFsModel.initial
+        (SageFsModel.initial())
     model'.CreatingSession
     |> Expect.isTrue "should be true after CreateSession"
     effects
@@ -36,7 +36,7 @@ let creatingSessionGuardTests = testList "CreatingSession guard" [
     |> Expect.isTrue "should emit RequestSessionCreate effect"
 
   testCase "duplicate CreateSession is blocked when already creating" <| fun () ->
-    let model = { SageFsModel.initial with CreatingSession = true }
+    let model = { (SageFsModel.initial()) with CreatingSession = true }
     let _, effects =
       SageFsUpdate.update
         (SageFsMsg.Editor (EditorAction.CreateSession ["test.fsproj"]))
@@ -45,7 +45,7 @@ let creatingSessionGuardTests = testList "CreatingSession guard" [
     |> Expect.isEmpty "should emit no effects when already creating"
 
   testCase "SessionCreated event clears CreatingSession" <| fun () ->
-    let model = { SageFsModel.initial with CreatingSession = true }
+    let model = { (SageFsModel.initial()) with CreatingSession = true }
     let model', _ =
       SageFsUpdate.update
         (SageFsMsg.Event (SageFsEvent.SessionCreated (mkSnap "test-123")))
@@ -54,7 +54,7 @@ let creatingSessionGuardTests = testList "CreatingSession guard" [
     |> Expect.isFalse "should be false after SessionCreated"
 
   testCase "EvalFailed with 'Create failed' clears CreatingSession" <| fun () ->
-    let model = { SageFsModel.initial with CreatingSession = true }
+    let model = { (SageFsModel.initial()) with CreatingSession = true }
     let model', _ =
       SageFsUpdate.update
         (SageFsMsg.Event (SageFsEvent.EvalFailed ("", "Create failed: something went wrong")))
@@ -63,7 +63,7 @@ let creatingSessionGuardTests = testList "CreatingSession guard" [
     |> Expect.isFalse "should be false after create failure"
 
   testCase "EvalFailed without 'Create failed' keeps CreatingSession" <| fun () ->
-    let model = { SageFsModel.initial with CreatingSession = true }
+    let model = { (SageFsModel.initial()) with CreatingSession = true }
     let model', _ =
       SageFsUpdate.update
         (SageFsMsg.Event (SageFsEvent.EvalFailed ("", "Some other error")))
@@ -74,14 +74,14 @@ let creatingSessionGuardTests = testList "CreatingSession guard" [
 
 let sessionsRenderTests = testList "Sessions panel creating indicator" [
   testCase "sessions region shows creating indicator when CreatingSession is true" <| fun () ->
-    let model = { SageFsModel.initial with CreatingSession = true }
+    let model = { (SageFsModel.initial()) with CreatingSession = true }
     let regions = SageFsRender.render model
     let sessionsRegion = regions |> List.find (fun r -> r.Id = "sessions")
     sessionsRegion.Content
     |> Expect.stringContains "should contain creating text" "⏳ Creating session..."
 
   testCase "sessions region hides creating indicator when false" <| fun () ->
-    let regions = SageFsRender.render SageFsModel.initial
+    let regions = SageFsRender.render (SageFsModel.initial())
     let sessionsRegion = regions |> List.find (fun r -> r.Id = "sessions")
     sessionsRegion.Content.Contains("⏳ Creating session...")
     |> Expect.isFalse "should not contain creating text"

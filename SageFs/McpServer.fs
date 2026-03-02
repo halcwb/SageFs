@@ -1332,8 +1332,8 @@ let startMcpServer (cfg: McpServerConfig) =
                 withModel (fun model ->
                   let sid = activeSessionId () |> Option.defaultValue ""
                   let newBindings =
-                    model.RecentOutput
-                    |> List.filter (fun o -> o.Kind = SageFs.OutputKind.Result && o.SessionId = sid)
+                    model.RecentOutput.GetBuffer(sid).FilterToList(fun o ->
+                      o.Kind = SageFs.OutputKind.Result)
                     |> List.rev
                     |> List.map (fun o -> o.Text)
                     |> String.concat "\n"
@@ -1447,10 +1447,8 @@ let startMcpServer (cfg: McpServerConfig) =
                 withModel (fun model ->
                   let sid = activeSessionId ()
                   let outputText =
-                    model.RecentOutput
-                    |> List.filter (fun o ->
-                      o.Kind = SageFs.OutputKind.Result
-                      && o.SessionId = (sid |> Option.defaultValue ""))
+                    model.RecentOutput.GetBuffer(sid |> Option.defaultValue "").FilterToList(fun o ->
+                      o.Kind = SageFs.OutputKind.Result)
                     |> List.rev
                     |> List.map (fun o -> o.Text)
                     |> String.concat "\n"

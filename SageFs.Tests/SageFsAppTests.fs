@@ -8,10 +8,17 @@ open SageFs
 open SageFs.Features.Diagnostics
 open SageFs.Features.LiveTesting
 
+/// Helper to get output buffer for a session from the model.
+let outputFor sid (model: SageFsModel) = model.RecentOutput.GetBuffer(sid)
+
+/// Helper to get the active session's output buffer from the model.
+let activeOutput (model: SageFsModel) =
+  model.RecentOutput.GetActiveBuffer(model.Sessions.ActiveSessionId)
+
 [<Tests>]
 let sageFsUpdateTests = testList "SageFsUpdate" [
   testCase "editor action routes through EditorUpdate" <| fun _ ->
-    let model = SageFsModel.initial
+    let model = (SageFsModel.initial())
     let newModel, effects =
       SageFsUpdate.update (SageFsMsg.Editor (EditorAction.InsertChar 'x')) model
     ValidatedBuffer.text newModel.Editor.Buffer
@@ -20,7 +27,7 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
 
   testCase "submit produces eval effect" <| fun _ ->
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Editor = {
           EditorState.initial with
             Buffer = ValidatedBuffer.insertChar 'a' ValidatedBuffer.empty } }
@@ -35,25 +42,26 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
   testCase "EvalCompleted adds output line" <| fun _ ->
     let event = SageFsEvent.EvalCompleted ("s1", "val x = 42", [])
     let newModel, _ =
-      SageFsUpdate.update (SageFsMsg.Event event) SageFsModel.initial
-    newModel.RecentOutput |> Expect.hasLength "should have one output" 1
-    newModel.RecentOutput.[0].Kind
+      SageFsUpdate.update (SageFsMsg.Event event) (SageFsModel.initial())
+    let out = outputFor "s1" newModel
+    out |> Expect.hasLength "should have one output" 1
+    out.[0].Kind
     |> Expect.equal "should be Result" OutputKind.Result
-    newModel.RecentOutput.[0].Text
+    out.[0].Text
     |> Expect.equal "should have output text" "val x = 42"
 
   testCase "EvalFailed adds error output" <| fun _ ->
     let event = SageFsEvent.EvalFailed ("s1", "type mismatch")
     let newModel, _ =
-      SageFsUpdate.update (SageFsMsg.Event event) SageFsModel.initial
-    newModel.RecentOutput.[0].Kind
+      SageFsUpdate.update (SageFsMsg.Event event) (SageFsModel.initial())
+    (outputFor "s1" newModel).[0].Kind
     |> Expect.equal "should be Error" OutputKind.Error
 
   testCase "EvalCancelled adds info line" <| fun _ ->
     let event = SageFsEvent.EvalCancelled "s1"
     let newModel, _ =
-      SageFsUpdate.update (SageFsMsg.Event event) SageFsModel.initial
-    newModel.RecentOutput.[0].Kind
+      SageFsUpdate.update (SageFsMsg.Event event) (SageFsModel.initial())
+    (outputFor "s1" newModel).[0].Kind
     |> Expect.equal "should be Info" OutputKind.Info
 
   testCase "CompletionReady sets completion menu" <| fun _ ->
@@ -62,7 +70,7 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
     ]
     let event = SageFsEvent.CompletionReady items
     let newModel, _ =
-      SageFsUpdate.update (SageFsMsg.Event event) SageFsModel.initial
+      SageFsUpdate.update (SageFsMsg.Event event) (SageFsModel.initial())
     newModel.Editor.CompletionMenu |> Expect.isSome "should have menu"
     newModel.Editor.CompletionMenu.Value.Items
     |> Expect.hasLength "should have 1 item" 1
@@ -75,7 +83,7 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       UpSince = DateTime.UtcNow; IsActive = true; WorkingDirectory = "" }
     let event = SageFsEvent.SessionCreated snap
     let newModel, _ =
-      SageFsUpdate.update (SageFsMsg.Event event) SageFsModel.initial
+      SageFsUpdate.update (SageFsMsg.Event event) (SageFsModel.initial())
     newModel.Sessions.Sessions
     |> Expect.hasLength "should have 1 session" 1
 
@@ -86,9 +94,9 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = true; WorkingDirectory = "." }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Sessions = {
-          SageFsModel.initial.Sessions with
+          (SageFsModel.initial()).Sessions with
             Sessions = [snap]
             ActiveSessionId = ActiveSession.Viewing "s1" } }
     let model2, _ =
@@ -103,9 +111,9 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = true; WorkingDirectory = "." }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Sessions = {
-          SageFsModel.initial.Sessions with
+          (SageFsModel.initial()).Sessions with
             Sessions = [snap]
             ActiveSessionId = ActiveSession.Viewing "s1" } }
     let updated = { snap with EvalCount = 42 }
@@ -128,9 +136,9 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = false; WorkingDirectory = "." }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Sessions = {
-          SageFsModel.initial.Sessions with
+          (SageFsModel.initial()).Sessions with
             Sessions = [snapA; snapB]
             ActiveSessionId = ActiveSession.Viewing "s1" } }
     let m1, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.SessionCreated snapA)) model
@@ -146,9 +154,9 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = false; WorkingDirectory = "" }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Sessions = {
-          SageFsModel.initial.Sessions with
+          (SageFsModel.initial()).Sessions with
             Sessions = [snap1; snap2] }
     }
     let event = SageFsEvent.SessionSwitched (Some "s1", "s2")
@@ -173,9 +181,9 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = false; WorkingDirectory = "." }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Sessions = {
-          SageFsModel.initial.Sessions with
+          (SageFsModel.initial()).Sessions with
             ActiveSessionId = ActiveSession.Viewing "s1" } }
     let event = SageFsEvent.SessionsRefreshed [snap1; snap2]
     let newModel, _ =
@@ -199,9 +207,9 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = false; WorkingDirectory = "." }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Sessions = {
-          SageFsModel.initial.Sessions with
+          (SageFsModel.initial()).Sessions with
             ActiveSessionId = ActiveSession.Viewing "s2" } }
     let event = SageFsEvent.SessionsRefreshed [snap1; snap2]
     let newModel, _ =
@@ -221,7 +229,7 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       UpSince = DateTime.UtcNow; IsActive = false; WorkingDirectory = "." }
     let event = SageFsEvent.SessionsRefreshed [snap]
     let newModel, _ =
-      SageFsUpdate.update (SageFsMsg.Event event) SageFsModel.initial
+      SageFsUpdate.update (SageFsMsg.Event event) (SageFsModel.initial())
     newModel.Sessions.ActiveSessionId
     |> Expect.equal "should auto-select first" (ActiveSession.Viewing "s1")
 
@@ -231,9 +239,9 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = true; WorkingDirectory = "" }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Sessions = {
-          SageFsModel.initial.Sessions with
+          (SageFsModel.initial()).Sessions with
             Sessions = [snap] }
     }
     let event = SageFsEvent.SessionStopped "s1"
@@ -251,7 +259,7 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
     }
     let event = SageFsEvent.DiagnosticsUpdated ("s1", [diag])
     let newModel, _ =
-      SageFsUpdate.update (SageFsMsg.Event event) SageFsModel.initial
+      SageFsUpdate.update (SageFsMsg.Event event) (SageFsModel.initial())
     newModel.Diagnostics
     |> Map.tryFind "s1"
     |> Option.defaultValue []
@@ -260,42 +268,43 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
   testCase "WarmupCompleted with no failures adds info" <| fun _ ->
     let event = SageFsEvent.WarmupCompleted (TimeSpan.FromSeconds 2.0, [])
     let newModel, _ =
-      SageFsUpdate.update (SageFsMsg.Event event) SageFsModel.initial
-    newModel.RecentOutput.[0].Text
+      SageFsUpdate.update (SageFsMsg.Event event) (SageFsModel.initial())
+    (activeOutput newModel).[0].Text
     |> Expect.equal "should say complete" "Warmup complete"
 
   testCase "WarmupCompleted with failures adds error lines" <| fun _ ->
     let event =
       SageFsEvent.WarmupCompleted (TimeSpan.FromSeconds 2.0, ["ns1"; "ns2"])
     let newModel, _ =
-      SageFsUpdate.update (SageFsMsg.Event event) SageFsModel.initial
-    newModel.RecentOutput
+      SageFsUpdate.update (SageFsMsg.Event event) (SageFsModel.initial())
+    activeOutput newModel
     |> Expect.hasLength "should have 2 error lines" 2
 
   testCase "FileReloaded success adds info line" <| fun _ ->
     let event =
       SageFsEvent.FileReloaded ("test.fs", TimeSpan.FromMilliseconds 50.0, Ok "loaded")
     let newModel, _ =
-      SageFsUpdate.update (SageFsMsg.Event event) SageFsModel.initial
-    newModel.RecentOutput.[0].Kind
+      SageFsUpdate.update (SageFsMsg.Event event) (SageFsModel.initial())
+    (activeOutput newModel).[0].Kind
     |> Expect.equal "should be Info" OutputKind.Info
 
   testCase "FileReloaded failure adds error line" <| fun _ ->
     let event =
       SageFsEvent.FileReloaded ("test.fs", TimeSpan.FromMilliseconds 50.0, Error "parse error")
     let newModel, _ =
-      SageFsUpdate.update (SageFsMsg.Event event) SageFsModel.initial
-    newModel.RecentOutput.[0].Kind
+      SageFsUpdate.update (SageFsMsg.Event event) (SageFsModel.initial())
+    (activeOutput newModel).[0].Kind
     |> Expect.equal "should be Error" OutputKind.Error
 
   testCase "EvalStarted adds info output line" <| fun _ ->
     let event = SageFsEvent.EvalStarted ("s1", "let x = 1")
     let newModel, effects =
-      SageFsUpdate.update (SageFsMsg.Event event) SageFsModel.initial
-    newModel.RecentOutput |> Expect.hasLength "should have 1 output line" 1
-    newModel.RecentOutput.[0].Kind |> Expect.equal "should be Info" OutputKind.Info
-    newModel.RecentOutput.[0].Text |> Expect.equal "should contain code" "let x = 1"
-    newModel.RecentOutput.[0].SessionId |> Expect.equal "should have session id" "s1"
+      SageFsUpdate.update (SageFsMsg.Event event) (SageFsModel.initial())
+    let out = outputFor "s1" newModel
+    out |> Expect.hasLength "should have 1 output line" 1
+    out.[0].Kind |> Expect.equal "should be Info" OutputKind.Info
+    out.[0].Text |> Expect.equal "should contain code" "let x = 1"
+    out.[0].SessionId |> Expect.equal "should have session id" "s1"
     effects |> Expect.isEmpty "no effects"
 
   testCase "SessionStale marks session as stale" <| fun _ ->
@@ -304,9 +313,9 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = true; WorkingDirectory = "" }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Sessions = {
-          SageFsModel.initial.Sessions with
+          (SageFsModel.initial()).Sessions with
             Sessions = [snap] }
     }
     let event = SageFsEvent.SessionStale ("s1", TimeSpan.FromMinutes 15.0)
@@ -316,7 +325,7 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
     |> Expect.equal "should be Stale" SessionDisplayStatus.Stale
 
   testCase "SessionCycleNext with 0 sessions is no-op" <| fun _ ->
-    let model = SageFsModel.initial
+    let model = (SageFsModel.initial())
     let _, effects =
       SageFsUpdate.update (SageFsMsg.Editor EditorAction.SessionCycleNext) model
     effects |> Expect.isEmpty "no effects for empty sessions"
@@ -328,9 +337,9 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = true; WorkingDirectory = "." }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Sessions = {
-          SageFsModel.initial.Sessions with
+          (SageFsModel.initial()).Sessions with
             Sessions = [snap]
             ActiveSessionId = ActiveSession.Viewing "s1" } }
     let _, effects =
@@ -344,10 +353,10 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = false; WorkingDirectory = "." }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Editor = { EditorState.initial with SelectedSessionIndex = Some 2 }
         Sessions = {
-          SageFsModel.initial.Sessions with
+          (SageFsModel.initial()).Sessions with
             Sessions = [mkSnap "s0"; mkSnap "s1"; mkSnap "s2"]
             ActiveSessionId = ActiveSession.Viewing "s2" } }
     let newModel, effects =
@@ -361,7 +370,7 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
 
   testCase "SessionCyclePrev with 0 sessions is no-op" <| fun _ ->
     let _, effects =
-      SageFsUpdate.update (SageFsMsg.Editor EditorAction.SessionCyclePrev) SageFsModel.initial
+      SageFsUpdate.update (SageFsMsg.Editor EditorAction.SessionCyclePrev) (SageFsModel.initial())
     effects |> Expect.isEmpty "no effects for empty sessions"
 
   testCase "SessionCyclePrev wraps from first to last" <| fun _ ->
@@ -371,10 +380,10 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = false; WorkingDirectory = "." }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Editor = { EditorState.initial with SelectedSessionIndex = Some 0 }
         Sessions = {
-          SageFsModel.initial.Sessions with
+          (SageFsModel.initial()).Sessions with
             Sessions = [mkSnap "s0"; mkSnap "s1"; mkSnap "s2"]
             ActiveSessionId = ActiveSession.Viewing "s0" } }
     let newModel, effects =
@@ -388,8 +397,8 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
 
   testCase "ClearOutput resets RecentOutput" <| fun _ ->
     let model = {
-      SageFsModel.initial with
-        RecentOutput = [
+      (SageFsModel.initial()) with
+        RecentOutput = SessionOutputStore.ofLines [
           { Kind = OutputKind.Result; Text = "line1"
             Timestamp = DateTime.UtcNow; SessionId = "s1" }
           { Kind = OutputKind.Error; Text = "line2"
@@ -397,11 +406,11 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
         ] }
     let newModel, effects =
       SageFsUpdate.update (SageFsMsg.Editor EditorAction.ClearOutput) model
-    newModel.RecentOutput |> Expect.isEmpty "output should be cleared"
+    outputFor "s1" newModel |> Expect.isEmpty "output should be cleared"
     effects |> Expect.isEmpty "no effects"
 
   testCase "CreateSession blocked when already creating" <| fun _ ->
-    let model = { SageFsModel.initial with CreatingSession = true }
+    let model = { (SageFsModel.initial()) with CreatingSession = true }
     let _, effects =
       SageFsUpdate.update
         (SageFsMsg.Editor (EditorAction.CreateSession ["Test.fsproj"]))
@@ -409,7 +418,7 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
     effects |> Expect.isEmpty "should block duplicate create"
 
   testCase "EvalFailed with Create failed: clears CreatingSession" <| fun _ ->
-    let model = { SageFsModel.initial with CreatingSession = true }
+    let model = { (SageFsModel.initial()) with CreatingSession = true }
     let event = SageFsEvent.EvalFailed ("s1", "Create failed: some reason")
     let newModel, _ =
       SageFsUpdate.update (SageFsMsg.Event event) model
@@ -417,7 +426,7 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
     |> Expect.isFalse "should clear CreatingSession"
 
   testCase "EvalFailed with normal error keeps CreatingSession" <| fun _ ->
-    let model = { SageFsModel.initial with CreatingSession = true }
+    let model = { (SageFsModel.initial()) with CreatingSession = true }
     let event = SageFsEvent.EvalFailed ("s1", "type mismatch")
     let newModel, _ =
       SageFsUpdate.update (SageFsMsg.Event event) model
@@ -436,9 +445,9 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = false; WorkingDirectory = "." }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Sessions = {
-          SageFsModel.initial.Sessions with
+          (SageFsModel.initial()).Sessions with
             Sessions = [snap1; snap2]
             ActiveSessionId = ActiveSession.Viewing "s1" }
         Diagnostics = Map.ofList ["s1", []; "s2", []] }
@@ -466,9 +475,9 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = false; WorkingDirectory = "." }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Sessions = {
-          SageFsModel.initial.Sessions with
+          (SageFsModel.initial()).Sessions with
             Sessions = [snap1; snap2]
             ActiveSessionId = ActiveSession.Viewing "s1" } }
     let newModel, _ =
@@ -483,9 +492,9 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = true; WorkingDirectory = "." }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Sessions = {
-          SageFsModel.initial.Sessions with
+          (SageFsModel.initial()).Sessions with
             Sessions = [snap]
             ActiveSessionId = ActiveSession.Viewing "s1" } }
     let newModel, _ =
@@ -501,9 +510,9 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = true; WorkingDirectory = "." }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Sessions = {
-          SageFsModel.initial.Sessions with
+          (SageFsModel.initial()).Sessions with
             Sessions = [snap]
             ActiveSessionId = ActiveSession.Viewing "s1" } }
     let event = SageFsEvent.SessionStatusChanged ("s1", SessionDisplayStatus.Errored "faulted")
@@ -516,19 +525,20 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
   testCase "SessionStatusChanged for unknown session is no-op" <| fun _ ->
     let event = SageFsEvent.SessionStatusChanged ("x", SessionDisplayStatus.Errored "x")
     let newModel, effects =
-      SageFsUpdate.update (SageFsMsg.Event event) SageFsModel.initial
+      SageFsUpdate.update (SageFsMsg.Event event) (SageFsModel.initial())
     effects |> Expect.isEmpty "no effects"
     newModel.Sessions.Sessions |> Expect.isEmpty "still empty"
 
   testCase "WarmupProgress adds step/total info line" <| fun _ ->
     let event = SageFsEvent.WarmupProgress(2, 4, "Loading namespaces")
     let newModel, effects =
-      SageFsUpdate.update (SageFsMsg.Event event) SageFsModel.initial
+      SageFsUpdate.update (SageFsMsg.Event event) (SageFsModel.initial())
     effects |> Expect.isEmpty "no effects"
-    newModel.RecentOutput |> Expect.hasLength "1 output line" 1
-    newModel.RecentOutput.[0].Kind
+    let out = activeOutput newModel
+    out |> Expect.hasLength "1 output line" 1
+    out.[0].Kind
     |> Expect.equal "should be Info" OutputKind.Info
-    newModel.RecentOutput.[0].Text
+    out.[0].Text
     |> Expect.stringContains "should contain [2/4]" "[2/4]"
 
   testCase "DiagnosticsUpdated overwrites previous for same session" <| fun _ ->
@@ -541,7 +551,7 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       Range = { StartLine = 2; StartColumn = 0; EndLine = 2; EndColumn = 1 }
       Severity = DiagnosticSeverity.Warning }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Diagnostics = Map.ofList ["s1", [diag1]] }
     let event = SageFsEvent.DiagnosticsUpdated ("s1", [diag2])
     let newModel, _ =
@@ -557,7 +567,7 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = false; WorkingDirectory = "." }
     let newModel, _ =
-      SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.SessionCreated snap)) SageFsModel.initial
+      SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.SessionCreated snap)) (SageFsModel.initial())
     newModel.Sessions.ActiveSessionId
     |> Expect.equal "should auto-select" (ActiveSession.Viewing "s1")
     newModel.Sessions.Sessions.[0].IsActive
@@ -572,9 +582,9 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = true; WorkingDirectory = "." }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Sessions = {
-          SageFsModel.initial.Sessions with
+          (SageFsModel.initial()).Sessions with
             Sessions = [snap1]
             ActiveSessionId = ActiveSession.Viewing "s1" } }
     let snap2 = {
@@ -596,9 +606,9 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = active; WorkingDirectory = "." }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Sessions = {
-          SageFsModel.initial.Sessions with
+          (SageFsModel.initial()).Sessions with
             Sessions = [mkSnap "s1" true; mkSnap "s2" false; mkSnap "s3" false]
             ActiveSessionId = ActiveSession.Viewing "s1" } }
     let newModel, _ =
@@ -617,11 +627,11 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
         Labels = []; Framework = TestFramework.Expecto
         Category = Features.LiveTesting.TestCategory.Unit }
     let model =
-      { SageFsModel.initial with
+      { (SageFsModel.initial()) with
           LiveTesting =
-            { SageFsModel.initial.LiveTesting with
+            { (SageFsModel.initial()).LiveTesting with
                 TestState =
-                  { SageFsModel.initial.LiveTesting.TestState with
+                  { (SageFsModel.initial()).LiveTesting.TestState with
                       Activation = Features.LiveTesting.LiveTestingActivation.Inactive
                       DiscoveredTests = [| tc |] } } }
     let newModel, effects =
@@ -638,11 +648,11 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
 
   testCase "EnableLiveTesting with no tests emits no effects" <| fun _ ->
     let model =
-      { SageFsModel.initial with
+      { (SageFsModel.initial()) with
           LiveTesting =
-            { SageFsModel.initial.LiveTesting with
+            { (SageFsModel.initial()).LiveTesting with
                 TestState =
-                  { SageFsModel.initial.LiveTesting.TestState with
+                  { (SageFsModel.initial()).LiveTesting.TestState with
                       Activation = Features.LiveTesting.LiveTestingActivation.Inactive
                       DiscoveredTests = [||] } } }
     let newModel, effects =
@@ -653,11 +663,11 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
 
   testCase "DisableLiveTesting emits no effects" <| fun _ ->
     let model =
-      { SageFsModel.initial with
+      { (SageFsModel.initial()) with
           LiveTesting =
-            { SageFsModel.initial.LiveTesting with
+            { (SageFsModel.initial()).LiveTesting with
                 TestState =
-                  { SageFsModel.initial.LiveTesting.TestState with
+                  { (SageFsModel.initial()).LiveTesting.TestState with
                       Activation = Features.LiveTesting.LiveTestingActivation.Active } } }
     let newModel, effects =
       SageFsUpdate.update SageFsMsg.DisableLiveTesting model
@@ -667,11 +677,11 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
 
   testCase "EnableLiveTesting when already active is no-op" <| fun _ ->
     let model =
-      { SageFsModel.initial with
+      { (SageFsModel.initial()) with
           LiveTesting =
-            { SageFsModel.initial.LiveTesting with
+            { (SageFsModel.initial()).LiveTesting with
                 TestState =
-                  { SageFsModel.initial.LiveTesting.TestState with
+                  { (SageFsModel.initial()).LiveTesting.TestState with
                       Activation = Features.LiveTesting.LiveTestingActivation.Active } } }
     let newModel, effects =
       SageFsUpdate.update SageFsMsg.EnableLiveTesting model
@@ -681,11 +691,11 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
 
   testCase "DisableLiveTesting when already inactive is no-op" <| fun _ ->
     let model =
-      { SageFsModel.initial with
+      { (SageFsModel.initial()) with
           LiveTesting =
-            { SageFsModel.initial.LiveTesting with
+            { (SageFsModel.initial()).LiveTesting with
                 TestState =
-                  { SageFsModel.initial.LiveTesting.TestState with
+                  { (SageFsModel.initial()).LiveTesting.TestState with
                       Activation = Features.LiveTesting.LiveTestingActivation.Inactive } } }
     let newModel, effects =
       SageFsUpdate.update SageFsMsg.DisableLiveTesting model
@@ -697,19 +707,19 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
 [<Tests>]
 let sageFsRenderTests = testList "SageFsRender" [
   testCase "renders 5 regions from initial model" <| fun _ ->
-    let regions = SageFsRender.render SageFsModel.initial
+    let regions = SageFsRender.render (SageFsModel.initial())
     regions |> Expect.hasLength "should have 5 regions" 5
 
   testCase "editor region is focusable" <| fun _ ->
-    let regions = SageFsRender.render SageFsModel.initial
+    let regions = SageFsRender.render (SageFsModel.initial())
     regions |> List.find (fun r -> r.Id = "editor")
     |> fun r -> r.Flags.HasFlag RegionFlags.Focusable
     |> Expect.isTrue "editor should be focusable"
 
   testCase "output region shows recent output" <| fun _ ->
     let model = {
-      SageFsModel.initial with
-        RecentOutput = [
+      (SageFsModel.initial()) with
+        RecentOutput = SessionOutputStore.ofLines [
           { Kind = OutputKind.Result
             Text = "val x = 42"
             Timestamp = DateTime.UtcNow
@@ -723,7 +733,7 @@ let sageFsRenderTests = testList "SageFsRender" [
 
   testCase "diagnostics region shows diagnostics" <| fun _ ->
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Diagnostics = Map.ofList [
           "", [{
             Message = "type error"
@@ -744,9 +754,9 @@ let sageFsRenderTests = testList "SageFsRender" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; IsActive = true; WorkingDirectory = "" }
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Sessions = {
-          SageFsModel.initial.Sessions with
+          (SageFsModel.initial()).Sessions with
             Sessions = [snap] }
     }
     let regions = SageFsRender.render model
@@ -759,8 +769,8 @@ let sageFsRenderTests = testList "SageFsRender" [
   testCase "output region tags each line with correct [kind]" <| fun _ ->
     let now = DateTime.UtcNow
     let model =
-      { SageFsModel.initial with
-          RecentOutput = [
+      { (SageFsModel.initial()) with
+          RecentOutput = SessionOutputStore.ofLines [
             { Kind = OutputKind.Result; Text = "val x = 1"; Timestamp = now; SessionId = "" }
             { Kind = OutputKind.Error; Text = "oops"; Timestamp = now; SessionId = "" }
             { Kind = OutputKind.Info; Text = "loaded"; Timestamp = now; SessionId = "" }
@@ -780,9 +790,9 @@ let sageFsRenderTests = testList "SageFsRender" [
   testCase "inactive session has no * marker" <| fun _ ->
     let now = DateTime.UtcNow
     let model =
-      { SageFsModel.initial with
+      { (SageFsModel.initial()) with
           Sessions =
-            { SageFsModel.initial.Sessions with
+            { (SageFsModel.initial()).Sessions with
                 Sessions = [
                   { Id = "s1"; Name = None; Projects = []; Status = SessionDisplayStatus.Running
                     LastActivity = now; EvalCount = 0; UpSince = now; IsActive = true; WorkingDirectory = "" }
@@ -798,14 +808,14 @@ let sageFsRenderTests = testList "SageFsRender" [
     |> Expect.isFalse "inactive session has no *"
 
   testCase "empty model produces empty output and diagnostics" <| fun _ ->
-    let regions = SageFsRender.render SageFsModel.initial
+    let regions = SageFsRender.render (SageFsModel.initial())
     let output = regions |> List.find (fun r -> r.Id = "output")
     let diag = regions |> List.find (fun r -> r.Id = "diagnostics")
     output.Content |> Expect.equal "empty output" ""
     diag.Content |> Expect.equal "empty diagnostics" ""
 
   testCase "region ids are correct" <| fun _ ->
-    SageFsRender.render SageFsModel.initial
+    SageFsRender.render (SageFsModel.initial())
     |> List.map (fun r -> r.Id)
     |> Expect.equal "region ids in order" ["editor"; "output"; "diagnostics"; "sessions"; "context"]
 
@@ -826,8 +836,8 @@ let sageFsRenderTests = testList "SageFsRender" [
               LastActivity = now; EvalCount = i; UpSince = now
               IsActive = (i = 0); WorkingDirectory = "" } ]
       let model =
-        { SageFsModel.initial with
-            Sessions = { SageFsModel.initial.Sessions with Sessions = sessions } }
+        { (SageFsModel.initial()) with
+            Sessions = { (SageFsModel.initial()).Sessions with Sessions = sessions } }
       let sessRegion =
         SageFsRender.render model
         |> List.find (fun r -> r.Id = "sessions")
@@ -857,7 +867,7 @@ let elmIntegrationTests = testList "ElmLoop integration" [
         lastModel <- Some model
         lastRegions <- regions
     }
-    let dispatch = (ElmLoop.start program SageFsModel.initial).Dispatch
+    let dispatch = (ElmLoop.start program (SageFsModel.initial())).Dispatch
     lastRegions |> Expect.hasLength "initial render should have 5 regions" 5
 
     dispatch (SageFsMsg.Editor (EditorAction.InsertChar 'h'))
@@ -873,7 +883,7 @@ let elmIntegrationTests = testList "ElmLoop integration" [
     dispatch (SageFsMsg.Event (SageFsEvent.SessionCreated snap))
 
     dispatch (SageFsMsg.Event (SageFsEvent.EvalCompleted ("s1", "val x = 42", [])))
-    lastModel.Value.RecentOutput
+    outputFor "s1" lastModel.Value
     |> Expect.hasLength "should have output" 1
     let outputRegion = lastRegions |> List.find (fun r -> r.Id = "output")
     outputRegion.Content
@@ -897,9 +907,9 @@ let elmIntegrationTests = testList "ElmLoop integration" [
           | _ -> ()
         }
       OnModelChanged = fun model _ ->
-        if model.RecentOutput.Length > 0 then resultReceived <- true
+        if model.RecentOutput.GetBuffer("s1").Count > 0 then resultReceived <- true
     }
-    let dispatch = (ElmLoop.start program SageFsModel.initial).Dispatch
+    let dispatch = (ElmLoop.start program (SageFsModel.initial())).Dispatch
     dispatch (SageFsMsg.Editor (EditorAction.InsertChar '1'))
     dispatch (SageFsMsg.Editor EditorAction.Submit)
     let deadline = DateTime.UtcNow.AddSeconds 5.0
@@ -923,7 +933,7 @@ let sessionNavAppTests = testList "SageFsUpdate session navigation" [
 
   testCase "SessionNavDown clamps to session count" <| fun _ ->
     let model =
-      SageFsModel.initial
+      (SageFsModel.initial())
       |> withSessions [mkSnap "s1" true; mkSnap "s2" false]
     let model' = { model with Editor = { model.Editor with SelectedSessionIndex = Some 1 } }
     let newModel, _ =
@@ -933,7 +943,7 @@ let sessionNavAppTests = testList "SageFsUpdate session navigation" [
 
   testCase "SessionSelect emits RequestSessionSwitch with correct id" <| fun _ ->
     let model =
-      SageFsModel.initial
+      (SageFsModel.initial())
       |> withSessions [mkSnap "s1" true; mkSnap "s2" false]
     let model' = { model with Editor = { model.Editor with SelectedSessionIndex = Some 1 } }
     let _, effects =
@@ -945,7 +955,7 @@ let sessionNavAppTests = testList "SageFsUpdate session navigation" [
 
   testCase "SessionDelete emits RequestSessionStop with correct id" <| fun _ ->
     let model =
-      SageFsModel.initial
+      (SageFsModel.initial())
       |> withSessions [mkSnap "s1" true; mkSnap "s2" false]
     let model' = { model with Editor = { model.Editor with SelectedSessionIndex = Some 0 } }
     let _, effects =
@@ -956,14 +966,14 @@ let sessionNavAppTests = testList "SageFsUpdate session navigation" [
     | _ -> failtest (sprintf "expected RequestSessionStop, got %A" effects)
 
   testCase "SessionSelect with no selection does nothing" <| fun _ ->
-    let model = SageFsModel.initial |> withSessions [mkSnap "s1" true]
+    let model = (SageFsModel.initial()) |> withSessions [mkSnap "s1" true]
     let _, effects =
       SageFsUpdate.update (SageFsMsg.Editor EditorAction.SessionSelect) model
     effects |> Expect.isEmpty "no effects when no selection"
 
   testCase "SessionSelect with out-of-range index does nothing" <| fun _ ->
     let model =
-      SageFsModel.initial
+      (SageFsModel.initial())
       |> withSessions [mkSnap "s1" true]
     let model' = { model with Editor = { model.Editor with SelectedSessionIndex = Some 5 } }
     let _, effects =
@@ -972,18 +982,18 @@ let sessionNavAppTests = testList "SageFsUpdate session navigation" [
 
   testCase "ClearOutput clears recent output" <| fun _ ->
     let model = {
-      SageFsModel.initial with
-        RecentOutput = [
+      (SageFsModel.initial()) with
+        RecentOutput = SessionOutputStore.ofLines [
           { Kind = OutputKind.Result; Text = "hello"
             Timestamp = System.DateTime.UtcNow; SessionId = "" }
         ] }
     let newModel, _ =
       SageFsUpdate.update (SageFsMsg.Editor EditorAction.ClearOutput) model
-    newModel.RecentOutput |> Expect.isEmpty "output should be cleared"
+    newModel.RecentOutput.GetActiveBuffer(newModel.Sessions.ActiveSessionId) |> Expect.isEmpty "output should be cleared"
 
   testCase "InsertChar remapped to PromptChar when prompt active" <| fun _ ->
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Editor = { EditorState.initial with
                      Prompt = Some { Label = "Dir"; Input = "ab"; Purpose = PromptPurpose.CreateSessionDir } } }
     let newModel, _ =
@@ -992,7 +1002,7 @@ let sessionNavAppTests = testList "SageFsUpdate session navigation" [
 
   testCase "NewLine remapped to PromptConfirm when prompt active" <| fun _ ->
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Editor = { EditorState.initial with
                      Prompt = Some { Label = "Dir"; Input = "C:\\Code"; Purpose = PromptPurpose.CreateSessionDir } } }
     let _, effects =
@@ -1005,7 +1015,7 @@ let sessionNavAppTests = testList "SageFsUpdate session navigation" [
 
   testCase "Cancel remapped to PromptCancel when prompt active" <| fun _ ->
     let model = {
-      SageFsModel.initial with
+      (SageFsModel.initial()) with
         Editor = { EditorState.initial with
                      Prompt = Some { Label = "Dir"; Input = "test"; Purpose = PromptPurpose.CreateSessionDir } } }
     let newModel, effects =
@@ -1015,7 +1025,7 @@ let sessionNavAppTests = testList "SageFsUpdate session navigation" [
 
   testCase "SessionCycleNext moves to next session and switches" <| fun _ ->
     let model =
-      SageFsModel.initial
+      (SageFsModel.initial())
       |> withSessions [mkSnap "s1" true; mkSnap "s2" false; mkSnap "s3" false]
     let model' = { model with Editor = { model.Editor with SelectedSessionIndex = Some 0 } }
     let newModel, effects =
@@ -1029,7 +1039,7 @@ let sessionNavAppTests = testList "SageFsUpdate session navigation" [
 
   testCase "SessionCycleNext wraps around" <| fun _ ->
     let model =
-      SageFsModel.initial
+      (SageFsModel.initial())
       |> withSessions [mkSnap "s1" true; mkSnap "s2" false]
     let model' = { model with Editor = { model.Editor with SelectedSessionIndex = Some 1 } }
     let newModel, effects =
@@ -1043,7 +1053,7 @@ let sessionNavAppTests = testList "SageFsUpdate session navigation" [
 
   testCase "SessionCyclePrev moves to previous session and switches" <| fun _ ->
     let model =
-      SageFsModel.initial
+      (SageFsModel.initial())
       |> withSessions [mkSnap "s1" true; mkSnap "s2" false; mkSnap "s3" false]
     let model' = { model with Editor = { model.Editor with SelectedSessionIndex = Some 2 } }
     let newModel, effects =
@@ -1057,7 +1067,7 @@ let sessionNavAppTests = testList "SageFsUpdate session navigation" [
 
   testCase "SessionCyclePrev wraps around" <| fun _ ->
     let model =
-      SageFsModel.initial
+      (SageFsModel.initial())
       |> withSessions [mkSnap "s1" true; mkSnap "s2" false]
     let model' = { model with Editor = { model.Editor with SelectedSessionIndex = Some 0 } }
     let newModel, effects =
@@ -1071,7 +1081,7 @@ let sessionNavAppTests = testList "SageFsUpdate session navigation" [
 
   testCase "SessionCycleNext with single session does nothing" <| fun _ ->
     let model =
-      SageFsModel.initial
+      (SageFsModel.initial())
       |> withSessions [mkSnap "s1" true]
     let _, effects =
       SageFsUpdate.update (SageFsMsg.Editor EditorAction.SessionCycleNext) model
@@ -1079,7 +1089,7 @@ let sessionNavAppTests = testList "SageFsUpdate session navigation" [
 
   testCase "SessionCyclePrev with no sessions does nothing" <| fun _ ->
     let _, effects =
-      SageFsUpdate.update (SageFsMsg.Editor EditorAction.SessionCyclePrev) SageFsModel.initial
+      SageFsUpdate.update (SageFsMsg.Editor EditorAction.SessionCyclePrev) (SageFsModel.initial())
     effects |> Expect.isEmpty "no effects with no sessions"
 ]
 
@@ -1091,10 +1101,10 @@ let renderConsistencyTests = testList "Render consistency" [
       IsActive = true; Projects = ["Test.fsproj"]; EvalCount = 5
       UpSince = DateTime.UtcNow.AddHours(-1.0)
       LastActivity = DateTime.UtcNow; WorkingDirectory = "C:\\Code" }
-    { SageFsModel.initial with
+    { (SageFsModel.initial()) with
         Sessions = { Sessions = [snap]; ActiveSessionId = ActiveSession.Viewing "session-1"
                      TotalEvals = 5; WatchStatus = None; Standby = StandbyInfo.NoPool }
-        RecentOutput = [
+        RecentOutput = SessionOutputStore.ofLines [
           { Kind = OutputKind.Result; Text = "val x = 42"
             Timestamp = DateTime.UtcNow; SessionId = "session-1" }
         ]
@@ -1148,7 +1158,7 @@ let renderConsistencyTests = testList "Render consistency" [
   testCase "output filters by active session" <| fun _ ->
     let model = {
       mkModel () with
-        RecentOutput = [
+        RecentOutput = SessionOutputStore.ofLines [
           { Kind = OutputKind.Result; Text = "active output"
             Timestamp = DateTime.UtcNow; SessionId = "session-1" }
           { Kind = OutputKind.Result; Text = "other output"

@@ -858,7 +858,7 @@ let restoreTestCacheTests = testList "RestoreTestCache" [
       { LiveTesting.LiveTestState.empty with
           TestCoverageBitmaps = Map.ofList [ tid, bm ] }
 
-    let model = SageFsModel.initial
+    let model = (SageFsModel.initial())
     let updated, effects = SageFsUpdate.update (SageFsMsg.RestoreTestCache cachedState) model
 
     updated.LiveTesting.TestState.TestCoverageBitmaps.Count
@@ -880,7 +880,7 @@ let restoreTestCacheTests = testList "RestoreTestCache" [
       { LiveTesting.LiveTestState.empty with
           LastResults = Map.ofList [ tid, result ] }
 
-    let model = SageFsModel.initial
+    let model = (SageFsModel.initial())
     let updated, _ = SageFsUpdate.update (SageFsMsg.RestoreTestCache cachedState) model
 
     updated.LiveTesting.TestState.LastResults.Count
@@ -892,7 +892,7 @@ let restoreTestCacheTests = testList "RestoreTestCache" [
     let cachedState =
       { LiveTesting.LiveTestState.empty with LastGeneration = gen }
 
-    let model = SageFsModel.initial
+    let model = (SageFsModel.initial())
     let updated, _ = SageFsUpdate.update (SageFsMsg.RestoreTestCache cachedState) model
 
     updated.LiveTesting.TestState.LastGeneration
@@ -905,14 +905,14 @@ let restoreTestCacheTests = testList "RestoreTestCache" [
           TestCoverageBitmaps = Map.ofList [ LiveTesting.TestId.TestId "t1", { Bits = [| 1UL |]; Count = 64 } ] }
 
     let model =
-      { SageFsModel.initial with ThemeName = "Custom" }
+      { (SageFsModel.initial()) with ThemeName = "Custom" }
     let updated, _ = SageFsUpdate.update (SageFsMsg.RestoreTestCache cachedState) model
 
     updated.ThemeName |> Expect.equal "should preserve theme" "Custom"
   }
 
   test "RestoreTestCache with empty state is a no-op" {
-    let model = SageFsModel.initial
+    let model = (SageFsModel.initial())
     let updated, effects = SageFsUpdate.update (SageFsMsg.RestoreTestCache LiveTesting.LiveTestState.empty) model
 
     updated.LiveTesting.TestState.TestCoverageBitmaps.Count

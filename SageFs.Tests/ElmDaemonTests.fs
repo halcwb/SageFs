@@ -81,9 +81,9 @@ let elmDaemonTests =
         let msg =
           SageFsMsg.Event (
             SageFsEvent.EvalStarted ("s", "code"))
-        let model, effects = program.Update msg SageFsModel.initial
-        model.RecentOutput
-        |> List.length
+        let model, effects = program.Update msg (SageFsModel.initial())
+        model.RecentOutput.GetBuffer("s")
+        |> Seq.length
         |> Expect.equal "EvalStarted should add one output entry" 1
 
         effects
@@ -98,14 +98,14 @@ let elmDaemonTests =
         let tracker = ElmDaemonTestHelpers.ModelTracker()
         let program = ElmDaemon.createProgram deps tracker.OnModelChanged
 
-        let model = SageFsModel.initial
+        let model = (SageFsModel.initial())
         let msg =
           SageFsMsg.Event (
             SageFsEvent.EvalCompleted ("s", "hello", []))
         let newModel, _ = program.Update msg model
 
-        newModel.RecentOutput
-        |> List.length
+        newModel.RecentOutput.GetBuffer("s")
+        |> Seq.length
         |> Expect.equal "should have one output line" 1
       }
 
@@ -116,7 +116,7 @@ let elmDaemonTests =
         let tracker = ElmDaemonTestHelpers.ModelTracker()
         let program = ElmDaemon.createProgram deps tracker.OnModelChanged
 
-        let regions = program.Render SageFsModel.initial
+        let regions = program.Render (SageFsModel.initial())
 
         regions
         |> List.isEmpty
@@ -169,9 +169,10 @@ let elmDaemonTests =
         tracker.WaitForUpdate 500
 
         tracker.LatestModel
-        |> Option.map (fun m -> m.RecentOutput)
-        |> Option.defaultValue []
-        |> List.exists (fun line -> line.Text = "result-42")
+        |> Option.bind (fun m ->
+          m.RecentOutput.GetBuffer("s").Exists(fun line -> line.Text = "result-42")
+          |> Some)
+        |> Option.defaultValue false
         |> Expect.isTrue "model should contain the eval result"
       }
 
@@ -211,8 +212,8 @@ let elmDaemonTests =
           ElmDaemon.start deps tracker.OnModelChanged
 
         let model = runtime.GetModel()
-        model.RecentOutput
-        |> List.length
+        model.RecentOutput.GetActiveBuffer(model.Sessions.ActiveSessionId)
+        |> Seq.length
         |> Expect.equal "initial model has no output" 0
       }
 
@@ -249,8 +250,8 @@ let elmDaemonTests =
               SageFsEvent.EvalCompleted ("s", "sync-result", [])))
             1000
 
-        result.RecentOutput
-        |> List.exists (fun line -> line.Text = "sync-result")
+        result.RecentOutput.GetBuffer("s")
+        |> Seq.exists (fun line -> line.Text = "sync-result")
         |> Expect.isTrue "should have the dispatched result"
       }
     ]

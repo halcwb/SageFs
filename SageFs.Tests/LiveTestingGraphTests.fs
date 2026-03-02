@@ -737,7 +737,7 @@ let optimisticGutterTests = testList "optimistic gutter transitions" [
         Origin = TestOrigin.SourceMapped ("editor", 5)
         Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
-    let model0 = SageFsModel.initial
+    let model0 = (SageFsModel.initial())
     let model1 = { model0 with
                     LiveTesting = { model0.LiveTesting with
                                       TestState = { model0.LiveTesting.TestState with
@@ -763,7 +763,7 @@ let optimisticGutterTests = testList "optimistic gutter transitions" [
         Origin = TestOrigin.SourceMapped ("editor", 10)
         Labels = []; Framework = TestFramework.Expecto; Category = TestCategory.Unit }
     |]
-    let model0 = SageFsModel.initial
+    let model0 = (SageFsModel.initial())
     let model1 = { model0 with
                     LiveTesting = { model0.LiveTesting with
                                       TestState = { model0.LiveTesting.TestState with
@@ -789,7 +789,7 @@ let optimisticGutterTests = testList "optimistic gutter transitions" [
     let result = {
       TestId = tid; TestName = "Tests.prev_passed"
       Result = TestResult.Passed dur; Timestamp = System.DateTimeOffset.UtcNow; Output = None }
-    let model0 = SageFsModel.initial
+    let model0 = (SageFsModel.initial())
     let model1 = { model0 with
                     LiveTesting = { model0.LiveTesting with
                                       TestState = { model0.LiveTesting.TestState with
@@ -820,7 +820,7 @@ let optimisticGutterTests = testList "optimistic gutter transitions" [
         Origin = TestOrigin.ReflectionOnly; Framework = TestFramework.Expecto
         Category = TestCategory.Unit; Labels = [] }
     |]
-    let model0 = SageFsModel.initial
+    let model0 = (SageFsModel.initial())
     let model1 = { model0 with
                     LiveTesting = { model0.LiveTesting with
                                       TestState = { model0.LiveTesting.TestState with

@@ -18,7 +18,7 @@ let makeEntry (i: int) (status: TestRunStatus) : TestStatusEntry =
     Status = status
     PreviousStatus = TestRunStatus.Queued }
 
-let baseModel = SageFsModel.initial
+let baseModel = (SageFsModel.initial())
 
 let withTests (count: int) (model: SageFsModel) =
   let entries =
@@ -100,10 +100,11 @@ let tests = testList "SseDedupKey" [
       let withOutput =
         { baseModel with
             RecentOutput =
-              [{ Kind = OutputKind.Info
-                 Text = "hello"
-                 Timestamp = DateTime.UtcNow
-                 SessionId = "" }] }
+              SessionOutputStore.ofLines
+                [{ Kind = OutputKind.Info
+                   Text = "hello"
+                   Timestamp = DateTime.UtcNow
+                   SessionId = "" }] }
       let after = SseDedupKey.fromModel withOutput
       (before <> after)
       |> Expect.isTrue "must still detect output changes"

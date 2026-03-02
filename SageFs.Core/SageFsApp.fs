@@ -165,7 +165,7 @@ type SageFsEffect =
 type SageFsModel = {
   Editor: EditorState
   Sessions: SessionRegistryView
-  RecentOutput: OutputLine list
+  RecentOutput: SessionOutputStore
   Diagnostics: Map<string, Features.Diagnostics.Diagnostic list>
   CreatingSession: bool
   Theme: ThemeConfig
@@ -177,7 +177,7 @@ type SageFsModel = {
 }
 
 module SageFsModel =
-  let initial = {
+  let initial () = {
     Editor = EditorState.initial
     Sessions = {
       Sessions = []
@@ -186,7 +186,7 @@ module SageFsModel =
       WatchStatus = None
       Standby = StandbyInfo.NoPool
     }
-    RecentOutput = []
+    RecentOutput = SessionOutputStore.empty
     Diagnostics = Map.empty
     CreatingSession = false
     Theme =
@@ -198,6 +198,16 @@ module SageFsModel =
     LiveTesting = Features.LiveTesting.LiveTestCycleState.empty
     PendingTestResults = []
   }
+
+  /// Add a single output line, routing to the correct session buffer.
+  let addOutputLine (line: OutputLine) (store: SessionOutputStore) =
+    store.Add(line)
+    store
+
+  /// Add multiple output lines, routing each to the correct session buffer.
+  let addOutput (lines: OutputLine list) (store: SessionOutputStore) =
+    store.AddRange(lines)
+    store
 
 /// Pure update function: routes SageFsMsg through the right handler.
 module SageFsUpdate =
@@ -285,7 +295,13 @@ module SageFsUpdate =
           { model with Editor = newEditor },
           [SageFsEffect.Editor (EditorEffect.RequestSessionSwitch sid)]
       | EditorAction.ClearOutput ->
-        { model with RecentOutput = [] },
+        // Clear active session's buffer; new store instance for ref inequality (triggers render)
+        let activeId =
+          match model.Sessions.ActiveSessionId with
+          | ActiveSession.Viewing sid -> sid
+          | ActiveSession.AwaitingSession -> ""
+        model.RecentOutput.Clear(activeId)
+        { model with RecentOutput = SessionOutputStore.empty },
         []
       | EditorAction.SessionNavDown | EditorAction.SessionSetIndex _ ->
         let newEditor, effects = EditorUpdate.update action model.Editor
@@ -318,7 +334,7 @@ module SageFsUpdate =
           SessionId = sid
         }
         { model with
-            RecentOutput = line :: model.RecentOutput
+            RecentOutput = SageFsModel.addOutputLine line model.RecentOutput
             Diagnostics = model.Diagnostics |> Map.add sid diags }, []
 
       | SageFsEvent.EvalFailed (sid, error) ->
@@ -330,7 +346,7 @@ module SageFsUpdate =
         }
         let clearCreating = error.Contains "Create failed:"
         { model with
-            RecentOutput = line :: model.RecentOutput
+            RecentOutput = SageFsModel.addOutputLine line model.RecentOutput
             CreatingSession = match clearCreating with | true -> false | false -> model.CreatingSession }, []
 
       | SageFsEvent.EvalStarted (sid, code) ->
@@ -340,7 +356,7 @@ module SageFsUpdate =
           Timestamp = DateTime.UtcNow
           SessionId = sid
         }
-        { model with RecentOutput = line :: model.RecentOutput }, []
+        { model with RecentOutput = SageFsModel.addOutputLine line model.RecentOutput }, []
 
       | SageFsEvent.EvalCancelled sid ->
         let line = {
@@ -349,7 +365,7 @@ module SageFsUpdate =
           Timestamp = DateTime.UtcNow
           SessionId = sid
         }
-        { model with RecentOutput = line :: model.RecentOutput }, []
+        { model with RecentOutput = SageFsModel.addOutputLine line model.RecentOutput }, []
 
       | SageFsEvent.CompletionReady items ->
         let menu = {
@@ -481,7 +497,7 @@ module SageFsUpdate =
               Text = sprintf "Reload failed %s: %s" path err
               Timestamp = DateTime.UtcNow
               SessionId = activeId }
-        { model with RecentOutput = line :: model.RecentOutput }, []
+        { model with RecentOutput = SageFsModel.addOutputLine line model.RecentOutput }, []
 
       | SageFsEvent.WarmupProgress(step, total, msg) ->
         let activeId = ActiveSession.sessionId model.Sessions.ActiveSessionId |> Option.defaultValue ""
@@ -490,7 +506,7 @@ module SageFsUpdate =
           Text = sprintf "⏳ [%d/%d] %s" step total msg
           Timestamp = DateTime.UtcNow
           SessionId = activeId }
-        { model with RecentOutput = line :: model.RecentOutput }, []
+        { model with RecentOutput = SageFsModel.addOutputLine line model.RecentOutput }, []
 
       | SageFsEvent.WarmupCompleted (_, failures) ->
         let activeId = ActiveSession.sessionId model.Sessions.ActiveSessionId |> Option.defaultValue ""
@@ -502,7 +518,7 @@ module SageFsUpdate =
             Timestamp = DateTime.UtcNow
             SessionId = activeId
           }
-          { model with RecentOutput = line :: model.RecentOutput }, []
+          { model with RecentOutput = SageFsModel.addOutputLine line model.RecentOutput }, []
         | false ->
           let lines =
             failures |> List.map (fun f ->
@@ -510,7 +526,7 @@ module SageFsUpdate =
                 Text = sprintf "Warmup failure: %s" f
                 Timestamp = DateTime.UtcNow
                 SessionId = activeId })
-          { model with RecentOutput = lines @ model.RecentOutput }, []
+          { model with RecentOutput = SageFsModel.addOutput lines model.RecentOutput }, []
 
       | SageFsEvent.WarmupContextUpdated ctx ->
         // Inject warmup banner into output BEFORE any eval results
@@ -528,7 +544,7 @@ module SageFsUpdate =
         { model with
             SessionContext = Some ctx
             LiveTesting = lt
-            RecentOutput = (List.rev bannerLines) @ model.RecentOutput }, []
+            RecentOutput = SageFsModel.addOutput (List.rev bannerLines) model.RecentOutput }, []
 
       // ── Live testing events ──
       | SageFsEvent.TestLocationsDetected (_, locations) ->
@@ -586,7 +602,7 @@ module SageFsUpdate =
         { model with
             LiveTesting = lt
             PendingTestResults = model.PendingTestResults @ (Array.toList results)
-            RecentOutput = (List.rev outputLines) @ model.RecentOutput }, []
+            RecentOutput = SageFsModel.addOutput (List.rev outputLines) model.RecentOutput }, []
 
       | SageFsEvent.TestRunCompleted sessionId ->
         let lt = recomputeStatuses model.LiveTesting (fun s ->
@@ -599,7 +615,7 @@ module SageFsUpdate =
         { model with
             LiveTesting = lt
             PendingTestResults = []
-            RecentOutput = summary :: model.RecentOutput }, []
+            RecentOutput = SageFsModel.addOutputLine summary model.RecentOutput }, []
 
       | SageFsEvent.LiveTestingEnabled ->
         let lt = recomputeStatuses model.LiveTesting (fun s -> { s with Activation = Features.LiveTesting.LiveTestingActivation.Active })
@@ -854,20 +870,10 @@ module SageFsRender =
       Id = "output"
       Flags = RegionFlags.Scrollable ||| RegionFlags.LiveUpdate
       Content =
-        model.RecentOutput
-        |> List.filter (fun line ->
-          System.String.IsNullOrEmpty line.SessionId || line.SessionId = activeSessionId)
-        |> List.rev
-        |> List.map (fun line ->
-          let kindLabel =
-            match line.Kind with
-            | OutputKind.Result -> "result"
-            | OutputKind.Error -> "error"
-            | OutputKind.Info -> "info"
-            | OutputKind.System -> "system"
-          sprintf "[%s] [%s] %s"
-            (line.Timestamp.ToString("HH:mm:ss")) kindLabel line.Text)
-        |> String.concat "\n"
+        let buf = model.RecentOutput.GetActiveBuffer(model.Sessions.ActiveSessionId)
+        let sb = System.Text.StringBuilder(buf.Count * 40)
+        buf.RenderAll(sb)
+        sb.ToString()
       Affordances = []
       Cursor = None
       Completions = None
@@ -1385,26 +1391,34 @@ module SageFsEffectHandler =
 /// Including test state fields ensures `/events` SSE fires
 /// when tests change even if output/diagnostics stay the same.
 module SseDedupKey =
+  /// Lightweight dedup key — no JSON serialization, just hash the observable state.
+  /// Returns a string that changes when any user-visible state changes.
   let fromModel (model: SageFsModel) : string =
-    let outputCount = model.RecentOutput.Length
+    let sb = System.Text.StringBuilder(128)
+    sb.Append(model.RecentOutput.ActiveCount(model.Sessions.ActiveSessionId)).Append('|') |> ignore
     let diagCount =
       model.Diagnostics |> Map.values |> Seq.sumBy List.length
-    let lt = model.LiveTesting.TestState
+    sb.Append(diagCount).Append('|') |> ignore
+    sb.Append(model.Sessions.Sessions.Length).Append('|') |> ignore
     let activeSessionId = ActiveSession.sessionId model.Sessions.ActiveSessionId |> Option.defaultValue ""
+    sb.Append(activeSessionId).Append('|') |> ignore
+    for s in model.Sessions.Sessions do
+      sb.Append(s.Id).Append(':').Append(string s.Status).Append(';') |> ignore
+    sb.Append('|') |> ignore
+    let lt = model.LiveTesting.TestState
     let sessionEntries = LiveTestState.statusEntriesForSession activeSessionId lt
     let testSummary =
       TestSummary.fromStatuses lt.Activation (sessionEntries |> Array.map (fun e -> e.Status))
-    System.Text.Json.JsonSerializer.Serialize(
-      {| outputCount = outputCount
-         diagCount = diagCount
-         sessionCount = model.Sessions.Sessions.Length
-         activeSession = ActiveSession.sessionId model.Sessions.ActiveSessionId |> Option.defaultValue ""
-         sessionStatuses = model.Sessions.Sessions |> List.map (fun s -> sprintf "%s:%s" s.Id (string s.Status))
-         testTotal = testSummary.Total
-         testPassed = testSummary.Passed
-         testFailed = testSummary.Failed
-         testRunning = testSummary.Running
-         testStale = testSummary.Stale
-         testGeneration = RunGeneration.value lt.LastGeneration
-         testRunPhase = lt.RunPhases |> Map.toList |> List.map (fun (k,v) -> sprintf "%s:%s" k (string v)) |> String.concat ","
-         testEnabled = lt.Activation = LiveTestingActivation.Active |})
+    sb.Append(testSummary.Total).Append(',')
+      .Append(testSummary.Passed).Append(',')
+      .Append(testSummary.Failed).Append(',')
+      .Append(testSummary.Running).Append(',')
+      .Append(testSummary.Stale).Append('|') |> ignore
+    sb.Append(RunGeneration.value lt.LastGeneration).Append('|') |> ignore
+    for kvp in lt.RunPhases do
+      sb.Append(kvp.Key).Append(':').Append(string kvp.Value).Append(';') |> ignore
+    sb.Append('|') |> ignore
+    match lt.Activation = LiveTestingActivation.Active with
+    | true -> sb.Append('1') |> ignore
+    | false -> sb.Append('0') |> ignore
+    sb.ToString()

@@ -384,7 +384,8 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
           | _ -> None }
   let elmRuntime =
     ElmDaemon.start effectDeps (fun model _regions ->
-      let outputCount = model.RecentOutput.Length
+      let activeBuf = model.RecentOutput.GetActiveBuffer(model.Sessions.ActiveSessionId)
+      let outputCount = activeBuf.Count
       let diagCount =
         model.Diagnostics |> Map.values |> Seq.sumBy List.length
       // Fire SSE event with summary JSON — deduplicated
@@ -400,10 +401,9 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
             lastLoggedOutputCount <- outputCount
             lastLoggedDiagCount <- diagCount
             let latest =
-              model.RecentOutput
-              |> List.tryHead
-              |> Option.map (fun o -> o.Text)
-              |> Option.defaultValue ""
+              match activeBuf.IsEmpty with
+              | true -> ""
+              | false -> activeBuf.[0].Text
             Log.info "[elm] output=%d diags=%d | %s"
               outputCount diagCount latest
           | false -> ()
