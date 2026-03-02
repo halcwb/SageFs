@@ -284,7 +284,7 @@ let formatWarmupDetailForLlmTests = testList "formatWarmupDetailForLlm" [
     let result = formatWarmupDetailForLlm ctx
     result |> Expect.stringContains "summary ratio" "1/2 namespaces opened"
     result |> Expect.stringContains "failed section" "⚠ Failed opens (1):"
-    result |> Expect.stringContains "failed detail" "✖ Bad.Ns — not found"
+    result |> Expect.stringContains "failed detail" "✖ Bad.Ns (namespace) — not found"
 
   testCase "failed file loads show in files section" <| fun _ ->
     let ctx : SessionContext = {
