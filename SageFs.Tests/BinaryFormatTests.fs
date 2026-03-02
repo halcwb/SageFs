@@ -1123,6 +1123,115 @@ let robustnessTests = testList "Robustness" [
       | Result.Error _ -> false)
 ]
 
+// ─── Version & Validation Tests ──────────────────────────────────
+
+let versionAndValidationTests = testList "Version & Validation" [
+  testCase "STC: rejects file with future min_reader_version" <| fun _ ->
+    let d: StcData = {
+      CoverageEntries = []
+      ResultEntries = [{ TestId = "x"; Outcome = Outcome.Pass; DurationMs = 1u; Message = None }]
+      ImapGeneration = 1u; CreatedAtMs = 0L }
+    let bytes = TestCacheWriter.write d
+    let patched = Array.copy bytes
+    let v99 = System.BitConverter.GetBytes(99us)
+    System.Array.Copy(v99, 0, patched, 6, 2)
+    patched.[36] <- 0uy; patched.[37] <- 0uy; patched.[38] <- 0uy; patched.[39] <- 0uy
+    let crc = Crc32.computeAll patched
+    System.Array.Copy(System.BitConverter.GetBytes(crc), 0, patched, 36, 4)
+    match TestCacheReader.read patched with
+    | Result.Error msg ->
+      msg |> Expect.stringContains "should mention version" "version"
+    | Result.Ok _ -> failwith "STC reader accepted min_reader_version=99"
+
+  testCase "SFS: rejects file with future min_reader_version" <| fun _ ->
+    let d: SfsData = {
+      Meta = { SageFsVersion = "1"; FSharpVersion = "8"; DotNetVersion = "10"
+               ProjectPath = "p"; WorkingDirectory = "/"; EvalCount = 1u
+               FailedEvalCount = 0u; SessionId = "s" }
+      Interactions = [{ Code = "x"; Output = "y"; TimestampMs = 0L
+                        Kind = InteractionKind.Interaction; Flags = EntryFlags.None; DurationMicros = 1u }]
+      References = []; CreatedAtMs = 0L }
+    let bytes = SessionBinaryWriter.write d
+    let patched = Array.copy bytes
+    let v99 = System.BitConverter.GetBytes(99us)
+    System.Array.Copy(v99, 0, patched, 6, 2)
+    patched.[36] <- 0uy; patched.[37] <- 0uy; patched.[38] <- 0uy; patched.[39] <- 0uy
+    let crc = Crc32.computeAll patched
+    System.Array.Copy(System.BitConverter.GetBytes(crc), 0, patched, 36, 4)
+    match SessionBinaryReader.read patched with
+    | Result.Error msg ->
+      msg |> Expect.stringContains "should mention version" "version"
+    | Result.Ok _ -> failwith "SFS reader accepted min_reader_version=99"
+
+  testCase "STC: accepts file with current min_reader_version" <| fun _ ->
+    let d: StcData = {
+      CoverageEntries = []
+      ResultEntries = [{ TestId = "x"; Outcome = Outcome.Pass; DurationMs = 1u; Message = None }]
+      ImapGeneration = 1u; CreatedAtMs = 0L }
+    match TestCacheReader.read (TestCacheWriter.write d) with
+    | Result.Ok _ -> ()
+    | Result.Error e -> failwith e
+
+  testCase "SFS: accepts file with current min_reader_version" <| fun _ ->
+    let d: SfsData = {
+      Meta = { SageFsVersion = "1"; FSharpVersion = "8"; DotNetVersion = "10"
+               ProjectPath = "p"; WorkingDirectory = "/"; EvalCount = 1u
+               FailedEvalCount = 0u; SessionId = "s" }
+      Interactions = []; References = []; CreatedAtMs = 0L }
+    match SessionBinaryReader.read (SessionBinaryWriter.write d) with
+    | Result.Ok _ -> ()
+    | Result.Error e -> failwith e
+
+  testCase "STC: corrupting TOC directory byte is detected (regression)" <| fun _ ->
+    let d: StcData = {
+      CoverageEntries = []
+      ResultEntries = [{ TestId = "x"; Outcome = Outcome.Pass; DurationMs = 1u; Message = None }]
+      ImapGeneration = 1u; CreatedAtMs = 0L }
+    let bytes = TestCacheWriter.write d
+    let corrupted = Array.copy bytes
+    corrupted.[72] <- corrupted.[72] ^^^ 0xFFuy
+    match TestCacheReader.read corrupted with
+    | Result.Error _ -> ()
+    | Result.Ok _ -> failwith "TOC corruption at byte 72 was NOT detected"
+
+  testCase "SFS: corrupting TOC directory byte is detected (regression)" <| fun _ ->
+    let d: SfsData = {
+      Meta = { SageFsVersion = "1"; FSharpVersion = "8"; DotNetVersion = "10"
+               ProjectPath = "p"; WorkingDirectory = "/"; EvalCount = 1u
+               FailedEvalCount = 0u; SessionId = "s" }
+      Interactions = [{ Code = "x"; Output = "y"; TimestampMs = 0L
+                        Kind = InteractionKind.Interaction; Flags = EntryFlags.None; DurationMicros = 1u }]
+      References = []; CreatedAtMs = 0L }
+    let bytes = SessionBinaryWriter.write d
+    let corrupted = Array.copy bytes
+    corrupted.[80] <- corrupted.[80] ^^^ 0xFFuy
+    match SessionBinaryReader.read corrupted with
+    | Result.Error _ -> ()
+    | Result.Ok _ -> failwith "TOC corruption at byte 80 was NOT detected"
+
+  testCase "STC: unknown Outcome byte returns Error" <| fun _ ->
+    let d: StcData = {
+      CoverageEntries = []
+      ResultEntries = [{ TestId = "x"; Outcome = Outcome.Pass; DurationMs = 1u; Message = None }]
+      ImapGeneration = 1u; CreatedAtMs = 0L }
+    let bytes = TestCacheWriter.write d
+    let patched = Array.copy bytes
+    let tresOffset = System.BitConverter.ToUInt64(patched, 64 + 2*16 + 4) |> int
+    let outcomeByte = tresOffset + 4 + 4 + 1
+    patched.[outcomeByte] <- 42uy
+    let totalSize = System.BitConverter.ToUInt64(patched, 24) |> int
+    let tresPayload = patched.[tresOffset .. totalSize - 1]
+    let tresCrc = Crc32.computeAll tresPayload
+    System.Array.Copy(System.BitConverter.GetBytes(tresCrc), 0, patched, 108, 4)
+    patched.[36] <- 0uy; patched.[37] <- 0uy; patched.[38] <- 0uy; patched.[39] <- 0uy
+    let hcrc = Crc32.computeAll patched
+    System.Array.Copy(System.BitConverter.GetBytes(hcrc), 0, patched, 36, 4)
+    match TestCacheReader.read patched with
+    | Result.Error msg ->
+      msg |> Expect.stringContains "should mention Outcome" "Outcome"
+    | Result.Ok _ -> failwith "Accepted unknown Outcome 42"
+]
+
 // ─── Combined ────────────────────────────────────────────────────
 
 [<Tests>]
@@ -1137,4 +1246,5 @@ let allBinaryFormatTests = testList "Binary Format" [
   restoreTestCacheTests
   daemonRoundtripPropertyTests
   robustnessTests
+  versionAndValidationTests
 ]

@@ -199,6 +199,9 @@ module SessionBinaryWriter =
 module SessionBinaryReader =
   open SessionBinaryTypes
 
+  /// The format version this reader supports.
+  let readerVersion = 3us
+
   let private ok v : Result<_, string> = Ok v
   let private err msg : Result<_, string> = FSharp.Core.Error msg
 
@@ -250,10 +253,10 @@ module SessionBinaryReader =
       let pool = br.ReadBytes(poolSize)
       ok [
         for (codeOff, outputOff, tsMs, kind, flags, durMicros) in entries do
-          let validKind =
-            match kind <= 3us with
-            | true -> LanguagePrimitives.EnumOfValue<uint16, InteractionKind> kind
-            | false -> InteractionKind.Interaction
+          match kind <= 3us with
+          | true -> ()
+          | false -> failwithf "Unknown InteractionKind value: %d" kind
+          let validKind = LanguagePrimitives.EnumOfValue<uint16, InteractionKind> kind
           yield {
             Code = readPoolString pool codeOff
             Output = readPoolString pool outputOff
@@ -272,10 +275,10 @@ module SessionBinaryReader =
       ok [
         for _ in 0 .. count - 1 do
           let rawKind = br.ReadByte()
-          let validKind =
-            match rawKind <= 3uy with
-            | true -> LanguagePrimitives.EnumOfValue<byte, RefKind>(rawKind)
-            | false -> RefKind.DllPath
+          match rawKind <= 3uy with
+          | true -> ()
+          | false -> failwithf "Unknown RefKind value: %d" rawKind
+          let validKind = LanguagePrimitives.EnumOfValue<byte, RefKind>(rawKind)
           yield {
             Kind = validKind
             Path = BinaryPrimitives.readLpString br
@@ -290,9 +293,14 @@ module SessionBinaryReader =
       let storedCrc = BitConverter.ToUInt32(data, 36)
       let forCrc = Array.copy data
       forCrc.[36] <- 0uy; forCrc.[37] <- 0uy; forCrc.[38] <- 0uy; forCrc.[39] <- 0uy
-      if storedCrc <> Crc32.computeAll forCrc then
-        err (sprintf "Header CRC mismatch: stored=%08X computed=%08X" storedCrc (Crc32.computeAll forCrc))
+      let computed = Crc32.computeAll forCrc
+      if storedCrc <> computed then
+        err (sprintf "Header CRC mismatch: stored=%08X computed=%08X" storedCrc computed)
       else
+        let minVersion = BitConverter.ToUInt16(data, 6)
+        if minVersion > readerVersion then
+          err (sprintf "File requires reader version %d but this reader is version %d" minVersion readerVersion)
+        else
         let sectionCount = BitConverter.ToUInt32(data, 8) |> int
         let createdAtMs = BitConverter.ToInt64(data, 16)
         let dirEntries = [

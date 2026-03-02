@@ -142,6 +142,9 @@ module TestCacheWriter =
 module TestCacheReader =
   open TestCacheTypes
 
+  /// The format version this reader supports.
+  let readerVersion = 1us
+
   let private ok v : Result<_, string> = Ok v
   let private err msg : Result<_, string> = FSharp.Core.Error msg
 
@@ -163,20 +166,22 @@ module TestCacheReader =
           | n -> [| for _ in 1u .. n -> br.ReadUInt64() |]
         yield { TestId = tid; BitmapWordCount = wc; BitmapWords = words } ]
 
-  let private parseTres (payload: byte[]) : ResultEntry list =
-    use ms = new MemoryStream(payload)
-    use br = new BinaryReader(ms)
-    let count = br.ReadUInt32() |> int
-    [ for _ in 0 .. count - 1 do
-        let tid = BinaryPrimitives.readLpString br
-        let rawOutcome = br.ReadByte()
-        let outcome =
-          match rawOutcome <= 3uy with
-          | true -> LanguagePrimitives.EnumOfValue<byte, Outcome>(rawOutcome)
-          | false -> Outcome.Fail // default to Fail for unknown values
-        let dur = br.ReadUInt32()
-        let msg = BinaryPrimitives.readLpStringOption br
-        yield { TestId = tid; Outcome = outcome; DurationMs = dur; Message = msg } ]
+  let private parseTres (payload: byte[]) : Result<ResultEntry list, string> =
+    try
+      use ms = new MemoryStream(payload)
+      use br = new BinaryReader(ms)
+      let count = br.ReadUInt32() |> int
+      ok [ for _ in 0 .. count - 1 do
+              let tid = BinaryPrimitives.readLpString br
+              let rawOutcome = br.ReadByte()
+              match rawOutcome <= 3uy with
+              | true -> ()
+              | false -> failwithf "Unknown Outcome value: %d" rawOutcome
+              let outcome = LanguagePrimitives.EnumOfValue<byte, Outcome>(rawOutcome)
+              let dur = br.ReadUInt32()
+              let msg = BinaryPrimitives.readLpStringOption br
+              yield { TestId = tid; Outcome = outcome; DurationMs = dur; Message = msg } ]
+    with ex -> err (sprintf "TRES parse error: %s" ex.Message)
 
   let read (data: byte[]) : Result<StcData, string> =
     if data.Length < 64 then err "File too short for STC1 header"
@@ -186,9 +191,14 @@ module TestCacheReader =
       let storedCrc = BitConverter.ToUInt32(data, 36)
       let forCrc = Array.copy data
       forCrc.[36] <- 0uy; forCrc.[37] <- 0uy; forCrc.[38] <- 0uy; forCrc.[39] <- 0uy
-      if storedCrc <> Crc32.computeAll forCrc then
-        err (sprintf "Header CRC mismatch: stored=%08X computed=%08X" storedCrc (Crc32.computeAll forCrc))
+      let computed = Crc32.computeAll forCrc
+      if storedCrc <> computed then
+        err (sprintf "Header CRC mismatch: stored=%08X computed=%08X" storedCrc computed)
       else
+        let minVersion = BitConverter.ToUInt16(data, 6)
+        if minVersion > readerVersion then
+          err (sprintf "File requires reader version %d but this reader is version %d" minVersion readerVersion)
+        else
         let sectionCount = BitConverter.ToUInt32(data, 8) |> int
         let createdAtMs = BitConverter.ToInt64(data, 16)
         let imapGen = BitConverter.ToUInt32(data, 40)
@@ -224,7 +234,9 @@ module TestCacheReader =
           match Map.tryFind 0x494D4150u payloadMap, Map.tryFind 0x54524553u payloadMap with
           | Some imapP, Some tresP ->
             let coverage = parseImap imapP
-            let results = parseTres tresP
+            match parseTres tresP with
+            | Result.Error e -> err e
+            | Result.Ok results ->
             ok {
               CoverageEntries = coverage
               ResultEntries = results
