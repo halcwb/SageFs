@@ -9,7 +9,7 @@ A live F# engine — hot reload, live testing, AI-native — for every editor, f
 [![NuGet](https://img.shields.io/nuget/v/SageFs?style=flat-square&logo=nuget&color=004880)](https://www.nuget.org/packages/SageFs/)
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-2900+-22c55e?style=flat-square)]()
+[![Tests](https://img.shields.io/badge/tests-3150+-22c55e?style=flat-square)]()
 [![Save → Green](https://img.shields.io/badge/save→green-<500ms-f59e0b?style=flat-square)]()
 
 </div>
@@ -269,6 +269,21 @@ All session events (evals, resets, diagnostics, errors) stored in PostgreSQL via
 </details>
 
 <details>
+<summary><strong>💾 Binary Session Persistence — instant resume</strong></summary>
+
+<br />
+
+SageFs persists session state and test caches to compact binary files (`.sagefs` v3, `.sagetc` v1) for near-instant cold starts. No JSON parsing, no database — raw binary with CRC-32C integrity checking.
+
+- **Session files** (`.sagefs`): Full session state — interactions, diagnostics, outputs, eval timeline
+- **Test cache files** (`.sagetc`): Test discovery results, outcomes, durations, bitmaps of affected tests
+- **Session isolation**: Each session writes to its own file, verified by 118 property-based tests including concurrent write safety
+
+Design: length-prefixed strings, section headers with byte-count envelopes, version negotiation, and field-level bounds checking prevent OOM from crafted inputs.
+
+</details>
+
+<details>
 <summary><strong>🤖 MCP Tools Reference — full list</strong></summary>
 
 <br />
@@ -363,6 +378,8 @@ Full options: `sagefs --help`
 | Hot reload not working | Ensure `SageFs.DevReloadMiddleware` is in your pipeline. |
 | SSE connections dropping | Set proxy timeout ≥ 60s. SageFs sends keepalives every 15s. |
 | Live testing not running | Check `set_live_testing` is enabled and run policies match expectations. |
+| **macOS: SyntaxHighlight init failed** | Tree-sitter native library not yet bundled for macOS/Linux. Syntax highlighting falls back gracefully — all other features work. See [#17](https://github.com/WillEhrendreich/SageFs/issues/17). |
+| **macOS: VS Code "cannot read properties of undefined"** | Fixed in v0.5.414+. Update the extension. If daemon can't start, the extension now degrades gracefully instead of crashing. See [#18](https://github.com/WillEhrendreich/SageFs/issues/18). |
 | Logs? | Daemon console for real-time. OTEL export for structured traces/metrics. |
 
 </details>
@@ -415,7 +432,7 @@ SageFs is **daemon-first** — one server, many clients. Worker sessions run as 
      └──────┘  └───────┘
 ```
 
-2900+ tests: Expecto unit tests, FsCheck property-based state machine tests, Verify snapshots, Testcontainers integration tests.
+3150+ tests: Expecto unit tests, FsCheck property-based state machine tests, Verify snapshots, Testcontainers integration tests, binary persistence property tests.
 
 </details>
 
