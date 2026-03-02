@@ -70,7 +70,8 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
   /// Timeout for agent-facing worker fetches (MCP tools, SSE session events).
   let mcpFetchTimeoutSec = 5.0
   /// Timeout for user-facing worker fetches (dashboard responses).
-  let dashboardFetchTimeoutSec = 2.0
+  /// Short timeout (500ms) so dashboard stays responsive during warmup/testing.
+  let dashboardFetchTimeoutSec = 0.5
 
   log.LogInformation("SageFs daemon v{Version} starting on port {Port}", version, mcpPort)
 

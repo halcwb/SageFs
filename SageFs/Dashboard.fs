@@ -1599,9 +1599,17 @@ let createStreamHandler
       | true -> currentSessionId <- activeId
       | false -> ()
       let state = q.GetSessionState currentSessionId
-      let! stats = q.GetEvalStats currentSessionId
       let stateStr = SessionState.label state
       let workingDir = q.GetSessionWorkingDir currentSessionId
+      // Parallelize all worker HTTP fetches — prevents sequential 2s+ timeouts
+      // that freeze the SSE stream during warmup/testing
+      let statsTask = q.GetEvalStats currentSessionId
+      let hrTask = q.GetHotReloadState currentSessionId
+      let wCtxTask = q.GetWarmupContext currentSessionId
+      do! System.Threading.Tasks.Task.WhenAll(statsTask, hrTask, wCtxTask)
+      let stats = statsTask.Result
+      let hrState = hrTask.Result
+      let wCtx = wCtxTask.Result
       // Push sessionId signal so eval form can include it
       do! Response.ssePatchSignal ctx (SignalPath.sp "sessionId") currentSessionId
       let avgMs =
@@ -1642,66 +1650,40 @@ let createStreamHandler
             Text.raw label
           ])
       | None -> ()
-      // Push hot-reload file panel
+      // Push hot-reload file panel (uses pre-fetched hrState)
       match currentSessionId.Length > 0 with
       | true ->
-        try
-          let! hrState = q.GetHotReloadState currentSessionId
-          match hrState with
-          | Some hr ->
-            do! ssePatchNode ctx (renderHotReloadPanel currentSessionId hr.files hr.watchedCount)
-          | None ->
-            do! ssePatchNode ctx renderHotReloadEmpty
-        with
-        | :? System.IO.IOException | :? ObjectDisposedException
-        | :? System.Net.Http.HttpRequestException | :? Threading.Tasks.TaskCanceledException ->
-          do! ssePatchNode ctx renderHotReloadEmpty
-        | ex ->
-          eprintfn "[dashboard] Hot-reload panel error: %s (%s)" ex.Message (ex.GetType().Name)
+        match hrState with
+        | Some hr ->
+          do! ssePatchNode ctx (renderHotReloadPanel currentSessionId hr.files hr.watchedCount)
+        | None ->
           do! ssePatchNode ctx renderHotReloadEmpty
       | false ->
         do! ssePatchNode ctx renderHotReloadEmpty
-      // Push session context panel
+      // Push session context panel (uses pre-fetched wCtx and hrState)
       match currentSessionId.Length > 0 with
       | true ->
-        try
-          let! wCtx = q.GetWarmupContext currentSessionId
-          match wCtx with
-          | Some ctx' ->
-            let state = q.GetSessionState currentSessionId
-            let! hrState =
-              task {
-                try return! q.GetHotReloadState currentSessionId
-                with
-                | :? System.IO.IOException | :? ObjectDisposedException
-                | :? System.Net.Http.HttpRequestException | :? Threading.Tasks.TaskCanceledException -> return None
-              }
-            let fileStatuses =
-              match hrState with
-              | Some hr ->
-                hr.files |> List.map (fun f ->
-                  let readiness =
-                    ctx'.NamespacesOpened
-                    |> List.exists (fun b -> f.path.EndsWith(b.Name, StringComparison.OrdinalIgnoreCase))
-                    |> fun loaded -> match loaded with | true -> FileReadiness.Loaded | false -> FileReadiness.NotLoaded
-                  { Path = f.path; Readiness = readiness; LastLoadedAt = None; IsWatched = f.watched })
-              | None -> []
-            let sCtx =
-              { SessionId = currentSessionId
-                ProjectNames = []
-                WorkingDir = q.GetSessionWorkingDir currentSessionId
-                Status = SessionState.label (q.GetSessionState currentSessionId)
-                Warmup = ctx'
-                FileStatuses = fileStatuses }
-            do! ssePatchNode ctx (renderSessionContextPanel sCtx)
-          | None ->
-            do! ssePatchNode ctx renderSessionContextEmpty
-        with
-        | :? System.IO.IOException | :? ObjectDisposedException
-        | :? System.Net.Http.HttpRequestException | :? Threading.Tasks.TaskCanceledException ->
-          do! ssePatchNode ctx renderSessionContextEmpty
-        | ex ->
-          eprintfn "[dashboard] Session context panel error: %s (%s)" ex.Message (ex.GetType().Name)
+        match wCtx with
+        | Some ctx' ->
+          let fileStatuses =
+            match hrState with
+            | Some hr ->
+              hr.files |> List.map (fun f ->
+                let readiness =
+                  ctx'.NamespacesOpened
+                  |> List.exists (fun b -> f.path.EndsWith(b.Name, StringComparison.OrdinalIgnoreCase))
+                  |> fun loaded -> match loaded with | true -> FileReadiness.Loaded | false -> FileReadiness.NotLoaded
+                { Path = f.path; Readiness = readiness; LastLoadedAt = None; IsWatched = f.watched })
+            | None -> []
+          let sCtx =
+            { SessionId = currentSessionId
+              ProjectNames = []
+              WorkingDir = q.GetSessionWorkingDir currentSessionId
+              Status = SessionState.label (q.GetSessionState currentSessionId)
+              Warmup = ctx'
+              FileStatuses = fileStatuses }
+          do! ssePatchNode ctx (renderSessionContextPanel sCtx)
+        | None ->
           do! ssePatchNode ctx renderSessionContextEmpty
       | false ->
         do! ssePatchNode ctx renderSessionContextEmpty
