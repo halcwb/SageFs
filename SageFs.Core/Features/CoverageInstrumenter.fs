@@ -6,6 +6,7 @@ open System.Reflection
 open Mono.Cecil
 open Mono.Cecil.Cil
 open Mono.Cecil.Rocks
+open SageFs.Utils
 
 /// Cecil-based IL instrumentation for branch coverage.
 /// Injects a __SageFsCoverage tracker class with bool[] Hits field,
@@ -344,7 +345,7 @@ module CoverageInstrumenter =
     : InstrumentationMap array =
     match isCircuitBroken () with
     | true ->
-      eprintfn "⚠️ IL coverage instrumentation disabled after %d consecutive failures" consecutiveFailures
+      Log.warn "IL coverage instrumentation disabled after %d consecutive failures" consecutiveFailures
       [||]
     | false ->
       let mutable hadFailure = false
@@ -360,7 +361,7 @@ module CoverageInstrumenter =
             | Ok _ -> None
             | Error msg ->
               hadFailure <- true
-              eprintfn "⚠️ IL instrumentation failed for %s: %s" (Path.GetFileName targetPath) msg
+              Log.warn "IL instrumentation failed for %s: %s" (Path.GetFileName targetPath) msg
               None
           | false -> None)
       match hadFailure with
@@ -368,7 +369,7 @@ module CoverageInstrumenter =
         consecutiveFailures <- consecutiveFailures + 1
         match isCircuitBroken () with
         | true ->
-          eprintfn "🛑 IL coverage circuit breaker tripped after %d failures — instrumentation disabled for this session" consecutiveFailures
+          Log.error "IL coverage circuit breaker tripped after %d failures — instrumentation disabled for this session" consecutiveFailures
         | false -> ()
       | false ->
         consecutiveFailures <- 0

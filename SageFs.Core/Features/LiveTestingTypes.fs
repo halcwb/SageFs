@@ -1832,7 +1832,12 @@ module TestCycleDebounce =
   let tick (now: DateTimeOffset) (db: TestCycleDebounce) =
     let tsPayload, tsChannel = DebounceChannel.tryFire now db.TreeSitter
     let fcsPayload, fcsChannel = DebounceChannel.tryFire now db.Fcs
-    (tsPayload, fcsPayload), { db with TreeSitter = tsChannel; Fcs = fcsChannel }
+    // Return same reference when nothing changed (enables model reference equality skip)
+    let db' =
+      match obj.ReferenceEquals(tsChannel, db.TreeSitter) && obj.ReferenceEquals(fcsChannel, db.Fcs) with
+      | true -> db
+      | false -> { db with TreeSitter = tsChannel; Fcs = fcsChannel }
+    (tsPayload, fcsPayload), db'
 
 [<RequireQualifiedAccess>]
 type TestCycleEffect =
@@ -2159,7 +2164,12 @@ module LiveTestCycleState =
     | Some filePath ->
       let (tsPayload, fcsPayload), db = s.Debounce |> TestCycleDebounce.tick now
       let effects = TestCycleEffects.fromTick tsPayload fcsPayload filePath s.LastTiming
-      effects, { s with Debounce = db }
+      // Return same reference when debounce didn't change (no-op tick)
+      let s' =
+        match obj.ReferenceEquals(db, s.Debounce) with
+        | true -> s
+        | false -> { s with Debounce = db }
+      effects, s'
 
   /// Handles an FCS type-check result: updates state and produces effects.
   /// Success: updates symbol graph, analysis cache, adaptive debounce, then

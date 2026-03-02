@@ -3,6 +3,7 @@ module SageFs.Server.DaemonMode
 open System
 open System.Threading
 open SageFs
+open SageFs.Utils
 open SageFs.Server
 open Falco
 open Falco.Routing
@@ -361,15 +362,15 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
         | _ -> return None
       with
       | :? System.IO.IOException as ex ->
-        eprintfn "[getWarmupContextForElm] IO error: %s" ex.Message
+        Log.error "[getWarmupContextForElm] IO error: %s" ex.Message
         return None
       | :? System.Net.Http.HttpRequestException as ex ->
-        eprintfn "[getWarmupContextForElm] HTTP error: %s" ex.Message
+        Log.error "[getWarmupContextForElm] HTTP error: %s" ex.Message
         return None
       | :? System.Threading.Tasks.TaskCanceledException ->
         return None
       | ex ->
-        eprintfn "[getWarmupContextForElm] Unexpected: %s (%s)" ex.Message (ex.GetType().Name)
+        Log.error "[getWarmupContextForElm] Unexpected: %s (%s)" ex.Message (ex.GetType().Name)
         return None
     }
   let effectDeps =
@@ -403,12 +404,12 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
               |> List.tryHead
               |> Option.map (fun o -> o.Text)
               |> Option.defaultValue ""
-            eprintfn "\x1b[36m[elm]\x1b[0m output=%d diags=%d | %s"
+            Log.info "[elm] output=%d diags=%d | %s"
               outputCount diagCount latest
           | false -> ()
           stateChangedEvent.Trigger (ModelChanged json)
         | false -> ()
-      with ex -> eprintfn "[elm] State change propagation error: %s (%s)" ex.Message (ex.GetType().Name))
+      with ex -> Log.error "[elm] State change propagation error: %s (%s)" ex.Message (ex.GetType().Name))
 
   // Create a diagnostics-changed event (aggregated from workers)
   let diagnosticsChanged = Event<Features.DiagnosticsStore.T>()
@@ -429,13 +430,13 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
         return Some (parse resp)
       with
       | :? Threading.Tasks.TaskCanceledException ->
-        eprintfn "[fetchWorkerEndpoint] Timeout (%.0fs) fetching %s for session %s" timeout path sessionId
+        Log.warn "[fetchWorkerEndpoint] Timeout (%.0fs) fetching %s for session %s" timeout path sessionId
         return None
       | :? Net.Http.HttpRequestException as ex ->
-        eprintfn "[fetchWorkerEndpoint] HTTP error fetching %s for session %s: %s" path sessionId ex.Message
+        Log.error "[fetchWorkerEndpoint] HTTP error fetching %s for session %s: %s" path sessionId ex.Message
         return None
       | ex ->
-        eprintfn "[fetchWorkerEndpoint] Unexpected error fetching %s for session %s: %s" path sessionId (ex.GetType().Name)
+        Log.error "[fetchWorkerEndpoint] Unexpected error fetching %s for session %s: %s" path sessionId (ex.GetType().Name)
         return None
     | None -> return None
   }
@@ -519,11 +520,12 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       GetHotReloadState = Some getHotReloadStateForMcp
     }
 
-  // Test cycle tick timer — drives debounce channels for live testing (50ms fixed interval)
+  // Test cycle tick timer — drives debounce channels for live testing (200ms interval)
+  // Elmish-style batching means rapid ticks coalesce: N ticks → N updates → 1 render
   let testCycleTimer = new System.Threading.Timer(
     System.Threading.TimerCallback(fun _ ->
       elmRuntime.Dispatch(SageFsMsg.TestCycleTick DateTimeOffset.UtcNow)),
-    null, 50, 50)
+    null, 200, 200)
 
   // Live testing file watcher — monitors *.fs and *.fsx changes, dispatches FileContentChanged.
   // Uses timer-based debounce with per-path deduplication (same pattern as FileWatcher.start).
@@ -620,10 +622,10 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       | :? System.Net.Http.HttpRequestException -> return None
       | :? Threading.Tasks.TaskCanceledException -> return None
       | :? Text.Json.JsonException as ex ->
-        eprintfn "[tryGetSessionSnapshot] JSON parse error for %s: %s" sid ex.Message
+        Log.error "[tryGetSessionSnapshot] JSON parse error for %s: %s" sid ex.Message
         return None
       | ex ->
-        eprintfn "[tryGetSessionSnapshot] Unexpected error for %s: %s (%s)" sid ex.Message (ex.GetType().Name)
+        Log.error "[tryGetSessionSnapshot] Unexpected error for %s: %s (%s)" sid ex.Message (ex.GetType().Name)
         return None
     | _ -> return None
   }
@@ -668,10 +670,10 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       with
       | :? System.Net.Http.HttpRequestException | :? Threading.Tasks.TaskCanceledException -> return Affordances.EvalStats.empty
       | :? Text.Json.JsonException as ex ->
-        eprintfn "[getEvalStats] JSON parse error for %s: %s" sid ex.Message
+        Log.error "[getEvalStats] JSON parse error for %s: %s" sid ex.Message
         return Affordances.EvalStats.empty
       | ex ->
-        eprintfn "[getEvalStats] Unexpected error for %s: %s (%s)" sid ex.Message (ex.GetType().Name)
+        Log.error "[getEvalStats] Unexpected error for %s: %s (%s)" sid ex.Message (ex.GetType().Name)
         return Affordances.EvalStats.empty
     | _ -> return Affordances.EvalStats.empty
   }
@@ -729,10 +731,10 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
             |> Seq.toList
         with
         | :? Marten.Exceptions.MartenException as ex ->
-          eprintfn "[getPreviousSessions] Marten error: %s" ex.Message
+          Log.error "[getPreviousSessions] Marten error: %s" ex.Message
           return []
         | ex ->
-          eprintfn "[getPreviousSessions] Unexpected error: %s (%s)" ex.Message (ex.GetType().Name)
+          Log.error "[getPreviousSessions] Unexpected error: %s (%s)" ex.Message (ex.GetType().Name)
           return []
       }
       return activeSessions @ historicalSessions
@@ -870,7 +872,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       with
       | :? System.Net.Http.HttpRequestException | :? Threading.Tasks.TaskCanceledException -> return []
       | ex ->
-        eprintfn "[getCompletions] Error for session: %s (%s)" ex.Message (ex.GetType().Name)
+        Log.error "[getCompletions] Error for session: %s (%s)" ex.Message (ex.GetType().Name)
         return []
     })
   }

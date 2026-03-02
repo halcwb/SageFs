@@ -2,6 +2,7 @@ namespace SageFs
 
 open System
 open System.IO
+open SageFs.Utils
 
 /// Specifies how projects/solutions should be loaded for a session.
 type LoadStrategy =
@@ -91,7 +92,7 @@ module DirectoryConfig =
       match evaluate content with
       | Ok cfg -> Some cfg
       | Error msg ->
-        eprintfn "Warning: failed to load %s: %s (using defaults)" path msg
+        Log.warn "Failed to load %s: %s (using defaults)" path msg
         Some empty
     | false ->
       None

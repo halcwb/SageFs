@@ -4,6 +4,7 @@ open System
 open System.Collections.Concurrent
 open System.IO
 open System.Reflection
+open SageFs.Utils
 
 /// A colored span within a line: start column, length, and fg color as packed RGB (0x00RRGGBB).
 [<Struct>]
@@ -52,7 +53,7 @@ module SyntaxHighlight =
           |> List.tryFind File.Exists
         match dllPath with
         | None ->
-          eprintfn "SyntaxHighlight: native library not found for %s. Searched: %s" rid (String.Join(", ", candidates))
+          Log.warn "SyntaxHighlight: native library not found for %s. Searched: %s" rid (String.Join(", ", candidates))
           None
         | Some path ->
 
@@ -71,7 +72,7 @@ module SyntaxHighlight =
         let query = new Query(lang, queryText)
         Some (lang, query)
       with ex ->
-        eprintfn "SyntaxHighlight init failed: %s" ex.Message
+        Log.error "SyntaxHighlight init failed: %s" ex.Message
         None
 
   /// Cache of (code + theme keyword color) → per-line ColorSpan arrays.

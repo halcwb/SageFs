@@ -4,6 +4,7 @@ open System
 open System.Diagnostics
 open System.Threading
 open SageFs.WorkerProtocol
+open SageFs.Utils
 
 /// Manages worker sub-processes, each owning an FSI session.
 /// Erlang-style supervisor: spawn, monitor, restart on crash.
@@ -631,7 +632,7 @@ module SessionManager =
                 | _ -> ()
               with ex ->
                 Instrumentation.elmloopErrors.Add(1L, System.Collections.Generic.KeyValuePair("phase", "test_discovery" :> obj))
-                eprintfn "[SessionManager] Test discovery failed for %s: %s" id ex.Message
+                Log.error "[SessionManager] Test discovery failed for %s: %s" id ex.Message
             }, ct)
             // Fetch instrumentation maps from the worker
             Async.Start(async {
@@ -644,7 +645,7 @@ module SessionManager =
                 | _ -> ()
               with ex ->
                 Instrumentation.elmloopErrors.Add(1L, System.Collections.Generic.KeyValuePair("phase", "instrumentation_maps" :> obj))
-                eprintfn "[SessionManager] Instrumentation maps fetch failed for %s: %s" id ex.Message
+                Log.error "[SessionManager] Instrumentation maps fetch failed for %s: %s" id ex.Message
             }, ct)
             return! loop newState
           | None ->

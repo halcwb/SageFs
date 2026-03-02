@@ -107,23 +107,23 @@ let getAllMethods (asm: Assembly) =
 
       match loadedTypes.Length > 0 with
       | true ->
-        printfn
-          $"Warning: Assembly %s{asm.GetName().Name} has types with missing dependencies - loaded %d{loadedTypes.Length} types, skipped %d{ex.Types.Length - loadedTypes.Length}"
+        Log.logWarn
+          $"Assembly %s{asm.GetName().Name} has types with missing dependencies - loaded %d{loadedTypes.Length} types, skipped %d{ex.Types.Length - loadedTypes.Length}"
       | false ->
-        printfn $"Warning: Could not load any types from assembly %s{asm.GetName().Name} - all types have missing dependencies"
+        Log.logWarn $"Could not load any types from assembly %s{asm.GetName().Name} - all types have missing dependencies"
 
       loadedTypes
     | :? System.IO.FileNotFoundException as ex ->
-      printfn $"Warning: Assembly %s{asm.GetName().Name} is missing a dependency: %s{ex.Message}"
+      Log.logWarn $"Assembly %s{asm.GetName().Name} is missing a dependency: %s{ex.Message}"
       []
     | :? System.IO.FileLoadException as ex ->
-      printfn $"Warning: Assembly %s{asm.GetName().Name} has a load error: %s{ex.Message}"
+      Log.logWarn $"Assembly %s{asm.GetName().Name} has a load error: %s{ex.Message}"
       []
     | :? System.BadImageFormatException as ex ->
-      printfn $"Warning: Assembly %s{asm.GetName().Name} has a bad format: %s{ex.Message}"
+      Log.logWarn $"Assembly %s{asm.GetName().Name} has a bad format: %s{ex.Message}"
       []
     | ex ->
-      printfn $"Warning: Failed to get types from assembly %s{asm.GetName().Name}: %s{ex.Message}"
+      Log.logWarn $"Failed to get types from assembly %s{asm.GetName().Name}: %s{ex.Message}"
       []
 
   // Only process exported/public types
@@ -150,7 +150,7 @@ let mkReloadingState (sln: SageFs.ProjectLoading.Solution) =
 
   match List.isEmpty loadErrors with
   | false ->
-    loadErrors |> List.iter (fun e -> printfn $"Warning: %s{AssemblyLoadError.describe e}")
+    loadErrors |> List.iter (fun e -> Log.logWarn $"%s{AssemblyLoadError.describe e}")
   | true -> ()
 
   // getAllMethods now handles all reflection errors internally
@@ -175,7 +175,7 @@ let hotReloadingInitFunction sln =
   try
     "hotReload", box <| mkReloadingState sln
   with ex ->
-    printfn $"Warning: HotReloading initialization failed: %s{ex.Message}"
+    Log.logWarn $"HotReloading initialization failed: %s{ex.Message}"
 
     "hotReload",
     box

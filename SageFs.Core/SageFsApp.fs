@@ -775,8 +775,12 @@ module SageFsUpdate =
 
     | SageFsMsg.TestCycleTick now ->
       let effects, cycle' = model.LiveTesting |> Features.LiveTesting.LiveTestCycleState.tick now
-      let mappedEffects = effects |> List.map SageFsEffect.TestCycle
-      { model with LiveTesting = cycle' }, mappedEffects
+      // Return same model reference when tick is a no-op (enables ElmLoop skip)
+      match effects.IsEmpty && obj.ReferenceEquals(cycle', model.LiveTesting) with
+      | true -> model, []
+      | false ->
+        let mappedEffects = effects |> List.map SageFsEffect.TestCycle
+        { model with LiveTesting = cycle' }, mappedEffects
 
     | SageFsMsg.FileContentChanged (filePath, content) ->
       match model.LiveTesting.TestState.Activation = Features.LiveTesting.LiveTestingActivation.Active with

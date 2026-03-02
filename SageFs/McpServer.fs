@@ -507,6 +507,13 @@ let startMcpServer (cfg: McpServerConfig) =
             
             let app = builder.Build()
 
+            // Wire SageFs.Core Log module to OTEL-connected ILogger
+            let coreLogger = app.Services.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("SageFs.Core")
+            SageFs.Utils.Log.logInfo <- fun msg -> coreLogger.LogInformation(msg)
+            SageFs.Utils.Log.logDebug <- fun msg -> coreLogger.LogDebug(msg)
+            SageFs.Utils.Log.logWarn <- fun msg -> coreLogger.LogWarning(msg)
+            SageFs.Utils.Log.logError <- fun msg -> coreLogger.LogError(msg)
+
             app.UseResponseCompression() |> ignore
 
             // Map MCP endpoints

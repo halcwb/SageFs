@@ -3,6 +3,7 @@ namespace SageFs.Features.LiveTesting
 open System
 open System.IO
 open System.Reflection
+open SageFs.Utils
 
 /// Tree-sitter based test discovery for F# source files.
 /// Parses source code and returns SourceTestLocation array for detected test attributes.
@@ -47,7 +48,7 @@ module TestTreeSitter =
           |> List.tryFind File.Exists
         match dllPath with
         | None ->
-          eprintfn "TestTreeSitter: native library not found for %s. Searched: %s" rid (String.Join(", ", candidates))
+          Log.warn "TestTreeSitter: native library not found for %s. Searched: %s" rid (String.Join(", ", candidates))
           None
         | Some path ->
         let lang = new Language(path, "tree_sitter_fsharp")
@@ -62,7 +63,7 @@ module TestTreeSitter =
         let query = new Query(lang, queryText)
         Some (lang, query)
       with ex ->
-        eprintfn "TestTreeSitter init failed: %s" ex.Message
+        Log.error "TestTreeSitter init failed: %s" ex.Message
         None
 
   /// Discover test locations in F# source code.

@@ -12,6 +12,7 @@ module Instrumentation =
   let sessionSource = new ActivitySource("SageFs.SessionManager")
   let testCycleSource = new ActivitySource("SageFs.TestCycle")
   let mcpSource = new ActivitySource("SageFs.Mcp")
+  let elmloopSource = new ActivitySource("SageFs.ElmLoop")
 
   let sessionMeter = new Meter("SageFs.SessionManager")
   let testCycleMeter = new Meter("SageFs.TestCycle")
@@ -93,6 +94,12 @@ module Instrumentation =
     testCycleMeter.CreateHistogram<float>("sagefs.elmloop.callback_ms", "ms", "Elm loop OnModelChanged callback duration")
   let elmloopEffectsSpawned =
     testCycleMeter.CreateCounter<int64>("sagefs.elmloop.effects_spawned_total", description = "Total effects spawned from Elm loop")
+  let elmloopLockWaitMs =
+    testCycleMeter.CreateHistogram<float>("sagefs.elmloop.lock_wait_ms", "ms", "Time waiting to acquire Elm loop lock")
+  let elmloopTotalDispatchMs =
+    testCycleMeter.CreateHistogram<float>("sagefs.elmloop.total_dispatch_ms", "ms", "Total end-to-end dispatch duration")
+  let elmloopQueueDepth =
+    testCycleMeter.CreateUpDownCounter<int64>("sagefs.elmloop.queue_depth", description = "Number of dispatches waiting for the lock")
 
   // P1: LiveTesting additions
   let liveTestingDiscoveryMs =
@@ -174,6 +181,7 @@ module Instrumentation =
     [ "SageFs.SessionManager"
       "SageFs.TestCycle"
       "SageFs.LiveTesting"
+      "SageFs.ElmLoop"
       "SageFs.Mcp"
       "Marten" ]
 
