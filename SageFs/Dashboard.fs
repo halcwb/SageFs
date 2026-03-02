@@ -510,9 +510,9 @@ let renderShell (version: string) =
                 [ Elem.span [ Ds.show "$createLoading" ] [ Text.raw "⏳ Creating... " ]
                   Elem.span [ Ds.show "!$createLoading" ] [ Text.raw "➕ Create" ] ]
             ]
-            // Pipeline Trace
-            Elem.div [ Attr.id "pipeline-trace"; Attr.class' "panel" ] [
-              Elem.h2 [] [ Text.raw "Pipeline" ]
+            // Test Trace
+            Elem.div [ Attr.id "test-trace"; Attr.class' "panel" ] [
+              Elem.h2 [] [ Text.raw "Tests" ]
               Elem.div [ Attr.style "font-size: 0.8rem; opacity: 0.6;" ] [
                 Text.raw "No active session"
               ]
@@ -853,7 +853,7 @@ type DashboardQueries = {
   GetHotReloadState: string -> Threading.Tasks.Task<{| files: {| path: string; watched: bool |} list; watchedCount: int |} option>
   GetWarmupContext: string -> Threading.Tasks.Task<WarmupContext option>
   GetWarmupProgress: string -> string
-  GetPipelineTrace: unit -> {| Timing: Features.LiveTesting.PipelineTiming option; IsRunning: bool; Summary: Features.LiveTesting.TestSummary |} option
+  GetTestTrace: unit -> {| Timing: Features.LiveTesting.TestCycleTiming option; IsRunning: bool; Summary: Features.LiveTesting.TestSummary |} option
   GetLiveTestingStatus: unit -> string
 }
 
@@ -1479,9 +1479,9 @@ let renderSessionContextEmpty =
     ]
   ]
 
-// ── Pipeline Trace Panel ──────────────────────────────────────────────
+// ── Test Trace Panel ──────────────────────────────────────────────
 
-let private renderPipelinePhase (label: string) (ms: float) (maxMs: float) (icon: string) =
+let private renderTestPhase (label: string) (ms: float) (maxMs: float) (icon: string) =
   let pct = match maxMs > 0.0 with | true -> min 100.0 (ms / maxMs * 100.0) | false -> 0.0
   let color =
     match ms with
@@ -1498,8 +1498,8 @@ let private renderPipelinePhase (label: string) (ms: float) (maxMs: float) (icon
     ]
   ]
 
-let renderPipelineTracePanel
-  (timing: Features.LiveTesting.PipelineTiming option)
+let renderTestTracePanel
+  (timing: Features.LiveTesting.TestCycleTiming option)
   (isRunning: bool)
   (summary: Features.LiveTesting.TestSummary)
   =
@@ -1534,18 +1534,18 @@ let renderPipelineTracePanel
     | Some t ->
       let tsMs, fcsMs, execMs =
         match t.Depth with
-        | Features.LiveTesting.PipelineDepth.TreeSitterOnly ts -> ts.TotalMilliseconds, 0.0, 0.0
-        | Features.LiveTesting.PipelineDepth.ThroughFcs (ts, fcs) -> ts.TotalMilliseconds, fcs.TotalMilliseconds, 0.0
-        | Features.LiveTesting.PipelineDepth.ThroughExecution (ts, fcs, exec) -> ts.TotalMilliseconds, fcs.TotalMilliseconds, exec.TotalMilliseconds
+        | Features.LiveTesting.TestCycleDepth.TreeSitterOnly ts -> ts.TotalMilliseconds, 0.0, 0.0
+        | Features.LiveTesting.TestCycleDepth.ThroughFcs (ts, fcs) -> ts.TotalMilliseconds, fcs.TotalMilliseconds, 0.0
+        | Features.LiveTesting.TestCycleDepth.ThroughExecution (ts, fcs, exec) -> ts.TotalMilliseconds, fcs.TotalMilliseconds, exec.TotalMilliseconds
       let totalMs = tsMs + fcsMs + execMs
       let maxMs = max totalMs 1.0
       Elem.div [] [
-        yield renderPipelinePhase "Tree-sitter" tsMs maxMs "🌳"
+        yield renderTestPhase "Tree-sitter" tsMs maxMs "🌳"
         match t.Depth with
-        | Features.LiveTesting.PipelineDepth.TreeSitterOnly _ -> ()
-        | _ -> yield renderPipelinePhase "FCS Check" fcsMs maxMs "🔍"
+        | Features.LiveTesting.TestCycleDepth.TreeSitterOnly _ -> ()
+        | _ -> yield renderTestPhase "FCS Check" fcsMs maxMs "🔍"
         match t.Depth with
-        | Features.LiveTesting.PipelineDepth.ThroughExecution _ -> yield renderPipelinePhase "Execution" execMs maxMs "🧪"
+        | Features.LiveTesting.TestCycleDepth.ThroughExecution _ -> yield renderTestPhase "Execution" execMs maxMs "🧪"
         | _ -> ()
         yield Elem.div [ Attr.style "font-size: 0.7rem; opacity: 0.5; margin-top: 4px;" ] [
           Text.raw (sprintf "%.0fms total • %d/%d tests • %s"
@@ -1556,18 +1556,18 @@ let renderPipelineTracePanel
              | Features.LiveTesting.RunTrigger.ExplicitRun -> "manual"))
         ]
       ]
-  Elem.div [ Attr.id "pipeline-trace"; Attr.class' "panel" ] [
+  Elem.div [ Attr.id "test-trace"; Attr.class' "panel" ] [
     Elem.div [ Attr.style "display: flex; justify-content: space-between; align-items: center;" ] [
-      Elem.h2 [ Attr.style "margin: 0;" ] [ Text.raw "Pipeline" ]
+      Elem.h2 [ Attr.style "margin: 0;" ] [ Text.raw "Tests" ]
       Elem.span [ Attr.style "font-size: 0.7rem; opacity: 0.7;" ] [ Text.raw statusLabel ]
     ]
     Elem.div [ Attr.style "display: flex; gap: 8px; font-size: 0.75rem; margin: 6px 0;" ] summaryParts
     timingSection
   ]
 
-let renderPipelineTraceEmpty =
-  Elem.div [ Attr.id "pipeline-trace"; Attr.class' "panel" ] [
-    Elem.h2 [] [ Text.raw "Pipeline" ]
+let renderTestTraceEmpty =
+  Elem.div [ Attr.id "test-trace"; Attr.class' "panel" ] [
+    Elem.h2 [] [ Text.raw "Tests" ]
     Elem.div [ Attr.style "font-size: 0.8rem; opacity: 0.6;" ] [
       Text.raw "No active session"
     ]
@@ -1687,12 +1687,12 @@ let createStreamHandler
           do! ssePatchNode ctx renderSessionContextEmpty
       | false ->
         do! ssePatchNode ctx renderSessionContextEmpty
-      // Push pipeline trace panel
-      match q.GetPipelineTrace () with
+      // Push Test Trace Panel
+      match q.GetTestTrace () with
       | Some trace ->
-        do! ssePatchNode ctx (renderPipelineTracePanel trace.Timing trace.IsRunning trace.Summary)
+        do! ssePatchNode ctx (renderTestTracePanel trace.Timing trace.IsRunning trace.Summary)
       | None ->
-        do! ssePatchNode ctx renderPipelineTraceEmpty
+        do! ssePatchNode ctx renderTestTraceEmpty
       match q.GetElmRegions () with
       | Some regions ->
         // Dedup output region to avoid overwriting reset/clear (Bug #5)

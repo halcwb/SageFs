@@ -143,8 +143,8 @@
         "title": "SageFs: Show FSI Bindings"
       },
       {
-        "command": "sagefs.showPipelineTrace",
-        "title": "SageFs: Show Pipeline Trace"
+        "command": "sagefs.showTestTrace",
+        "title": "SageFs: Show Test Trace"
       },
       {
         "command": "sagefs.exportSession",

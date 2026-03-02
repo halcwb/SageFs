@@ -751,9 +751,9 @@ let startMcpServer (cfg: McpServerConfig) =
                         | TestOrigin.SourceMapped (f, _) -> Some f
                         | _ -> None)
                       |> Array.distinct
-                    let pipeline = model.LiveTesting
+                    let ltState = model.LiveTesting
                     for file in files do
-                      let fa = FileAnnotations.projectWithCoverage file pipeline
+                      let fa = FileAnnotations.projectWithCoverage file ltState
                       match fa.TestAnnotations.Length > 0 || fa.CodeLenses.Length > 0 || fa.CoverageAnnotations.Length > 0 with
                       | true ->
                         do! SageFs.SseWriter.formatFileAnnotationsEvent sseJsonOpts (Some activeId) fa
@@ -1249,10 +1249,10 @@ let startMcpServer (cfg: McpServerConfig) =
                 } :> Task
             ) |> ignore
 
-            // GET /api/live-testing/pipeline-trace — pipeline trace (mirrors MCP get_pipeline_trace)
-            app.MapGet("/api/live-testing/pipeline-trace", fun (ctx: Microsoft.AspNetCore.Http.HttpContext) ->
+            // GET /api/live-testing/test-trace — test trace (mirrors MCP get_test_trace)
+            app.MapGet("/api/live-testing/test-trace", fun (ctx: Microsoft.AspNetCore.Http.HttpContext) ->
                 withErrorHandling ctx (fun () -> task {
-                    let! result = SageFs.McpTools.getPipelineTrace mcpContext
+                    let! result = SageFs.McpTools.getTestTrace mcpContext
                     do! rawJsonResponse ctx result
                 }) :> Task
             ) |> ignore
@@ -1295,7 +1295,7 @@ let startMcpServer (cfg: McpServerConfig) =
             let mutable lastTestSsePush = System.Diagnostics.Stopwatch.GetTimestamp()
             let testSseThrottleMs = 250L
             let mutable lastOutputCount = 0
-            let mutable lastPipelineTraceJson = ""
+            let mutable lastTestTraceJson = ""
 
             let handleDiagnosticsChange diagCount =
               match diagCount <> lastDiagCount with
@@ -1342,7 +1342,7 @@ let startMcpServer (cfg: McpServerConfig) =
                   | false -> ())
               | false -> ()
 
-            let handlePipelineTraceChange () =
+            let handleTestTraceChange () =
               withModel (fun model ->
                 let sid = activeSessionId ()
                 let lt = model.LiveTesting
@@ -1361,16 +1361,16 @@ let startMcpServer (cfg: McpServerConfig) =
                                       Running = summary.Running; Stale = summary.Stale |} |}, sseJsonOpts)
                   with
                   | :? System.Text.Json.JsonException as ex ->
-                    eprintfn "[MCP] Pipeline trace serialization error: %s" ex.Message
+                    eprintfn "[MCP] Test trace serialization error: %s" ex.Message
                     ""
                   | ex ->
-                    eprintfn "[MCP] Pipeline trace unexpected error: %s (%s)" ex.Message (ex.GetType().Name)
+                    eprintfn "[MCP] Test trace unexpected error: %s (%s)" ex.Message (ex.GetType().Name)
                     ""
-                match traceJson.Length > 0 && traceJson <> lastPipelineTraceJson with
+                match traceJson.Length > 0 && traceJson <> lastTestTraceJson with
                 | true ->
-                  lastPipelineTraceJson <- traceJson
+                  lastTestTraceJson <- traceJson
                   testEventBroadcast.Trigger(
-                    SageFs.SseWriter.formatPipelineTraceEvent sid traceJson)
+                    SageFs.SseWriter.formatTestTraceEvent sid traceJson)
                 | false -> ())
 
             let handleTestSummaryChange () =
@@ -1484,7 +1484,7 @@ let startMcpServer (cfg: McpServerConfig) =
 
                       handleDiagnosticsChange diagCount
                       handleBindingsChange outputCount
-                      handlePipelineTraceChange ()
+                      handleTestTraceChange ()
                       handleTestSummaryChange ()
                       handleFeaturePush outputCount
 

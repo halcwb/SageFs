@@ -215,7 +215,7 @@ let reformatExpectoSummaryTests = testList "reformatExpectoSummary" [
 
 let cfg = { FsCheckConfig.defaultConfig with maxTest = 200 }
 
-// --- stripAnsi: the output pipeline depends on these ---
+// --- stripAnsi: the output cycle depends on these ---
 
 /// Callers may process text multiple times (cleanStdout then display).
 /// If stripping mutates already-clean text, re-processing corrupts output.

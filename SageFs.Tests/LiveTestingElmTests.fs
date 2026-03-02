@@ -257,33 +257,33 @@ let stalenessTests = testList "Staleness" [
 ]
 
 // ============================================================
-// Pipeline Orchestrator Tests
+// cycle Orchestrator Tests
 // ============================================================
 
 // --- Elm Wiring Behavioral Scenario Tests ---
 
-let hasPendingWork (s: LiveTestPipelineState) =
+let hasPendingWork (s: LiveTestCycleState) =
   s.Debounce.TreeSitter.Pending.IsSome || s.Debounce.Fcs.Pending.IsSome
 
 [<Tests>]
 let elmWiringBehavioralTests = testList "Elm Wiring Behavioral Scenarios" [
-  test "cold start: tick on empty pipeline produces no effects" {
+  test "cold start: tick on empty cycle produces no effects" {
     let t0 = DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)
-    let effects, s' = LiveTestPipelineState.empty |> LiveTestPipelineState.tick t0
-    effects |> Expect.isEmpty "no effects on empty pipeline"
+    let effects, s' = LiveTestCycleState.empty |> LiveTestCycleState.tick t0
+    effects |> Expect.isEmpty "no effects on empty cycle"
     s' |> hasPendingWork |> Expect.isFalse "no pending work"
   }
 
   test "keystroke then tick past debounce fires TreeSitter parse" {
     let t0 = DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)
-    let s = LiveTestPipelineState.empty |> LiveTestPipelineState.onKeystroke "let x = 1" "File.fs" t0
-    let effects, _ = s |> LiveTestPipelineState.tick (t0.AddMilliseconds(51.0))
+    let s = LiveTestCycleState.empty |> LiveTestCycleState.onKeystroke "let x = 1" "File.fs" t0
+    let effects, _ = s |> LiveTestCycleState.tick (t0.AddMilliseconds(51.0))
     effects
-    |> List.exists (fun e -> match e with PipelineEffect.ParseTreeSitter _ -> true | _ -> false)
+    |> List.exists (fun e -> match e with TestCycleEffect.ParseTreeSitter _ -> true | _ -> false)
     |> Expect.isTrue "TreeSitter parse fires after debounce"
   }
 
-  test "full pipeline: keystroke through FCS debounce" {
+  test "full cycle: keystroke through FCS debounce" {
     let tc =
       { Id = TestId.create "T.t1" TestFramework.Expecto
         FullName = "T.t1"
@@ -298,39 +298,39 @@ let elmWiringBehavioralTests = testList "Elm Wiring Behavioral Scenarios" [
           SymbolToTests = Map.ofList ["Lib.add", [|tc.Id|]]
           TransitiveCoverage = Map.ofList ["Lib.add", [|tc.Id|]] }
     let state =
-      { LiveTestPipelineState.empty with
+      { LiveTestCycleState.empty with
           DepGraph = depGraph
           ChangedSymbols = ["Lib.add"]
           TestState =
             { LiveTestState.empty with
                 DiscoveredTests = [|tc|]
                 Activation = LiveTestingActivation.Active } }
-    let s1 = state |> LiveTestPipelineState.onKeystroke "let x = 1" "File.fs" t0
-    let effects301, _ = s1 |> LiveTestPipelineState.tick (t0.AddMilliseconds(301.0))
+    let s1 = state |> LiveTestCycleState.onKeystroke "let x = 1" "File.fs" t0
+    let effects301, _ = s1 |> LiveTestCycleState.tick (t0.AddMilliseconds(301.0))
     effects301
-    |> List.exists (fun e -> match e with PipelineEffect.RequestFcsTypeCheck _ -> true | _ -> false)
+    |> List.exists (fun e -> match e with TestCycleEffect.RequestFcsTypeCheck _ -> true | _ -> false)
     |> Expect.isTrue "FCS fires after 300ms debounce"
   }
 
-  test "pipeline goes idle after both debounces fire" {
+  test "cycle goes idle after both debounces fire" {
     let t0 = DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)
-    let s = LiveTestPipelineState.empty |> LiveTestPipelineState.onKeystroke "let x = 1" "File.fs" t0
-    let _, s51 = s |> LiveTestPipelineState.tick (t0.AddMilliseconds(51.0))
-    let _, s301 = s51 |> LiveTestPipelineState.tick (t0.AddMilliseconds(301.0))
-    s301 |> hasPendingWork |> Expect.isFalse "pipeline idle after both debounces"
-    let effects500, _ = s301 |> LiveTestPipelineState.tick (t0.AddMilliseconds(500.0))
+    let s = LiveTestCycleState.empty |> LiveTestCycleState.onKeystroke "let x = 1" "File.fs" t0
+    let _, s51 = s |> LiveTestCycleState.tick (t0.AddMilliseconds(51.0))
+    let _, s301 = s51 |> LiveTestCycleState.tick (t0.AddMilliseconds(301.0))
+    s301 |> hasPendingWork |> Expect.isFalse "cycle idle after both debounces"
+    let effects500, _ = s301 |> LiveTestCycleState.tick (t0.AddMilliseconds(500.0))
     effects500 |> Expect.isEmpty "no further effects after idle"
   }
 
   test "rapid keystrokes: only latest content fires debounce" {
     let t0 = DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)
-    let s0 = LiveTestPipelineState.empty
-    let s1 = s0 |> LiveTestPipelineState.onKeystroke "l" "F.fs" t0
-    let s2 = s1 |> LiveTestPipelineState.onKeystroke "le" "F.fs" (t0.AddMilliseconds(20.0))
-    let s3 = s2 |> LiveTestPipelineState.onKeystroke "let" "F.fs" (t0.AddMilliseconds(40.0))
-    let effects, _ = s3 |> LiveTestPipelineState.tick (t0.AddMilliseconds(91.0))
+    let s0 = LiveTestCycleState.empty
+    let s1 = s0 |> LiveTestCycleState.onKeystroke "l" "F.fs" t0
+    let s2 = s1 |> LiveTestCycleState.onKeystroke "le" "F.fs" (t0.AddMilliseconds(20.0))
+    let s3 = s2 |> LiveTestCycleState.onKeystroke "let" "F.fs" (t0.AddMilliseconds(40.0))
+    let effects, _ = s3 |> LiveTestCycleState.tick (t0.AddMilliseconds(91.0))
     let tsEffects =
-      effects |> List.choose (fun e -> match e with PipelineEffect.ParseTreeSitter (c, _) -> Some c | _ -> None)
+      effects |> List.choose (fun e -> match e with TestCycleEffect.ParseTreeSitter (c, _) -> Some c | _ -> None)
     tsEffects |> Expect.hasLength "exactly one parse" 1
   }
 
@@ -426,8 +426,8 @@ let elmWiringBehavioralTests = testList "Elm Wiring Behavioral Scenarios" [
 
 [<Tests>]
 let fileContentChangedTests = testList "FileContentChanged" [
-  test "feeds content to pipeline debounce when enabled" {
-    let model = { SageFsModel.initial with LiveTesting = { LiveTestPipelineState.empty with TestState = { LiveTestState.empty with Activation = LiveTestingActivation.Active } } }
+  test "feeds content to cycle debounce when enabled" {
+    let model = { SageFsModel.initial with LiveTesting = { LiveTestCycleState.empty with TestState = { LiveTestState.empty with Activation = LiveTestingActivation.Active } } }
     let newModel, _effects = SageFsUpdate.update (SageFsMsg.FileContentChanged("src/MyModule.fs", "let x = 1")) model
     newModel.LiveTesting.ActiveFile
     |> Expect.equal "active file set" (Some "src/MyModule.fs")
@@ -438,28 +438,28 @@ let fileContentChangedTests = testList "FileContentChanged" [
   }
 
   test "is no-op when live testing is disabled" {
-    let model = { SageFsModel.initial with LiveTesting = { LiveTestPipelineState.empty with TestState = { LiveTestState.empty with Activation = LiveTestingActivation.Inactive } } }
+    let model = { SageFsModel.initial with LiveTesting = { LiveTestCycleState.empty with TestState = { LiveTestState.empty with Activation = LiveTestingActivation.Inactive } } }
     let newModel, _effects = SageFsUpdate.update (SageFsMsg.FileContentChanged("src/MyModule.fs", "let x = 1")) model
     newModel.LiveTesting.ActiveFile
     |> Expect.equal "active file unchanged" model.LiveTesting.ActiveFile
   }
 
-  test "pipeline tick after debounce fires tree-sitter effect" {
-    let model = { SageFsModel.initial with LiveTesting = { LiveTestPipelineState.empty with TestState = { LiveTestState.empty with Activation = LiveTestingActivation.Active } } }
+  test "cycle tick after debounce fires tree-sitter effect" {
+    let model = { SageFsModel.initial with LiveTesting = { LiveTestCycleState.empty with TestState = { LiveTestState.empty with Activation = LiveTestingActivation.Active } } }
     let afterKeystroke, _ = SageFsUpdate.update (SageFsMsg.FileContentChanged("src/MyModule.fs", "let x = 1")) model
-    let pipeline = afterKeystroke.LiveTesting
+    let cycle = afterKeystroke.LiveTesting
     let t51 = DateTimeOffset.UtcNow.AddMilliseconds(51.0)
-    let effects, _ = LiveTestPipelineState.tick t51 pipeline
+    let effects, _ = LiveTestCycleState.tick t51 cycle
     effects
     |> List.exists (fun e ->
       match e with
-      | PipelineEffect.ParseTreeSitter _ -> true
+      | TestCycleEffect.ParseTreeSitter _ -> true
       | _ -> false)
     |> Expect.isTrue "tree-sitter parse fires after debounce"
   }
 
   test "multiple file changes supersede earlier ones" {
-    let model = { SageFsModel.initial with LiveTesting = { LiveTestPipelineState.empty with TestState = { LiveTestState.empty with Activation = LiveTestingActivation.Active } } }
+    let model = { SageFsModel.initial with LiveTesting = { LiveTestCycleState.empty with TestState = { LiveTestState.empty with Activation = LiveTestingActivation.Active } } }
     let after1, _ = SageFsUpdate.update (SageFsMsg.FileContentChanged("src/First.fs", "let a = 1")) model
     let after2, _ = SageFsUpdate.update (SageFsMsg.FileContentChanged("src/Second.fs", "let b = 2")) after1
     after2.LiveTesting.ActiveFile
@@ -480,11 +480,11 @@ let fcsTypeCheckResultTests = testList "FcsTypeCheckResult" [
         FilePath = "Test.fs"; Line = 5 }
     ]
     let state = {
-      LiveTestPipelineState.empty with
+      LiveTestCycleState.empty with
         TestState = { LiveTestState.empty with DiscoveredTests = [|tc|]; Activation = LiveTestingActivation.Active }
     }
     let result = FcsTypeCheckResult.Success ("Test.fs", refs)
-    let _effects, s1 = LiveTestPipelineState.handleFcsResult result state
+    let _effects, s1 = LiveTestCycleState.handleFcsResult result state
     s1.DepGraph.SymbolToTests
     |> Map.containsKey "Lib.add"
     |> Expect.isTrue "dep graph has Lib.add"
@@ -501,35 +501,35 @@ let fcsTypeCheckResultTests = testList "FcsTypeCheckResult" [
         FilePath = "Test.fs"; Line = 5 }
     ]
     let state = {
-      LiveTestPipelineState.empty with
+      LiveTestCycleState.empty with
         TestState = { LiveTestState.empty with DiscoveredTests = [|tc|]; Activation = LiveTestingActivation.Active }
     }
     let result = FcsTypeCheckResult.Success ("Test.fs", refs)
-    let effects, _ = LiveTestPipelineState.handleFcsResult result state
+    let effects, _ = LiveTestCycleState.handleFcsResult result state
     effects
-    |> List.exists (fun e -> match e with PipelineEffect.RunAffectedTests _ -> true | _ -> false)
+    |> List.exists (fun e -> match e with TestCycleEffect.RunAffectedTests _ -> true | _ -> false)
     |> Expect.isTrue "RunAffectedTests fires on new symbols"
   }
 
   test "Success updates adaptive debounce" {
-    let state = LiveTestPipelineState.empty
+    let state = LiveTestCycleState.empty
     let result = FcsTypeCheckResult.Success ("test.fs", [])
-    let _, s1 = LiveTestPipelineState.handleFcsResult result state
+    let _, s1 = LiveTestCycleState.handleFcsResult result state
     s1.AdaptiveDebounce.ConsecutiveFcsSuccesses
     |> Expect.equal "success count incremented" 1
   }
 
   test "Failed produces no effects" {
-    let state = LiveTestPipelineState.empty
+    let state = LiveTestCycleState.empty
     let result = FcsTypeCheckResult.Failed ("test.fs", ["error: type mismatch"])
-    let effects, _ = LiveTestPipelineState.handleFcsResult result state
+    let effects, _ = LiveTestCycleState.handleFcsResult result state
     effects |> Expect.isEmpty "no effects on failure"
   }
 
   test "Failed does not change adaptive debounce" {
-    let state = LiveTestPipelineState.empty
+    let state = LiveTestCycleState.empty
     let result = FcsTypeCheckResult.Failed ("test.fs", ["error"])
-    let _, s1 = LiveTestPipelineState.handleFcsResult result state
+    let _, s1 = LiveTestCycleState.handleFcsResult result state
     s1.AdaptiveDebounce.ConsecutiveFcsSuccesses
     |> Expect.equal "unchanged success count" 0
     s1.AdaptiveDebounce.ConsecutiveFcsCancels
@@ -537,30 +537,30 @@ let fcsTypeCheckResultTests = testList "FcsTypeCheckResult" [
   }
 
   test "Cancelled updates adaptive debounce backoff" {
-    let state = LiveTestPipelineState.empty
+    let state = LiveTestCycleState.empty
     let result = FcsTypeCheckResult.Cancelled "test.fs"
-    let effects, s1 = LiveTestPipelineState.handleFcsResult result state
+    let effects, s1 = LiveTestCycleState.handleFcsResult result state
     effects |> Expect.isEmpty "no effects on cancel"
     s1.AdaptiveDebounce.ConsecutiveFcsCancels
     |> Expect.equal "cancel count incremented" 1
   }
 
   test "Cancelled increases FCS delay" {
-    let state = LiveTestPipelineState.empty
+    let state = LiveTestCycleState.empty
     let baseFcsMs = state.AdaptiveDebounce.Config.BaseFcsMs
     let result = FcsTypeCheckResult.Cancelled "test.fs"
-    let _, s1 = LiveTestPipelineState.handleFcsResult result state
+    let _, s1 = LiveTestCycleState.handleFcsResult result state
     (s1.AdaptiveDebounce.CurrentFcsDelayMs, baseFcsMs)
     |> Expect.isGreaterThan "delay increased after cancel"
   }
 
   test "Multiple successes reset FCS delay to base" {
-    let state = LiveTestPipelineState.empty
-    let _, s1 = LiveTestPipelineState.handleFcsResult (FcsTypeCheckResult.Cancelled "f.fs") state
+    let state = LiveTestCycleState.empty
+    let _, s1 = LiveTestCycleState.handleFcsResult (FcsTypeCheckResult.Cancelled "f.fs") state
     let resetCount = s1.AdaptiveDebounce.Config.ResetAfterSuccessCount
     let mutable s = s1
     for _ in 1..resetCount do
-      let _, sn = LiveTestPipelineState.handleFcsResult (FcsTypeCheckResult.Success ("f.fs", [])) s
+      let _, sn = LiveTestCycleState.handleFcsResult (FcsTypeCheckResult.Success ("f.fs", [])) s
       s <- sn
     s.AdaptiveDebounce.CurrentFcsDelayMs
     |> Expect.equal "delay reset to base" state.AdaptiveDebounce.Config.BaseFcsMs
@@ -577,7 +577,7 @@ let fcsTypeCheckResultTests = testList "FcsTypeCheckResult" [
     let model = {
       SageFsModel.initial with
         LiveTesting = {
-          LiveTestPipelineState.empty with
+          LiveTestCycleState.empty with
             TestState = { LiveTestState.empty with DiscoveredTests = [|tc|]; Activation = LiveTestingActivation.Active }
         }
     }
@@ -589,9 +589,9 @@ let fcsTypeCheckResultTests = testList "FcsTypeCheckResult" [
     effects
     |> List.exists (fun e ->
       match e with
-      | SageFsEffect.Pipeline (PipelineEffect.RunAffectedTests _) -> true
+      | SageFsEffect.TestCycle (TestCycleEffect.RunAffectedTests _) -> true
       | _ -> false)
-    |> Expect.isTrue "Pipeline RunAffectedTests effect emitted"
+    |> Expect.isTrue "cycle RunAffectedTests effect emitted"
   }
 
   test "Elm wiring: FcsTypeCheckCompleted Failed is no-op" {
@@ -608,13 +608,13 @@ let fcsTypeCheckResultTests = testList "FcsTypeCheckResult" [
 let triggerWiringTests = testList "RunTrigger wiring" [
   test "onFileSave sets LastTrigger to FileSave" {
     let now = DateTimeOffset.UtcNow
-    let s = LiveTestPipelineState.empty |> LiveTestPipelineState.onFileSave "f.fs" now
+    let s = LiveTestCycleState.empty |> LiveTestCycleState.onFileSave "f.fs" now
     s.LastTrigger |> Expect.equal "trigger is FileSave" RunTrigger.FileSave
   }
 
   test "onKeystroke sets LastTrigger to Keystroke" {
     let now = DateTimeOffset.UtcNow
-    let s = LiveTestPipelineState.empty |> LiveTestPipelineState.onKeystroke "x" "f.fs" now
+    let s = LiveTestCycleState.empty |> LiveTestCycleState.onKeystroke "x" "f.fs" now
     s.LastTrigger |> Expect.equal "trigger is Keystroke" RunTrigger.Keystroke
   }
 
@@ -630,17 +630,17 @@ let triggerWiringTests = testList "RunTrigger wiring" [
     ]
     let now = DateTimeOffset.UtcNow
     let s0 = {
-      LiveTestPipelineState.empty with
+      LiveTestCycleState.empty with
         TestState = { LiveTestState.empty with
                         DiscoveredTests = [| tc |]
                         RunPolicies = RunPolicyDefaults.defaults
                         Activation = LiveTestingActivation.Active }
     }
-    let s1 = s0 |> LiveTestPipelineState.onFileSave "Test.fs" now
+    let s1 = s0 |> LiveTestCycleState.onFileSave "Test.fs" now
     let effects, _ =
-      LiveTestPipelineState.handleFcsResult (FcsTypeCheckResult.Success ("Test.fs", refs)) s1
+      LiveTestCycleState.handleFcsResult (FcsTypeCheckResult.Success ("Test.fs", refs)) s1
     effects
-    |> List.exists (fun e -> match e with PipelineEffect.RunAffectedTests _ -> true | _ -> false)
+    |> List.exists (fun e -> match e with TestCycleEffect.RunAffectedTests _ -> true | _ -> false)
     |> Expect.isTrue "OnSaveOnly test runs with FileSave trigger"
   }
 
@@ -656,15 +656,15 @@ let triggerWiringTests = testList "RunTrigger wiring" [
     ]
     let now = DateTimeOffset.UtcNow
     let s0 = {
-      LiveTestPipelineState.empty with
+      LiveTestCycleState.empty with
         TestState = { LiveTestState.empty with
                         DiscoveredTests = [| tc |]
                         RunPolicies = RunPolicyDefaults.defaults
                         Activation = LiveTestingActivation.Active }
     }
-    let s1 = s0 |> LiveTestPipelineState.onKeystroke "let x = 1" "Test.fs" now
+    let s1 = s0 |> LiveTestCycleState.onKeystroke "let x = 1" "Test.fs" now
     let effects, _ =
-      LiveTestPipelineState.handleFcsResult (FcsTypeCheckResult.Success ("Test.fs", refs)) s1
+      LiveTestCycleState.handleFcsResult (FcsTypeCheckResult.Success ("Test.fs", refs)) s1
     effects
     |> Expect.isEmpty "OnSaveOnly test filtered out on Keystroke"
   }
@@ -674,12 +674,12 @@ let triggerWiringTests = testList "RunTrigger wiring" [
 let adaptiveDebounceWiringTests = testList "adaptive debounce wiring" [
   test "onKeystroke uses adaptive FCS delay after cancellations" {
     let now = DateTimeOffset.UtcNow
-    let s0 = LiveTestPipelineState.empty
-    let s1 = s0 |> LiveTestPipelineState.onFcsCanceled
-    let s2 = s1 |> LiveTestPipelineState.onFcsCanceled
-    let s3 = s2 |> LiveTestPipelineState.onFcsCanceled
+    let s0 = LiveTestCycleState.empty
+    let s1 = s0 |> LiveTestCycleState.onFcsCanceled
+    let s2 = s1 |> LiveTestCycleState.onFcsCanceled
+    let s3 = s2 |> LiveTestCycleState.onFcsCanceled
     let expectedDelay = int (300.0 * 1.5 * 1.5 * 1.5)
-    let s4 = s3 |> LiveTestPipelineState.onKeystroke "let x = 1" "Test.fs" now
+    let s4 = s3 |> LiveTestCycleState.onKeystroke "let x = 1" "Test.fs" now
     match s4.Debounce.Fcs.Pending with
     | Some p ->
       p.DelayMs |> Expect.equal "FCS delay reflects adaptive backoff" expectedDelay
@@ -688,7 +688,7 @@ let adaptiveDebounceWiringTests = testList "adaptive debounce wiring" [
 
   test "onKeystroke uses base delay with no cancellations" {
     let now = DateTimeOffset.UtcNow
-    let s = LiveTestPipelineState.empty |> LiveTestPipelineState.onKeystroke "x" "f.fs" now
+    let s = LiveTestCycleState.empty |> LiveTestCycleState.onKeystroke "x" "f.fs" now
     match s.Debounce.Fcs.Pending with
     | Some p ->
       p.DelayMs |> Expect.equal "base FCS delay" 300
@@ -697,17 +697,17 @@ let adaptiveDebounceWiringTests = testList "adaptive debounce wiring" [
 
   test "adaptive delay resets after consecutive successes" {
     let now = DateTimeOffset.UtcNow
-    let s0 = LiveTestPipelineState.empty
+    let s0 = LiveTestCycleState.empty
     // Cancel to raise delay
-    let s1 = s0 |> LiveTestPipelineState.onFcsCanceled
-    (LiveTestPipelineState.currentFcsDelay s1, 300.0)
+    let s1 = s0 |> LiveTestCycleState.onFcsCanceled
+    (LiveTestCycleState.currentFcsDelay s1, 300.0)
     |> Expect.isGreaterThan "delay raised"
     // Reset via consecutive successes
     let mutable s = s1
     for _ in 1 .. s.AdaptiveDebounce.Config.ResetAfterSuccessCount do
-      let _, sn = LiveTestPipelineState.handleFcsResult (FcsTypeCheckResult.Success ("f.fs", [])) s
+      let _, sn = LiveTestCycleState.handleFcsResult (FcsTypeCheckResult.Success ("f.fs", [])) s
       s <- sn
-    let s2 = s |> LiveTestPipelineState.onKeystroke "x" "f.fs" now
+    let s2 = s |> LiveTestCycleState.onKeystroke "x" "f.fs" now
     match s2.Debounce.Fcs.Pending with
     | Some p ->
       p.DelayMs |> Expect.equal "delay reset to base after successes" 300
@@ -734,7 +734,7 @@ let runningToStaleOnKeystrokeTests = testList "Running → Stale on keystroke" [
     let tid = TestId.create "TestA" TestFramework.Expecto
     let gen = RunGeneration.next RunGeneration.zero
     let s = {
-      LiveTestPipelineState.empty with
+      LiveTestCycleState.empty with
         TestState = {
           LiveTestState.empty with
             DiscoveredTests = [| mkSourceMappedTestCase "TestA" TestFramework.Expecto |]
@@ -742,7 +742,7 @@ let runningToStaleOnKeystrokeTests = testList "Running → Stale on keystroke" [
             AffectedTests = Set.singleton tid
         }
     }
-    let s' = LiveTestPipelineState.onKeystroke "changed" "Foo.fs" DateTimeOffset.UtcNow s
+    let s' = LiveTestCycleState.onKeystroke "changed" "Foo.fs" DateTimeOffset.UtcNow s
     match (s'.TestState.RunPhases |> Map.tryFind "s" |> Option.defaultValue Idle) with
     | RunningButEdited _ -> ()
     | other -> failwithf "Expected RunningButEdited, got %A" other
@@ -752,7 +752,7 @@ let runningToStaleOnKeystrokeTests = testList "Running → Stale on keystroke" [
     let tid = TestId.create "TestA" TestFramework.Expecto
     let gen = RunGeneration.next RunGeneration.zero
     let s = {
-      LiveTestPipelineState.empty with
+      LiveTestCycleState.empty with
         TestState = {
           LiveTestState.empty with
             DiscoveredTests = [| mkSourceMappedTestCase "TestA" TestFramework.Expecto |]
@@ -760,7 +760,7 @@ let runningToStaleOnKeystrokeTests = testList "Running → Stale on keystroke" [
             AffectedTests = Set.singleton tid
         }
     }
-    let s' = LiveTestPipelineState.onKeystroke "changed" "Foo.fs" DateTimeOffset.UtcNow s
+    let s' = LiveTestCycleState.onKeystroke "changed" "Foo.fs" DateTimeOffset.UtcNow s
     s'.TestState.AffectedTests
     |> Expect.isNonEmpty "AffectedTests should be preserved"
   }
@@ -769,7 +769,7 @@ let runningToStaleOnKeystrokeTests = testList "Running → Stale on keystroke" [
     let tid = TestId.create "TestA" TestFramework.Expecto
     let gen = RunGeneration.next RunGeneration.zero
     let s = {
-      LiveTestPipelineState.empty with
+      LiveTestCycleState.empty with
         TestState = {
           LiveTestState.empty with
             DiscoveredTests = [| mkSourceMappedTestCase "TestA" TestFramework.Expecto |]
@@ -778,7 +778,7 @@ let runningToStaleOnKeystrokeTests = testList "Running → Stale on keystroke" [
             LastResults = Map.ofList [ tid, mkPassedResult tid ]
         }
     }
-    let s' = LiveTestPipelineState.onKeystroke "changed" "Foo.fs" DateTimeOffset.UtcNow s
+    let s' = LiveTestCycleState.onKeystroke "changed" "Foo.fs" DateTimeOffset.UtcNow s
     let entries = LiveTesting.computeStatusEntries s'.TestState
     // Streaming: result already available, so shows Passed (not Running)
     match entries.[0].Status with
@@ -790,7 +790,7 @@ let runningToStaleOnKeystrokeTests = testList "Running → Stale on keystroke" [
     let tid = TestId.create "TestA" TestFramework.Expecto
     let gen = RunGeneration.next RunGeneration.zero
     let s = {
-      LiveTestPipelineState.empty with
+      LiveTestCycleState.empty with
         TestState = {
           LiveTestState.empty with
             DiscoveredTests = [| mkSourceMappedTestCase "TestA" TestFramework.Expecto |]
@@ -798,7 +798,7 @@ let runningToStaleOnKeystrokeTests = testList "Running → Stale on keystroke" [
             AffectedTests = Set.singleton tid
         }
     }
-    let s' = LiveTestPipelineState.onKeystroke "changed" "Foo.fs" DateTimeOffset.UtcNow s
+    let s' = LiveTestCycleState.onKeystroke "changed" "Foo.fs" DateTimeOffset.UtcNow s
     let entries = LiveTesting.computeStatusEntries s'.TestState
     // RunningButEdited still shows Running for affected tests
     entries.[0].Status
@@ -806,8 +806,8 @@ let runningToStaleOnKeystrokeTests = testList "Running → Stale on keystroke" [
   }
 
   test "keystroke while NOT running keeps Idle" {
-    let s = LiveTestPipelineState.empty
-    let s' = LiveTestPipelineState.onKeystroke "changed" "Foo.fs" DateTimeOffset.UtcNow s
+    let s = LiveTestCycleState.empty
+    let s' = LiveTestCycleState.onKeystroke "changed" "Foo.fs" DateTimeOffset.UtcNow s
     (s'.TestState.RunPhases |> Map.tryFind "s" |> Option.defaultValue Idle)
     |> Expect.equal "should stay Idle" Idle
   }
@@ -819,7 +819,7 @@ let runningToStaleOnFileSaveTests = testList "Running → Stale on file save" [
     let tid = TestId.create "TestA" TestFramework.Expecto
     let gen = RunGeneration.next RunGeneration.zero
     let s = {
-      LiveTestPipelineState.empty with
+      LiveTestCycleState.empty with
         TestState = {
           LiveTestState.empty with
             DiscoveredTests = [| mkSourceMappedTestCase "TestA" TestFramework.Expecto |]
@@ -828,15 +828,15 @@ let runningToStaleOnFileSaveTests = testList "Running → Stale on file save" [
             LastResults = Map.ofList [ tid, mkPassedResult tid ]
         }
     }
-    let s' = LiveTestPipelineState.onFileSave "Foo.fs" DateTimeOffset.UtcNow s
+    let s' = LiveTestCycleState.onFileSave "Foo.fs" DateTimeOffset.UtcNow s
     match (s'.TestState.RunPhases |> Map.tryFind "s" |> Option.defaultValue Idle) with
     | RunningButEdited _ -> ()
     | other -> failwithf "Expected RunningButEdited, got %A" other
   }
 
   test "save while NOT running keeps Idle" {
-    let s = LiveTestPipelineState.empty
-    let s' = LiveTestPipelineState.onFileSave "Foo.fs" DateTimeOffset.UtcNow s
+    let s = LiveTestCycleState.empty
+    let s' = LiveTestCycleState.onFileSave "Foo.fs" DateTimeOffset.UtcNow s
     (s'.TestState.RunPhases |> Map.tryFind "s" |> Option.defaultValue Idle)
     |> Expect.equal "should stay Idle" Idle
   }

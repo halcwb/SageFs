@@ -134,7 +134,7 @@ type VscLiveTestEvent =
   | LiveTestingEnabled
   | LiveTestingDisabled
   | RunPolicyChanged of category: VscTestCategory * policy: VscRunPolicy
-  | PipelineTimingRecorded of treeSitterMs: float * fcsMs: float * executionMs: float
+  | TestCycleTimingRecorded of treeSitterMs: float * fcsMs: float * executionMs: float
   | CoverageUpdated of coverage: Map<string, VscFileCoverage>
 
 /// Test summary counts
@@ -227,7 +227,7 @@ module VscLiveTestState =
       { state with Policies = Map.add cat pol state.Policies },
       [ VscStateChange.PolicyUpdated (cat, pol) ]
 
-    | VscLiveTestEvent.PipelineTimingRecorded (ts, fcs, exec) ->
+    | VscLiveTestEvent.TestCycleTimingRecorded (ts, fcs, exec) ->
       { state with LastTiming = Some (ts, fcs, exec) },
       [ VscStateChange.TimingUpdated (ts, fcs, exec) ]
 

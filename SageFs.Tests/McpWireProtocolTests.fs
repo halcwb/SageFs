@@ -49,7 +49,7 @@ let mcpToolRegistrationTests = testList "MCP tool registration" [
       "get_elm_state"
       "get_fsi_status"
       "get_live_test_status"
-      "get_pipeline_trace"
+      "get_test_trace"
       "get_recent_fsi_events"
       "get_startup_info"
       "hard_reset_fsi_session"

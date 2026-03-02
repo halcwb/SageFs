@@ -384,10 +384,10 @@ Per IMPROVEMENT_PLAN.md priority matrix:
    - Tier 1: Attribute-based (xUnit `[<Fact>]`, NUnit `[<Test>]`, MSTest `[<TestMethod>]`, TUnit `[<Test>]`) — ~10 lines per framework
    - Tier 2: Custom (Expecto) — runtime reflection to enumerate value-based test trees
 2. **Hot Reload Integration** — `HotReloading.fs` calls `LiveTestingHook.afterReload` after every eval. Discovers providers, finds affected tests. `injectNoInlining` ensures Harmony detours work.
-3. **Pipeline State Machine** — `LiveTestPipelineState` in `LiveTestingTypes.fs` (1,808 lines). Pure domain model with:
+3. **Pipeline State Machine** — `LiveTestCycleState` in `LiveTestingTypes.fs` (1,808 lines). Pure domain model with:
    - `onKeystroke`/`onFileSave` trigger debounce channels
    - `tick` (50ms timer) fires pipeline effects
-   - `PipelineEffect` DU: ParseTreeSitter → RequestFcsTypeCheck → RunAffectedTests
+   - `TestCycleEffect` DU: ParseTreeSitter → RequestFcsTypeCheck → RunAffectedTests
    - `CancellationChain` prevents stale results from overwriting newer ones
    - `RunGeneration` + `ResultFreshness` track staleness across code edits
    - `AdaptiveDebounce` adjusts timing based on project size
@@ -509,7 +509,7 @@ Per IMPROVEMENT_PLAN.md priority matrix:
 
 **Documentation:**
 - Expanded troubleshooting section with SSE, live testing, and coverage guidance.
-- Updated MCP tools reference to include live testing tools (`toggle_live_testing`, `get_live_test_status`, `run_tests`, `set_run_policy`, `get_pipeline_trace`).
+- Updated MCP tools reference to include live testing tools (`toggle_live_testing`, `get_live_test_status`, `run_tests`, `set_run_policy`, `get_test_trace`).
 
 **Tests:** 3 toggle activation behavior tests added (43 → 47 total SageFsUpdate tests).
 

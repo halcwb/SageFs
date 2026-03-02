@@ -355,11 +355,11 @@ let protocolSnapshotTests = testList "Protocol Snapshots" [
       |> Expect.equal "case" "Superseded"
   ]
 
-  testList "PipelineTiming wire format" [
+  testList "TestCycleTiming wire format" [
     testCase "has all expected fields" <| fun () ->
       let ts = System.TimeSpan.FromMilliseconds(10.0)
-      let pt : PipelineTiming = {
-        Depth = PipelineDepth.ThroughExecution(ts, ts, ts)
+      let pt : TestCycleTiming = {
+        Depth = TestCycleDepth.ThroughExecution(ts, ts, ts)
         TotalTests = 100; AffectedTests = 12
         Trigger = RunTrigger.Keystroke
         Timestamp = System.DateTimeOffset(2026, 2, 27, 0, 0, 0, System.TimeSpan.Zero)

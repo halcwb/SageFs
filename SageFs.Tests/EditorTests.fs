@@ -361,7 +361,7 @@ let elmLoopTests = testList "ElmLoop" [
 ]
 
 [<Tests>]
-let renderPipelineTests = testList "RenderPipeline" [
+let renderCycleTests = testList "RenderCycle" [
   testCase "RegionFlags can be combined" <| fun _ ->
     let flags = RegionFlags.Clickable ||| RegionFlags.Focusable
     flags.HasFlag RegionFlags.Clickable |> Expect.isTrue "should have Clickable"

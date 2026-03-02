@@ -41,7 +41,7 @@ module ElmDaemonTestHelpers =
       ListSessions = fun () ->
         async { return [sessionInfo] }
       GetWarmupContext = None
-      PipelineCancellation = Features.LiveTesting.PipelineCancellation.create ()
+      TestCycleCancellation = Features.LiveTesting.TestCycleCancellation.create ()
     }
 
   /// Track model changes from OnModelChanged callback
@@ -199,7 +199,7 @@ let elmDaemonTests =
 
         // The effect handler should have been called
         // (the eval will fail because buffer is empty, but the flow works)
-        true |> Expect.isTrue "effect pipeline should execute"
+        true |> Expect.isTrue "effect cycle should execute"
       }
 
       test "GetModel returns current model state" {

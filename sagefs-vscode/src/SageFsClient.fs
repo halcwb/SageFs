@@ -375,8 +375,8 @@ let loadScript (filePath: string) (c: Client) =
   let code = sprintf "#load @\"%s\";;" filePath
   postCommand c "/exec" (jsonStringify {| code = code; working_directory = "" |}) 30000
 
-let getPipelineTrace (c: Client) =
-  getRaw "getPipelineTrace" "/api/live-testing/pipeline-trace" 5000 c
+let getTestTrace (c: Client) =
+  getRaw "getTestTrace" "/api/live-testing/test-trace" 5000 c
 
 type ExportResult =
   { content: string

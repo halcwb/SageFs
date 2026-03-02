@@ -36,8 +36,8 @@ let mutable testAdapter: TestCtrl.TestAdapter option = None
 let mutable dashboardPanel: WebviewPanel option = None
 let mutable typeExplorer: TypeExpl.TypeExplorer option = None
 
-// FSI bindings and pipeline trace — maintained by SSE events (server-side CQRS)
-// No client-side parsing; server pushes snapshots via SSE bindings_snapshot/pipeline_trace events
+// FSI bindings and test trace — maintained by SSE events (server-side CQRS)
+// No client-side parsing; server pushes snapshots via SSE bindings_snapshot/test_trace events
 
 // ── JS Interop ─────────────────────────────────────────────────
 
@@ -778,8 +778,8 @@ let activate (context: ExtensionContext) =
           | _ -> None)
       Window.showQuickPick items "FSI Bindings"
       |> promiseIgnore)
-  reg "sagefs.showPipelineTrace" (fun _ ->
-    match liveTestListener |> Option.bind (fun l -> l.PipelineTrace ()) with
+  reg "sagefs.showTestTrace" (fun _ ->
+    match liveTestListener |> Option.bind (fun l -> l.TestTrace ()) with
     | Some trace ->
       let get name = fieldInt name trace |> Option.defaultValue 0
       let items = [|
@@ -790,8 +790,8 @@ let activate (context: ExtensionContext) =
           (fieldObj "Summary" trace |> Option.bind (fieldInt "Passed") |> Option.defaultValue 0)
           (fieldObj "Summary" trace |> Option.bind (fieldInt "Failed") |> Option.defaultValue 0)
       |]
-      Window.showQuickPick items "Pipeline Trace" |> promiseIgnore
-    | None -> Window.showInformationMessage "No pipeline trace data yet" [||] |> ignore)
+      Window.showQuickPick items "test trace" |> promiseIgnore
+    | None -> Window.showInformationMessage "No test trace data yet" [||] |> ignore)
 
   reg "sagefs.exportSession" (fun _ ->
     withClient (fun c ->
@@ -868,7 +868,7 @@ let activate (context: ExtensionContext) =
       OnSummaryUpdate = fun summary -> updateTestStatusBar summary
       OnStatusRefresh = fun () -> refreshStatus ()
       OnBindingsUpdate = fun _ -> ()
-      OnPipelineTraceUpdate = fun _ -> ()
+      OnTestTraceUpdate = fun _ -> ()
       OnFeatureEvent = None
     }
     liveTestListener <- Some listener

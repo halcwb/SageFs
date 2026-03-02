@@ -496,8 +496,8 @@ export function loadScript(filePath, c) {
     }), 30000);
 }
 
-export function getPipelineTrace(c) {
-    return getRaw("getPipelineTrace", "/api/live-testing/pipeline-trace", 5000, c);
+export function getTestTrace(c) {
+    return getRaw("getTestTrace", "/api/live-testing/test-trace", 5000, c);
 }
 
 export class ExportResult extends Record {

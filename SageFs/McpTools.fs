@@ -325,10 +325,10 @@ Policies: every (on every change), save (on file save only), demand (manual trig
         setRunPolicy ctx category policy |> withEcho "set_run_policy"
 
     [<McpServerTool>]
-    [<Description("Get pipeline trace information: enabled state, running status, provider list, run policies, and test summary.")>]
-    member _.get_pipeline_trace() : Task<string> =
-        logger.LogDebug("MCP-TOOL: get_pipeline_trace called")
-        getPipelineTrace ctx |> withEcho "get_pipeline_trace"
+    [<Description("Get test trace information: enabled state, running status, provider list, run policies, and test summary.")>]
+    member _.get_test_trace() : Task<string> =
+        logger.LogDebug("MCP-TOOL: get_test_trace called")
+        getTestTrace ctx |> withEcho "get_test_trace"
 
     [<McpServerTool>]
     [<Description("""Run tests explicitly. Without parameters, runs all discovered unit tests.

@@ -140,10 +140,10 @@ let formatBindingsSnapshotEvent (opts: JsonSerializerOptions) (sessionId: string
   let json = JsonSerializer.Serialize({| Bindings = bindings |}, opts) |> injectSessionId sessionId
   formatSseEvent "bindings_snapshot" json
 
-/// Format a pipeline trace as an SSE event string
-let formatPipelineTraceEvent (sessionId: string option) (traceJson: string) : string =
+/// Format a test trace as an SSE event string
+let formatTestTraceEvent (sessionId: string option) (traceJson: string) : string =
   let json = injectSessionId sessionId traceJson
-  formatSseEvent "pipeline_trace" json
+  formatSseEvent "test_trace" json
 
 // ── Feature SSE formatters (CQRS: push-only, no GET endpoints) ──
 

@@ -657,7 +657,7 @@ let serializationRoundtripTests = testList "serialization roundtrip integration"
     |> Expect.equal "roundtrip preserves data" original
   }
 
-  test "full pipeline: serialize → deserialize → dispatch → annotations" {
+  test "full cycle: serialize → deserialize → dispatch → annotations" {
     let hookResult : LiveTestHookResultDto = {
       DetectedProviders = [
         ProviderDescription.Custom { Name = TestFramework.Expecto; AssemblyMarker = "Expecto" }

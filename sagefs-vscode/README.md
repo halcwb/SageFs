@@ -18,7 +18,7 @@ A full-featured VS Code frontend for [SageFs](../Readme.md) — the live F# deve
 - **Failure diagnostics** — Failed tests appear as native VS Code squiggles
 - **Test policy controls** — Enable/disable live testing, run all tests, or configure run policies from the command palette
 - **Call graph viewer** — Visualize test dependency graphs
-- **Pipeline trace** — Browse three-speed pipeline events
+- **Test trace** — Browse three-speed test cycle events
 
 ### Live Diagnostics
 - F# type errors and warnings stream in via SSE as you edit, appearing as native VS Code squiggles

@@ -149,17 +149,17 @@ type SageFsMsg =
   | DisableLiveTesting
   | CycleRunPolicy
   | ToggleCoverage
-  | PipelineTick of now: DateTimeOffset
+  | TestCycleTick of now: DateTimeOffset
   | FileContentChanged of filePath: string * content: string
   | FcsTypeCheckCompleted of Features.LiveTesting.FcsTypeCheckResult
   | RestoreTestCache of Features.LiveTesting.LiveTestState
 
 /// Side effects the Elm loop can request.
-/// Wraps EditorEffect and PipelineEffect for async execution.
+/// Wraps EditorEffect and TestCycleEffect for async execution.
 [<RequireQualifiedAccess>]
 type SageFsEffect =
   | Editor of EditorEffect
-  | Pipeline of Features.LiveTesting.PipelineEffect
+  | TestCycle of Features.LiveTesting.TestCycleEffect
 
 /// The complete application state managed by the Elm loop.
 type SageFsModel = {
@@ -171,7 +171,7 @@ type SageFsModel = {
   Theme: ThemeConfig
   ThemeName: string
   SessionContext: SessionContext option
-  LiveTesting: Features.LiveTesting.LiveTestPipelineState
+  LiveTesting: Features.LiveTesting.LiveTestCycleState
   /// Accumulates test results from batches for the summary on TestRunCompleted.
   PendingTestResults: Features.LiveTesting.TestRunResult list
 }
@@ -195,7 +195,7 @@ module SageFsModel =
       | None -> Theme.defaults
     ThemeName = "Kanagawa"
     SessionContext = None
-    LiveTesting = Features.LiveTesting.LiveTestPipelineState.empty
+    LiveTesting = Features.LiveTesting.LiveTestCycleState.empty
     PendingTestResults = []
   }
 
@@ -226,7 +226,7 @@ module SageFsUpdate =
 
   /// Every LiveTestState mutation that affects test lifecycle MUST recompute StatusEntries.
   /// This helper encodes that invariant in one place.
-  let recomputeStatuses (lt: Features.LiveTesting.LiveTestPipelineState) (updateState: Features.LiveTesting.LiveTestState -> Features.LiveTesting.LiveTestState) =
+  let recomputeStatuses (lt: Features.LiveTesting.LiveTestCycleState) (updateState: Features.LiveTesting.LiveTestState -> Features.LiveTesting.LiveTestState) =
     let previous =
       lt.TestState.StatusEntries
       |> Array.map (fun e -> e.TestId, e.Status)
@@ -563,9 +563,9 @@ module SageFsUpdate =
             // Only trigger execution for the INCOMING session's tests, not all discovered.
             // Other sessions' tests belong to different workers and would return NotRun.
             let incomingIds = tests |> Array.map (fun tc -> tc.Id)
-            Features.LiveTesting.LiveTestPipelineState.triggerExecutionForAffected
+            Features.LiveTesting.LiveTestCycleState.triggerExecutionForAffected
               incomingIds Features.LiveTesting.RunTrigger.FileSave (Some sessionId) lt
-            |> List.map SageFsEffect.Pipeline
+            |> List.map SageFsEffect.TestCycle
           | false -> []
         { model with LiveTesting = lt }, effects
 
@@ -614,9 +614,9 @@ module SageFsUpdate =
         let targetSession =
           testIds |> Array.tryPick (fun tid -> Map.tryFind tid lt.TestState.TestSessionMap)
         let effects =
-          Features.LiveTesting.LiveTestPipelineState.triggerExecutionForAffected
+          Features.LiveTesting.LiveTestCycleState.triggerExecutionForAffected
             testIds Features.LiveTesting.RunTrigger.FileSave targetSession lt
-          |> List.map SageFsEffect.Pipeline
+          |> List.map SageFsEffect.TestCycle
         { model with LiveTesting = lt }, effects
 
       | SageFsEvent.RunTestsRequested tests ->
@@ -647,10 +647,10 @@ module SageFsUpdate =
                 match targetSession |> Option.bind (fun s -> Map.tryFind s lt.InstrumentationMaps) with
                 | Some maps -> maps
                 | None -> lt.InstrumentationMaps |> Map.values |> Seq.collect id |> Array.ofSeq
-              Features.LiveTesting.PipelineEffect.RunAffectedTests(
+              Features.LiveTesting.TestCycleEffect.RunAffectedTests(
                 groupTests, Features.LiveTesting.RunTrigger.ExplicitRun,
                 System.TimeSpan.Zero, System.TimeSpan.Zero, targetSession, sessionMaps)
-              |> SageFsEffect.Pipeline)
+              |> SageFsEffect.TestCycle)
         { model with LiveTesting = lt }, effects
 
       | SageFsEvent.CoverageUpdated coverage ->
@@ -702,7 +702,7 @@ module SageFsUpdate =
         { model with
             LiveTesting = { lt with TestState = { lt.TestState with DetectedProviders = providers } } }, []
 
-      | SageFsEvent.PipelineTimingRecorded timing ->
+      | SageFsEvent.TestCycleTimingRecorded timing ->
         { model with
             LiveTesting = { model.LiveTesting with LastTiming = Some timing } }, []
 
@@ -735,9 +735,9 @@ module SageFsUpdate =
             |> List.collect (fun (sid, groupTests) ->
               let targetSession = match System.String.IsNullOrEmpty sid with | true -> None | false -> Some sid
               let groupIds = groupTests |> Array.map (fun tc -> tc.Id)
-              Features.LiveTesting.LiveTestPipelineState.triggerExecutionForAffected
+              Features.LiveTesting.LiveTestCycleState.triggerExecutionForAffected
                 groupIds Features.LiveTesting.RunTrigger.ExplicitRun targetSession lt
-              |> List.map SageFsEffect.Pipeline)
+              |> List.map SageFsEffect.TestCycle)
         { model with LiveTesting = lt }, effects
 
     | SageFsMsg.DisableLiveTesting ->
@@ -773,28 +773,28 @@ module SageFsUpdate =
       let ts = { lt.TestState with CoverageDisplay = newDisplay }
       { model with LiveTesting = { lt with TestState = ts } }, []
 
-    | SageFsMsg.PipelineTick now ->
-      let effects, pipeline' = model.LiveTesting |> Features.LiveTesting.LiveTestPipelineState.tick now
-      let mappedEffects = effects |> List.map SageFsEffect.Pipeline
-      { model with LiveTesting = pipeline' }, mappedEffects
+    | SageFsMsg.TestCycleTick now ->
+      let effects, cycle' = model.LiveTesting |> Features.LiveTesting.LiveTestCycleState.tick now
+      let mappedEffects = effects |> List.map SageFsEffect.TestCycle
+      { model with LiveTesting = cycle' }, mappedEffects
 
     | SageFsMsg.FileContentChanged (filePath, content) ->
       match model.LiveTesting.TestState.Activation = Features.LiveTesting.LiveTestingActivation.Active with
       | true ->
         let now = DateTimeOffset.UtcNow
-        let pipeline' =
+        let cycle' =
           model.LiveTesting
-          |> Features.LiveTesting.LiveTestPipelineState.onKeystroke content filePath now
-        { model with LiveTesting = pipeline' }, []
+          |> Features.LiveTesting.LiveTestCycleState.onKeystroke content filePath now
+        { model with LiveTesting = cycle' }, []
       | false ->
         model, []
 
     | SageFsMsg.FcsTypeCheckCompleted result ->
-      let effects, pipeline' =
+      let effects, cycle' =
         model.LiveTesting
-        |> Features.LiveTesting.LiveTestPipelineState.handleFcsResult result
-      let mappedEffects = effects |> List.map SageFsEffect.Pipeline
-      { model with LiveTesting = pipeline' }, mappedEffects
+        |> Features.LiveTesting.LiveTestCycleState.handleFcsResult result
+      let mappedEffects = effects |> List.map SageFsEffect.TestCycle
+      { model with LiveTesting = cycle' }, mappedEffects
 
     | SageFsMsg.RestoreTestCache cachedState ->
       let lt = recomputeStatuses model.LiveTesting (fun s ->
@@ -983,8 +983,8 @@ type EffectDeps = {
   ListSessions: unit -> Async<SessionInfo list>
   /// Fetch warmup context for a session (optional — None disables warmup dispatch)
   GetWarmupContext: (SessionId -> Async<SessionContext option>) option
-  /// Pipeline cancellation for stale work
-  PipelineCancellation: Features.LiveTesting.PipelineCancellation
+  /// Test cycle cancellation for stale work
+  TestCycleCancellation: Features.LiveTesting.TestCycleCancellation
 }
 
 /// Routes SageFsEffect to real infrastructure via injected deps.
@@ -1184,11 +1184,11 @@ module SageFsEffectHandler =
               SageFsEvent.SessionStatusChanged (sid, SessionDisplayStatus.Restarting)))
           })
 
-    | SageFsEffect.Pipeline pipelineEffect ->
+    | SageFsEffect.TestCycle testCycleEffect ->
       async {
-        match pipelineEffect with
-        | Features.LiveTesting.PipelineEffect.ParseTreeSitter (content, filePath) ->
-          let span = Instrumentation.startSpan Instrumentation.pipelineSource "pipeline.treesitter.parse" ["file", box filePath]
+        match testCycleEffect with
+        | Features.LiveTesting.TestCycleEffect.ParseTreeSitter (content, filePath) ->
+          let span = Instrumentation.startSpan Instrumentation.testCycleSource "test_cycle.treesitter.parse" ["file", box filePath]
           let (locations, elapsed) =
             Features.LiveTesting.LiveTestingInstrumentation.traced
               "SageFs.LiveTesting.TreeSitterParse"
@@ -1202,15 +1202,15 @@ module SageFsEffectHandler =
           Features.LiveTesting.LiveTestingInstrumentation.treeSitterHistogram.Record(elapsed.TotalMilliseconds)
           Instrumentation.succeedSpan span
           dispatch (SageFsMsg.Event (SageFsEvent.TestLocationsDetected ("", locations)))
-          let timing : Features.LiveTesting.PipelineTiming = {
-            Depth = Features.LiveTesting.PipelineDepth.TreeSitterOnly elapsed
+          let timing : Features.LiveTesting.TestCycleTiming = {
+            Depth = Features.LiveTesting.TestCycleDepth.TreeSitterOnly elapsed
             TotalTests = 0; AffectedTests = 0
             Trigger = Features.LiveTesting.RunTrigger.Keystroke
             Timestamp = System.DateTimeOffset.UtcNow
           }
-          dispatch (SageFsMsg.Event (SageFsEvent.PipelineTimingRecorded timing))
-        | Features.LiveTesting.PipelineEffect.RequestFcsTypeCheck (filePath, tsElapsed) ->
-          let span = Instrumentation.startSpan Instrumentation.pipelineSource "pipeline.fcs.typecheck" ["file", box filePath]
+          dispatch (SageFsMsg.Event (SageFsEvent.TestCycleTimingRecorded timing))
+        | Features.LiveTesting.TestCycleEffect.RequestFcsTypeCheck (filePath, tsElapsed) ->
+          let span = Instrumentation.startSpan Instrumentation.testCycleSource "test_cycle.fcs.typecheck" ["file", box filePath]
           let fcsStopwatch = System.Diagnostics.Stopwatch.StartNew()
           do! withSession deps dispatch None (fun _sid proxy ->
             async {
@@ -1236,25 +1236,25 @@ module SageFsEffectHandler =
                   | _ ->
                     Features.LiveTesting.FcsTypeCheckResult.Cancelled filePath
                 dispatch (SageFsMsg.FcsTypeCheckCompleted result)
-                let timing : Features.LiveTesting.PipelineTiming = {
-                  Depth = Features.LiveTesting.PipelineDepth.ThroughFcs(tsElapsed, fcsStopwatch.Elapsed)
+                let timing : Features.LiveTesting.TestCycleTiming = {
+                  Depth = Features.LiveTesting.TestCycleDepth.ThroughFcs(tsElapsed, fcsStopwatch.Elapsed)
                   TotalTests = 0; AffectedTests = 0
                   Trigger = Features.LiveTesting.RunTrigger.Keystroke
                   Timestamp = System.DateTimeOffset.UtcNow
                 }
-                dispatch (SageFsMsg.Event (SageFsEvent.PipelineTimingRecorded timing))
+                dispatch (SageFsMsg.Event (SageFsEvent.TestCycleTimingRecorded timing))
                 Instrumentation.succeedSpan span
               | false -> ()
             })
-        | Features.LiveTesting.PipelineEffect.RunAffectedTests (tests, trigger, tsElapsed, fcsElapsed, targetSession, instrumentationMaps) ->
+        | Features.LiveTesting.TestCycleEffect.RunAffectedTests (tests, trigger, tsElapsed, fcsElapsed, targetSession, instrumentationMaps) ->
           match Array.isEmpty tests with
           | true -> ()
           | false ->
             let testIds = tests |> Array.map (fun tc -> tc.Id)
             dispatch (SageFsMsg.Event (SageFsEvent.TestRunStarted (testIds, targetSession)))
-            let ct = deps.PipelineCancellation.TestRun.next()
+            let ct = deps.TestCycleCancellation.TestRun.next()
             let hasInstrMaps = not (Array.isEmpty instrumentationMaps)
-            let pipelineSpan = Instrumentation.startSpan Instrumentation.pipelineSource "pipeline.test.execution" ["test.count", box tests.Length; "trigger", box (sprintf "%A" trigger); "coverage.has_maps", box hasInstrMaps; "coverage.probe_count", box (instrumentationMaps |> Array.sumBy (fun m -> m.TotalProbes))]
+            let testCycleSpan = Instrumentation.startSpan Instrumentation.testCycleSource "test_cycle.test.execution" ["test.count", box tests.Length; "trigger", box (sprintf "%A" trigger); "coverage.has_maps", box hasInstrMaps; "coverage.probe_count", box (instrumentationMaps |> Array.sumBy (fun m -> m.TotalProbes))]
             Async.Start(async {
               Instrumentation.testExecutionActiveCount.Add(1L)
               use activity =
@@ -1331,7 +1331,7 @@ module SageFsEffectHandler =
                 sw.Stop()
                 Instrumentation.testExecutionMs.Record(sw.Elapsed.TotalMilliseconds)
                 let endToEndMs = tsElapsed.TotalMilliseconds + fcsElapsed.TotalMilliseconds + sw.Elapsed.TotalMilliseconds
-                Instrumentation.pipelineEndToEnd.Record(endToEndMs)
+                Instrumentation.testCycleEndToEnd.Record(endToEndMs)
                 Features.LiveTesting.LiveTestingInstrumentation.executionHistogram.Record(sw.Elapsed.TotalMilliseconds)
                 match activity <> null with
                 | true ->
@@ -1340,20 +1340,20 @@ module SageFsEffectHandler =
                   activity.SetTag("duration_ms", sw.Elapsed.TotalMilliseconds) |> ignore
                 | false -> ()
                 dispatch (SageFsMsg.Event (SageFsEvent.TestRunCompleted targetSession))
-                let timing : Features.LiveTesting.PipelineTiming = {
-                  Depth = Features.LiveTesting.PipelineDepth.ThroughExecution(
+                let timing : Features.LiveTesting.TestCycleTiming = {
+                  Depth = Features.LiveTesting.TestCycleDepth.ThroughExecution(
                             tsElapsed, fcsElapsed, sw.Elapsed)
                   TotalTests = tests.Length
                   AffectedTests = tests.Length
                   Trigger = trigger
                   Timestamp = System.DateTimeOffset.UtcNow
                 }
-                dispatch (SageFsMsg.Event (SageFsEvent.PipelineTimingRecorded timing))
-                Instrumentation.succeedSpan pipelineSpan
+                dispatch (SageFsMsg.Event (SageFsEvent.TestCycleTimingRecorded timing))
+                Instrumentation.succeedSpan testCycleSpan
                 Instrumentation.testExecutionActiveCount.Add(-1L)
               with ex ->
                 sw.Stop()
-                Instrumentation.failSpan pipelineSpan ex.Message
+                Instrumentation.failSpan testCycleSpan ex.Message
                 let errResults =
                   tests |> Array.map (fun tc ->
                     ({ TestId = tc.Id

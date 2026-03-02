@@ -251,7 +251,7 @@ export class VscLiveTestEvent extends Union {
         this.fields = fields;
     }
     cases() {
-        return ["TestsDiscovered", "TestRunStarted", "TestResultBatch", "LiveTestingEnabled", "LiveTestingDisabled", "RunPolicyChanged", "PipelineTimingRecorded", "CoverageUpdated"];
+        return ["TestsDiscovered", "TestRunStarted", "TestResultBatch", "LiveTestingEnabled", "LiveTestingDisabled", "RunPolicyChanged", "TestCycleTimingRecorded", "CoverageUpdated"];
     }
 }
 

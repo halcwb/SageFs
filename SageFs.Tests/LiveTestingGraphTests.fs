@@ -9,7 +9,7 @@ open SageFs.Features.LiveTesting
 open SageFs.Tests.LiveTestingTestHelpers
 
 [<Tests>]
-let affectedTestPipelineTests = testList "affected-test pipeline" [
+let affectedTestCycleTests = testList "affected-test cycle" [
   test "dep graph lookup finds affected tests" {
     let graph = {
       TestDependencyGraph.empty with
@@ -423,7 +423,7 @@ let compositionTests = testList "compositionTests" [
     affected |> Expect.hasLength "no affected tests" 0
   }
 
-  test "full pipeline roundtrip: keystroke → debounce → FCS → affected tests" {
+  test "full cycle roundtrip: keystroke → debounce → FCS → affected tests" {
     let tc = mkTestCase "MyApp.Tests.test1" TestFramework.Expecto TestCategory.Unit
     let t0 = DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)
     let refs = [
@@ -431,39 +431,39 @@ let compositionTests = testList "compositionTests" [
       { SymbolFullName = "Lib.add"; UseKind = SymbolUseKind.Reference; UsedInTestId = None; FilePath = "Lib.fs"; Line = 5 }
     ]
     let state = {
-      LiveTestPipelineState.empty with
+      LiveTestCycleState.empty with
         TestState = { LiveTestState.empty with DiscoveredTests = [|tc|]; Activation = LiveTestingActivation.Active }
     }
-    let s1 = state |> LiveTestPipelineState.onKeystroke "let x = 1" "File.fs" t0
-    let effects30, s30 = s1 |> LiveTestPipelineState.tick (t0.AddMilliseconds(30.0))
+    let s1 = state |> LiveTestCycleState.onKeystroke "let x = 1" "File.fs" t0
+    let effects30, s30 = s1 |> LiveTestCycleState.tick (t0.AddMilliseconds(30.0))
     effects30 |> Expect.isEmpty "nothing at 30ms"
-    let effects51, s51 = s30 |> LiveTestPipelineState.tick (t0.AddMilliseconds(51.0))
-    effects51 |> List.exists (fun e -> match e with PipelineEffect.ParseTreeSitter _ -> true | _ -> false)
+    let effects51, s51 = s30 |> LiveTestCycleState.tick (t0.AddMilliseconds(51.0))
+    effects51 |> List.exists (fun e -> match e with TestCycleEffect.ParseTreeSitter _ -> true | _ -> false)
     |> Expect.isTrue "TS fires at 51ms"
-    let effects301, s301 = s51 |> LiveTestPipelineState.tick (t0.AddMilliseconds(301.0))
-    effects301 |> List.exists (fun e -> match e with PipelineEffect.RequestFcsTypeCheck _ -> true | _ -> false)
+    let effects301, s301 = s51 |> LiveTestCycleState.tick (t0.AddMilliseconds(301.0))
+    effects301 |> List.exists (fun e -> match e with TestCycleEffect.RequestFcsTypeCheck _ -> true | _ -> false)
     |> Expect.isTrue "FCS request fires at 301ms"
     // Phase 2: FCS completes → handleFcsResult → RunAffectedTests
     let fcsResult = FcsTypeCheckResult.Success ("File.fs", refs)
-    let fcsEffects, _ = LiveTestPipelineState.handleFcsResult fcsResult s301
-    fcsEffects |> List.exists (fun e -> match e with PipelineEffect.RunAffectedTests _ -> true | _ -> false)
+    let fcsEffects, _ = LiveTestCycleState.handleFcsResult fcsResult s301
+    fcsEffects |> List.exists (fun e -> match e with TestCycleEffect.RunAffectedTests _ -> true | _ -> false)
     |> Expect.isTrue "affected tests triggered after FCS"
   }
 
   test "burst typing coalesces debounce to single tree-sitter parse" {
     let t0 = DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)
-    let s0 = LiveTestPipelineState.empty
-    let s1 = s0 |> LiveTestPipelineState.onKeystroke "l" "F.fs" t0
-    let s2 = s1 |> LiveTestPipelineState.onKeystroke "le" "F.fs" (t0.AddMilliseconds(20.0))
-    let s3 = s2 |> LiveTestPipelineState.onKeystroke "let" "F.fs" (t0.AddMilliseconds(40.0))
-    let s4 = s3 |> LiveTestPipelineState.onKeystroke "let " "F.fs" (t0.AddMilliseconds(60.0))
-    let s5 = s4 |> LiveTestPipelineState.onKeystroke "let x" "F.fs" (t0.AddMilliseconds(80.0))
-    let effects100, s100 = s5 |> LiveTestPipelineState.tick (t0.AddMilliseconds(100.0))
+    let s0 = LiveTestCycleState.empty
+    let s1 = s0 |> LiveTestCycleState.onKeystroke "l" "F.fs" t0
+    let s2 = s1 |> LiveTestCycleState.onKeystroke "le" "F.fs" (t0.AddMilliseconds(20.0))
+    let s3 = s2 |> LiveTestCycleState.onKeystroke "let" "F.fs" (t0.AddMilliseconds(40.0))
+    let s4 = s3 |> LiveTestCycleState.onKeystroke "let " "F.fs" (t0.AddMilliseconds(60.0))
+    let s5 = s4 |> LiveTestCycleState.onKeystroke "let x" "F.fs" (t0.AddMilliseconds(80.0))
+    let effects100, s100 = s5 |> LiveTestCycleState.tick (t0.AddMilliseconds(100.0))
     effects100 |> Expect.isEmpty "nothing at 100ms (20ms after last keystroke)"
-    let effects131, _ = s100 |> LiveTestPipelineState.tick (t0.AddMilliseconds(131.0))
+    let effects131, _ = s100 |> LiveTestCycleState.tick (t0.AddMilliseconds(131.0))
     let tsCount =
       effects131
-      |> List.filter (fun e -> match e with PipelineEffect.ParseTreeSitter _ -> true | _ -> false)
+      |> List.filter (fun e -> match e with TestCycleEffect.ParseTreeSitter _ -> true | _ -> false)
       |> List.length
     tsCount |> Expect.equal "exactly one TS parse" 1
     s5.ActiveFile |> Expect.equal "active file is F.fs" (Some "F.fs")
@@ -557,60 +557,60 @@ let compositionTests = testList "compositionTests" [
     | other -> failtestf "expected Stale status but got %A" other
   }
 
-  test "file switch mid-pipeline resets debounce timers" {
+  test "file switch mid-cycle resets debounce timers" {
     let t0 = DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)
-    let s0 = LiveTestPipelineState.empty
-    let s1 = s0 |> LiveTestPipelineState.onKeystroke "let x = 1" "File1.fs" t0
+    let s0 = LiveTestCycleState.empty
+    let s1 = s0 |> LiveTestCycleState.onKeystroke "let x = 1" "File1.fs" t0
     s1.ActiveFile |> Expect.equal "active is File1" (Some "File1.fs")
-    let s2 = s1 |> LiveTestPipelineState.onKeystroke "let y = 2" "File2.fs" (t0.AddMilliseconds(30.0))
+    let s2 = s1 |> LiveTestCycleState.onKeystroke "let y = 2" "File2.fs" (t0.AddMilliseconds(30.0))
     s2.ActiveFile |> Expect.equal "active is File2" (Some "File2.fs")
-    let effects51, s51 = s2 |> LiveTestPipelineState.tick (t0.AddMilliseconds(51.0))
+    let effects51, s51 = s2 |> LiveTestCycleState.tick (t0.AddMilliseconds(51.0))
     effects51 |> Expect.isEmpty "no TS at 51ms (file switched)"
-    let effects81, _ = s51 |> LiveTestPipelineState.tick (t0.AddMilliseconds(81.0))
+    let effects81, _ = s51 |> LiveTestCycleState.tick (t0.AddMilliseconds(81.0))
     let hasTS =
       effects81
-      |> List.exists (fun e -> match e with PipelineEffect.ParseTreeSitter _ -> true | _ -> false)
+      |> List.exists (fun e -> match e with TestCycleEffect.ParseTreeSitter _ -> true | _ -> false)
     hasTS |> Expect.isTrue "TS fires for File2 at 81ms"
   }
 
   test "FCS completes after new keystroke: debounce restarts" {
     let t0 = DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)
-    let s0 = LiveTestPipelineState.empty
-    let s1 = s0 |> LiveTestPipelineState.onKeystroke "let x = 1" "File.fs" t0
-    let effects1, s2 = s1 |> LiveTestPipelineState.tick (t0.AddMilliseconds(51.0))
-    let hasTS = effects1 |> List.exists (fun e -> match e with PipelineEffect.ParseTreeSitter _ -> true | _ -> false)
+    let s0 = LiveTestCycleState.empty
+    let s1 = s0 |> LiveTestCycleState.onKeystroke "let x = 1" "File.fs" t0
+    let effects1, s2 = s1 |> LiveTestCycleState.tick (t0.AddMilliseconds(51.0))
+    let hasTS = effects1 |> List.exists (fun e -> match e with TestCycleEffect.ParseTreeSitter _ -> true | _ -> false)
     hasTS |> Expect.isTrue "TS fires after first keystroke"
-    let s3 = s2 |> LiveTestPipelineState.onKeystroke "let x = 2" "File.fs" (t0.AddMilliseconds(100.0))
-    let effects2, s4 = s3 |> LiveTestPipelineState.tick (t0.AddMilliseconds(352.0))
-    let hasFCS = effects2 |> List.exists (fun e -> match e with PipelineEffect.RequestFcsTypeCheck _ -> true | _ -> false)
+    let s3 = s2 |> LiveTestCycleState.onKeystroke "let x = 2" "File.fs" (t0.AddMilliseconds(100.0))
+    let effects2, s4 = s3 |> LiveTestCycleState.tick (t0.AddMilliseconds(352.0))
+    let hasFCS = effects2 |> List.exists (fun e -> match e with TestCycleEffect.RequestFcsTypeCheck _ -> true | _ -> false)
     hasFCS |> Expect.isFalse "FCS should NOT fire - debounce restarted by keystroke2"
-    let effects3, _ = s4 |> LiveTestPipelineState.tick (t0.AddMilliseconds(401.0))
-    let hasFCS2 = effects3 |> List.exists (fun e -> match e with PipelineEffect.RequestFcsTypeCheck _ -> true | _ -> false)
+    let effects3, _ = s4 |> LiveTestCycleState.tick (t0.AddMilliseconds(401.0))
+    let hasFCS2 = effects3 |> List.exists (fun e -> match e with TestCycleEffect.RequestFcsTypeCheck _ -> true | _ -> false)
     hasFCS2 |> Expect.isTrue "FCS fires after new debounce window"
   }
 
   test "cold start with empty cache: first keystroke produces TS parse" {
     let t0 = DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)
-    let s0 = LiveTestPipelineState.empty
-    let s1 = s0 |> LiveTestPipelineState.onKeystroke "let x = 1" "File.fs" t0
+    let s0 = LiveTestCycleState.empty
+    let s1 = s0 |> LiveTestCycleState.onKeystroke "let x = 1" "File.fs" t0
     s1.AnalysisCache.FileSymbols |> Expect.isEmpty "cache should be empty on first keystroke"
-    let effects, _ = s1 |> LiveTestPipelineState.tick (t0.AddMilliseconds(51.0))
-    let hasTS = effects |> List.exists (fun e -> match e with PipelineEffect.ParseTreeSitter _ -> true | _ -> false)
+    let effects, _ = s1 |> LiveTestCycleState.tick (t0.AddMilliseconds(51.0))
+    let hasTS = effects |> List.exists (fun e -> match e with TestCycleEffect.ParseTreeSitter _ -> true | _ -> false)
     hasTS |> Expect.isTrue "TS fires on first keystroke (cold start)"
   }
 
-  test "session dispose mid-pipeline: state resets cleanly" {
+  test "session dispose mid-cycle: state resets cleanly" {
     let t0 = DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)
-    let s0 = LiveTestPipelineState.empty
-    let s1 = s0 |> LiveTestPipelineState.onKeystroke "let x = 1" "File.fs" t0
-    let _, _ = s1 |> LiveTestPipelineState.tick (t0.AddMilliseconds(51.0))
-    let s3 = LiveTestPipelineState.empty
+    let s0 = LiveTestCycleState.empty
+    let s1 = s0 |> LiveTestCycleState.onKeystroke "let x = 1" "File.fs" t0
+    let _, _ = s1 |> LiveTestCycleState.tick (t0.AddMilliseconds(51.0))
+    let s3 = LiveTestCycleState.empty
     s3.ActiveFile |> Expect.isNone "no active file after reset"
     s3.AnalysisCache.FileSymbols |> Expect.isEmpty "no cache after reset"
-    let s4 = s3 |> LiveTestPipelineState.onKeystroke "let y = 1" "File2.fs" (t0.AddMilliseconds(200.0))
+    let s4 = s3 |> LiveTestCycleState.onKeystroke "let y = 1" "File2.fs" (t0.AddMilliseconds(200.0))
     s4.ActiveFile |> Expect.equal "new file" (Some "File2.fs")
-    let effects, _ = s4 |> LiveTestPipelineState.tick (t0.AddMilliseconds(251.0))
-    let hasTS = effects |> List.exists (fun e -> match e with PipelineEffect.ParseTreeSitter _ -> true | _ -> false)
+    let effects, _ = s4 |> LiveTestCycleState.tick (t0.AddMilliseconds(251.0))
+    let hasTS = effects |> List.exists (fun e -> match e with TestCycleEffect.ParseTreeSitter _ -> true | _ -> false)
     hasTS |> Expect.isTrue "TS fires after session reset"
   }
 ]
@@ -635,10 +635,10 @@ let symbolGraphWiringTests = testList "symbol graph wiring integration" [
         DiscoveredTests = [| testCase |]
         RunPolicies = RunPolicyDefaults.defaults }
     let effect =
-      PipelineEffects.afterTypeCheck
+      TestCycleEffects.afterTypeCheck
         [ "MyModule.add" ] "test.fs" RunTrigger.Keystroke graph ltState None Map.empty
     match effect with
-    | [ PipelineEffect.RunAffectedTests (tests, _, _, _, _, _) ] ->
+    | [ TestCycleEffect.RunAffectedTests (tests, _, _, _, _, _) ] ->
       tests |> Array.exists (fun t -> t.Id = tid)
       |> Expect.isTrue "should contain affected test"
     | other -> failtestf "expected single RunAffectedTests, got %A" other
@@ -651,7 +651,7 @@ let symbolGraphWiringTests = testList "symbol graph wiring integration" [
       Origin = TestOrigin.ReflectionOnly; Framework = TestFramework.Expecto
       Category = TestCategory.Unit; Labels = [] }
     let pipeState = {
-      LiveTestPipelineState.empty with
+      LiveTestCycleState.empty with
         TestState = { LiveTestState.empty with
                         Activation = LiveTestingActivation.Active
                         DiscoveredTests = [| testCase |]
@@ -660,7 +660,7 @@ let symbolGraphWiringTests = testList "symbol graph wiring integration" [
       { SymbolFullName = "MyModule.add"; UseKind = SymbolUseKind.Reference
         UsedInTestId = Some tid; FilePath = "test.fs"; Line = 5 } ]
     let fcsResult = FcsTypeCheckResult.Success ("test.fs", refs)
-    let _effects, updated = LiveTestPipelineState.handleFcsResult fcsResult pipeState
+    let _effects, updated = LiveTestCycleState.handleFcsResult fcsResult pipeState
     updated.DepGraph.SourceVersion
     |> fun v -> Expect.isGreaterThan "should increment version" (v, pipeState.DepGraph.SourceVersion)
   }
@@ -672,18 +672,18 @@ let symbolGraphWiringTests = testList "symbol graph wiring integration" [
       Origin = TestOrigin.ReflectionOnly; Framework = TestFramework.Expecto
       Category = TestCategory.Unit; Labels = [] }
     let pipeState = {
-      LiveTestPipelineState.empty with
+      LiveTestCycleState.empty with
         TestState = { LiveTestState.empty with
                         Activation = LiveTestingActivation.Active
                         DiscoveredTests = [| testCase |]
                         RunPolicies = RunPolicyDefaults.defaults } }
     let effects =
-      LiveTestPipelineState.triggerExecutionForAffected
+      LiveTestCycleState.triggerExecutionForAffected
         [| tid |] RunTrigger.FileSave None pipeState
     effects
     |> List.exists (fun e ->
       match e with
-      | PipelineEffect.RunAffectedTests (tests, _, _, _, _, _) ->
+      | TestCycleEffect.RunAffectedTests (tests, _, _, _, _, _) ->
         tests |> Array.exists (fun t -> t.Id = tid)
       | _ -> false)
     |> Expect.isTrue "should produce RunAffectedTests via fallback"
@@ -703,7 +703,7 @@ let symbolGraphWiringTests = testList "symbol graph wiring integration" [
         Activation = LiveTestingActivation.Inactive
         DiscoveredTests = [| testCase |]
         RunPolicies = RunPolicyDefaults.defaults }
-    PipelineEffects.afterTypeCheck [ "M.func" ] "test.fs" RunTrigger.Keystroke graph ltState None Map.empty
+    TestCycleEffects.afterTypeCheck [ "M.func" ] "test.fs" RunTrigger.Keystroke graph ltState None Map.empty
     |> Expect.isEmpty "no effect when disabled"
   }
 
@@ -721,7 +721,7 @@ let symbolGraphWiringTests = testList "symbol graph wiring integration" [
         Activation = LiveTestingActivation.Active
         DiscoveredTests = [| testCase |]
         RunPolicies = RunPolicyDefaults.defaults }
-    PipelineEffects.afterTypeCheck [] "test.fs" RunTrigger.Keystroke graph ltState None Map.empty
+    TestCycleEffects.afterTypeCheck [] "test.fs" RunTrigger.Keystroke graph ltState None Map.empty
     |> Expect.isEmpty "no effect when no symbols"
   }
 ]
@@ -1010,13 +1010,13 @@ let fcsGraphTests = testList "FCS dependency graph builder" [
                     DiscoveredTests = [| addTestCase; otherTestCase |]
                     Activation = LiveTestingActivation.Active }
     let stateWithEntries = { state with StatusEntries = LiveTesting.computeStatusEntries state }
-    match PipelineOrchestrator.decide stateWithEntries RunTrigger.Keystroke ["MyApp.Math.add"] graph with
-    | PipelineDecision.FullPipeline testIds ->
+    match TestCycleOrchestrator.decide stateWithEntries RunTrigger.Keystroke ["MyApp.Math.add"] graph with
+    | TestCycleDecision.FullCycle testIds ->
       testIds.Length
       |> Expect.equal "should only run addTest, not otherTest" 1
       testIds.[0]
       |> Expect.equal "should be addTest" addTestCase.Id
-    | other -> failtest (sprintf "Expected FullPipeline, got %A" other)
+    | other -> failtest (sprintf "Expected FullCycle, got %A" other)
   }
 
   test "coverage projection with built graph" {
@@ -1319,8 +1319,8 @@ let affectedExecutionTriggerTests = testList "AffectedTestsComputed execution tr
         DiscoveredTests = tests
         Activation = LiveTestingActivation.Active
         RunPolicies = RunPolicyDefaults.defaults }
-  let mkPipelineState tests =
-    { LiveTestPipelineState.empty with
+  let mkCycleState tests =
+    { LiveTestCycleState.empty with
         TestState = mkState tests }
   let tc1 = {
     Id = TestId.create "ns.t1" TestFramework.Expecto
@@ -1342,25 +1342,25 @@ let affectedExecutionTriggerTests = testList "AffectedTestsComputed execution tr
   }
 
   test "empty affected IDs produce no effects" {
-    let ps = mkPipelineState [| tc1; tc2 |]
-    let effects = LiveTestPipelineState.triggerExecutionForAffected [||] RunTrigger.FileSave None ps
+    let ps = mkCycleState [| tc1; tc2 |]
+    let effects = LiveTestCycleState.triggerExecutionForAffected [||] RunTrigger.FileSave None ps
     effects
     |> Expect.isEmpty "should produce no effects for empty affected IDs"
   }
 
   test "non-empty affected IDs produce RunAffectedTests effect" {
-    let ps = mkPipelineState [| tc1; tc2; tc3 |]
-    let effects = LiveTestPipelineState.triggerExecutionForAffected [| tc1.Id; tc3.Id |] RunTrigger.FileSave None ps
+    let ps = mkCycleState [| tc1; tc2; tc3 |]
+    let effects = LiveTestCycleState.triggerExecutionForAffected [| tc1.Id; tc3.Id |] RunTrigger.FileSave None ps
     effects
     |> List.length
     |> Expect.equal "should produce exactly one effect" 1
   }
 
   test "only unit tests run on FileSave when policy is OnEveryChange" {
-    let ps = mkPipelineState [| tc1; tc2; tc3 |]
-    let effects = LiveTestPipelineState.triggerExecutionForAffected [| tc1.Id; tc2.Id |] RunTrigger.FileSave None ps
+    let ps = mkCycleState [| tc1; tc2; tc3 |]
+    let effects = LiveTestCycleState.triggerExecutionForAffected [| tc1.Id; tc2.Id |] RunTrigger.FileSave None ps
     match effects with
-    | [ PipelineEffect.RunAffectedTests (tests, _, _, _, _, _) ] ->
+    | [ TestCycleEffect.RunAffectedTests (tests, _, _, _, _, _) ] ->
       tests
       |> Array.length
       |> Expect.equal "should only include unit test" 1
@@ -1370,10 +1370,10 @@ let affectedExecutionTriggerTests = testList "AffectedTestsComputed execution tr
   }
 
   test "ExplicitRun trigger runs integration tests too" {
-    let ps = mkPipelineState [| tc1; tc2; tc3 |]
-    let effects = LiveTestPipelineState.triggerExecutionForAffected [| tc1.Id; tc2.Id |] RunTrigger.ExplicitRun None ps
+    let ps = mkCycleState [| tc1; tc2; tc3 |]
+    let effects = LiveTestCycleState.triggerExecutionForAffected [| tc1.Id; tc2.Id |] RunTrigger.ExplicitRun None ps
     match effects with
-    | [ PipelineEffect.RunAffectedTests (tests, _, _, _, _, _) ] ->
+    | [ TestCycleEffect.RunAffectedTests (tests, _, _, _, _, _) ] ->
       tests
       |> Array.length
       |> Expect.equal "should include both unit and integration" 2
@@ -1381,17 +1381,17 @@ let affectedExecutionTriggerTests = testList "AffectedTestsComputed execution tr
   }
 
   test "disabled live testing produces no effects" {
-    let ps = { mkPipelineState [| tc1; tc2 |] with
+    let ps = { mkCycleState [| tc1; tc2 |] with
                  TestState = { (mkState [| tc1; tc2 |]) with Activation = LiveTestingActivation.Inactive } }
-    let effects = LiveTestPipelineState.triggerExecutionForAffected [| tc1.Id |] RunTrigger.FileSave None ps
+    let effects = LiveTestCycleState.triggerExecutionForAffected [| tc1.Id |] RunTrigger.FileSave None ps
     effects
     |> Expect.isEmpty "should produce no effects when disabled"
   }
 
   test "affected IDs not in discovered tests are ignored" {
-    let ps = mkPipelineState [| tc1 |]
+    let ps = mkCycleState [| tc1 |]
     let unknownId = TestId.create "unknown" TestFramework.Expecto
-    let effects = LiveTestPipelineState.triggerExecutionForAffected [| unknownId |] RunTrigger.FileSave None ps
+    let effects = LiveTestCycleState.triggerExecutionForAffected [| unknownId |] RunTrigger.FileSave None ps
     effects
     |> Expect.isEmpty "unknown test IDs should not produce effects"
   }
@@ -1473,12 +1473,12 @@ let filterTestsForExplicitRunTests =
   |]
   testList "filterTestsForExplicitRun" [
     test "no filters returns all" {
-      LiveTestPipelineState.filterTestsForExplicitRun sampleTests None None None
+      LiveTestCycleState.filterTestsForExplicitRun sampleTests None None None
       |> Array.length
       |> Expect.equal "all tests" 3
     }
     test "pattern filter matches by FullName" {
-      LiveTestPipelineState.filterTestsForExplicitRun sampleTests None (Some "test_add") None
+      LiveTestCycleState.filterTestsForExplicitRun sampleTests None (Some "test_add") None
       |> Array.length
       |> Expect.equal "pattern match" 1
     }
@@ -1487,7 +1487,7 @@ let filterTestsForExplicitRunTests =
         mkTC "t1" "Unit.test1" TestFramework.XUnit
         { mkTC "t2" "Integration.test2" TestFramework.XUnit with Category = TestCategory.Integration }
       |]
-      LiveTestPipelineState.filterTestsForExplicitRun mixedTests None None (Some TestCategory.Unit)
+      LiveTestCycleState.filterTestsForExplicitRun mixedTests None None (Some TestCategory.Unit)
       |> Array.length
       |> Expect.equal "only unit" 1
     }
@@ -1497,7 +1497,7 @@ let filterTestsForExplicitRunTests =
         { mkTC "t2" "Test2" TestFramework.XUnit with Origin = TestOrigin.SourceMapped ("bar.fs", 20) }
         mkTC "t3" "Test3" TestFramework.XUnit
       |]
-      LiveTestPipelineState.filterTestsForExplicitRun mappedTests (Some "foo.fs") None None
+      LiveTestCycleState.filterTestsForExplicitRun mappedTests (Some "foo.fs") None None
       |> Array.length
       |> Expect.equal "only foo.fs" 1
     }
@@ -1507,7 +1507,7 @@ let filterTestsForExplicitRunTests =
         { mkTC "t2" "MyModule.db_test" TestFramework.XUnit with Category = TestCategory.Integration }
         mkTC "t3" "Other.add_test" TestFramework.XUnit
       |]
-      LiveTestPipelineState.filterTestsForExplicitRun mixedTests None (Some "add_test") (Some TestCategory.Unit)
+      LiveTestCycleState.filterTestsForExplicitRun mixedTests None (Some "add_test") (Some TestCategory.Unit)
       |> Array.length
       |> Expect.equal "pattern + category intersection" 2
     }

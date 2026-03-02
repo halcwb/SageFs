@@ -519,10 +519,10 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       GetHotReloadState = Some getHotReloadStateForMcp
     }
 
-  // Pipeline tick timer — drives debounce channels for live testing (50ms fixed interval)
-  let pipelineTimer = new System.Threading.Timer(
+  // Test cycle tick timer — drives debounce channels for live testing (50ms fixed interval)
+  let testCycleTimer = new System.Threading.Timer(
     System.Threading.TimerCallback(fun _ ->
-      elmRuntime.Dispatch(SageFsMsg.PipelineTick DateTimeOffset.UtcNow)),
+      elmRuntime.Dispatch(SageFsMsg.TestCycleTick DateTimeOffset.UtcNow)),
     null, 50, 50)
 
   // Live testing file watcher — monitors *.fs and *.fsx changes, dispatches FileContentChanged.
@@ -759,7 +759,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       match Map.tryFind sessionId snapshot.WarmupProgress with
       | Some progress -> progress
       | None -> ""
-    GetPipelineTrace = fun () ->
+    GetTestTrace = fun () ->
       let model = elmRuntime.GetModel()
       let activeId =
         SageFs.ActiveSession.sessionId model.Sessions.ActiveSessionId
@@ -778,7 +778,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       let activeId =
         SageFs.ActiveSession.sessionId model.Sessions.ActiveSessionId
         |> Option.defaultValue ""
-      SageFs.Features.LiveTesting.LiveTestPipelineState.liveTestingStatusBarForSession activeId model.LiveTesting
+      SageFs.Features.LiveTesting.LiveTestCycleState.liveTestingStatusBarForSession activeId model.LiveTesting
   }
 
   let dashboardActions : Dashboard.DashboardActions = {
@@ -1055,8 +1055,8 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
   with
   | :? OperationCanceledException -> ()
 
-  // Graceful shutdown: stop pipeline timer, file watcher, and all sessions
-  pipelineTimer.Dispose()
+  // Graceful shutdown: stop test cycle timer, file watcher, and all sessions
+  testCycleTimer.Dispose()
   liveTestDebounceTimer.Dispose()
   liveTestWatcher.EnableRaisingEvents <- false
   liveTestWatcher.Dispose()

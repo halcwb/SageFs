@@ -91,7 +91,7 @@ All three are 5-15 lines of editor-specific code. They don't need to agree on im
 
 **When scope detection fails** (e.g., cursor is between functions, or syntax is too broken): the editor simply doesn't POST. No harm done — user sees stale results until the code stabilizes.
 
-## Server Pipeline
+## Server Test Cycle
 
 ```
 POST /api/live-testing/evaluate-scope received

@@ -77,7 +77,7 @@ let genEvent =
     Gen.constant VscLiveTestEvent.LiveTestingEnabled
     Gen.constant VscLiveTestEvent.LiveTestingDisabled
     Gen.map2 (fun c p -> VscLiveTestEvent.RunPolicyChanged (c, p)) genCategory genPolicy
-    Gen.map3 (fun a b c -> VscLiveTestEvent.PipelineTimingRecorded (a, b, c))
+    Gen.map3 (fun a b c -> VscLiveTestEvent.TestCycleTimingRecorded (a, b, c))
       (Gen.map float (Gen.choose (0, 1000)))
       (Gen.map float (Gen.choose (0, 5000)))
       (Gen.map float (Gen.choose (0, 10000)))
@@ -156,13 +156,13 @@ let tests = testList "VscLiveTestState property tests" [
         VscLiveTestState.empty
     Map.tryFind cat state'.Policies = Some pol)
 
-  testPropertyWithConfig cfg "PipelineTimingRecorded stores LastTiming" (fun () ->
+  testPropertyWithConfig cfg "TestCycleTimingRecorded stores LastTiming" (fun () ->
     let ts = Gen.sample 1 (Gen.map float (Gen.choose (0, 1000))) |> Array.head
     let fcs = Gen.sample 1 (Gen.map float (Gen.choose (0, 5000))) |> Array.head
     let exec = Gen.sample 1 (Gen.map float (Gen.choose (0, 10000))) |> Array.head
     let state', _ =
       VscLiveTestState.update
-        (VscLiveTestEvent.PipelineTimingRecorded (ts, fcs, exec))
+        (VscLiveTestEvent.TestCycleTimingRecorded (ts, fcs, exec))
         VscLiveTestState.empty
     state'.LastTiming = Some (ts, fcs, exec))
 

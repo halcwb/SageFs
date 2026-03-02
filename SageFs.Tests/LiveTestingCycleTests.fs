@@ -1,4 +1,4 @@
-module SageFs.Tests.LiveTestingPipelineTests
+module SageFs.Tests.LiveTestingCycleTests
 
 open System
 open System.Reflection
@@ -8,99 +8,99 @@ open SageFs
 open SageFs.Features.LiveTesting
 open SageFs.Tests.LiveTestingTestHelpers
 
-// --- PipelineTiming Tests (RED — stub returns 0.0) ---
+// --- TestCycleTiming Tests (RED — stub returns 0.0) ---
 
 [<Tests>]
-let pipelineTimingTests = testList "PipelineTiming" [
+let TestCycleTimingTests = testList "TestCycleTiming" [
   test "treeSitterMs extracts from TreeSitterOnly" {
     let t = {
-      Depth = PipelineDepth.TreeSitterOnly (ts 0.8)
+      Depth = TestCycleDepth.TreeSitterOnly (ts 0.8)
       TotalTests = 10; AffectedTests = 3
       Trigger = RunTrigger.Keystroke; Timestamp = DateTimeOffset.UtcNow
     }
-    PipelineTiming.treeSitterMs t
+    TestCycleTiming.treeSitterMs t
     |> Expect.floatClose "extracts 0.8ms" Accuracy.medium 0.8
   }
 
   test "treeSitterMs extracts from ThroughFcs" {
     let t = {
-      Depth = PipelineDepth.ThroughFcs (ts 1.2, ts 142.0)
+      Depth = TestCycleDepth.ThroughFcs (ts 1.2, ts 142.0)
       TotalTests = 10; AffectedTests = 3
       Trigger = RunTrigger.FileSave; Timestamp = DateTimeOffset.UtcNow
     }
-    PipelineTiming.treeSitterMs t
+    TestCycleTiming.treeSitterMs t
     |> Expect.floatClose "extracts 1.2ms" Accuracy.medium 1.2
   }
 
   test "treeSitterMs extracts from ThroughExecution" {
     let t = {
-      Depth = PipelineDepth.ThroughExecution (ts 0.5, ts 100.0, ts 87.0)
+      Depth = TestCycleDepth.ThroughExecution (ts 0.5, ts 100.0, ts 87.0)
       TotalTests = 47; AffectedTests = 12
       Trigger = RunTrigger.ExplicitRun; Timestamp = DateTimeOffset.UtcNow
     }
-    PipelineTiming.treeSitterMs t
+    TestCycleTiming.treeSitterMs t
     |> Expect.floatClose "extracts 0.5ms" Accuracy.medium 0.5
   }
 ]
 
 [<Tests>]
-let pipelineTimingExtendedTests = testList "PipelineTiming extended" [
+let TestCycleTimingExtendedTests = testList "TestCycleTiming extended" [
   test "fcsMs returns 0 for tree-sitter only" {
     let t = {
-      Depth = PipelineDepth.TreeSitterOnly (TimeSpan.FromMilliseconds 1.0)
+      Depth = TestCycleDepth.TreeSitterOnly (TimeSpan.FromMilliseconds 1.0)
       TotalTests = 0; AffectedTests = 0
       Trigger = RunTrigger.Keystroke; Timestamp = DateTimeOffset.UtcNow
     }
-    PipelineTiming.fcsMs t
+    TestCycleTiming.fcsMs t
     |> Expect.equal "no FCS for tree-sitter only" 0.0
   }
 
   test "fcsMs returns value for ThroughFcs" {
     let t = {
-      Depth = PipelineDepth.ThroughFcs (TimeSpan.FromMilliseconds 1.0, TimeSpan.FromMilliseconds 142.0)
+      Depth = TestCycleDepth.ThroughFcs (TimeSpan.FromMilliseconds 1.0, TimeSpan.FromMilliseconds 142.0)
       TotalTests = 10; AffectedTests = 5
       Trigger = RunTrigger.FileSave; Timestamp = DateTimeOffset.UtcNow
     }
-    PipelineTiming.fcsMs t
+    TestCycleTiming.fcsMs t
     |> Expect.equal "fcs ms" 142.0
   }
 
   test "totalMs sums all stages" {
     let t = {
-      Depth = PipelineDepth.ThroughExecution (
+      Depth = TestCycleDepth.ThroughExecution (
         TimeSpan.FromMilliseconds 1.0, TimeSpan.FromMilliseconds 100.0, TimeSpan.FromMilliseconds 50.0)
       TotalTests = 10; AffectedTests = 3
       Trigger = RunTrigger.Keystroke; Timestamp = DateTimeOffset.UtcNow
     }
-    PipelineTiming.totalMs t
+    TestCycleTiming.totalMs t
     |> Expect.equal "total" 151.0
   }
 
   test "toStatusBar tree-sitter only" {
     let t = {
-      Depth = PipelineDepth.TreeSitterOnly (TimeSpan.FromMilliseconds 0.8)
+      Depth = TestCycleDepth.TreeSitterOnly (TimeSpan.FromMilliseconds 0.8)
       TotalTests = 0; AffectedTests = 0
       Trigger = RunTrigger.Keystroke; Timestamp = DateTimeOffset.UtcNow
     }
-    PipelineTiming.toStatusBar t
+    TestCycleTiming.toStatusBar t
     |> Expect.equal "format" "TS:0.8ms"
   }
 
-  test "toStatusBar full pipeline" {
+  test "toStatusBar full cycle" {
     let t = {
-      Depth = PipelineDepth.ThroughExecution (
+      Depth = TestCycleDepth.ThroughExecution (
         TimeSpan.FromMilliseconds 0.8, TimeSpan.FromMilliseconds 142.0, TimeSpan.FromMilliseconds 87.0)
       TotalTests = 47; AffectedTests = 12
       Trigger = RunTrigger.Keystroke; Timestamp = DateTimeOffset.UtcNow
     }
-    PipelineTiming.toStatusBar t
+    TestCycleTiming.toStatusBar t
     |> Expect.equal "format" "TS:0.8ms | FCS:142ms | Run:87ms (12)"
   }
 ]
 
 
 [<Tests>]
-let orchestratorTests = testList "PipelineOrchestrator" [
+let orchestratorTests = testList "TestCycleOrchestrator" [
   let test1 =
     { Id = TestId.create "Module.Tests.test1" TestFramework.Expecto; FullName = "Module.Tests.test1"
       DisplayName = "test1"; Origin = TestOrigin.ReflectionOnly
@@ -134,40 +134,40 @@ let orchestratorTests = testList "PipelineOrchestrator" [
 
   test "decide skips when disabled" {
     let state = { baseState with Activation = LiveTestingActivation.Inactive }
-    let d = PipelineOrchestrator.decide state RunTrigger.Keystroke [ "Module.add" ] depGraph
+    let d = TestCycleOrchestrator.decide state RunTrigger.Keystroke [ "Module.add" ] depGraph
     match d with
-    | PipelineDecision.Skip _ -> ()
+    | TestCycleDecision.Skip _ -> ()
     | other -> failwithf "Expected Skip, got %A" other
   }
 
   test "decide skips when already running" {
     let gen = RunGeneration.next RunGeneration.zero
     let state = { baseState with RunPhases = Map.ofList ["s", Running gen]; LastGeneration = gen }
-    let d = PipelineOrchestrator.decide state RunTrigger.Keystroke [ "Module.add" ] depGraph
+    let d = TestCycleOrchestrator.decide state RunTrigger.Keystroke [ "Module.add" ] depGraph
     match d with
-    | PipelineDecision.Skip _ -> ()
+    | TestCycleDecision.Skip _ -> ()
     | other -> failwithf "Expected Skip, got %A" other
   }
 
   test "decide returns TreeSitterOnly when no tests discovered" {
     let state = { baseState with DiscoveredTests = [||] }
-    let d = PipelineOrchestrator.decide state RunTrigger.Keystroke [ "Module.add" ] depGraph
-    d |> Expect.equal "tree sitter only" PipelineDecision.TreeSitterOnly
+    let d = TestCycleOrchestrator.decide state RunTrigger.Keystroke [ "Module.add" ] depGraph
+    d |> Expect.equal "tree sitter only" TestCycleDecision.TreeSitterOnly
   }
 
-  test "decide returns FullPipeline with affected unit tests on Keystroke" {
-    let d = PipelineOrchestrator.decide baseState RunTrigger.Keystroke [ "Module.add" ] depGraph
+  test "decide returns FullCycle with affected unit tests on Keystroke" {
+    let d = TestCycleOrchestrator.decide baseState RunTrigger.Keystroke [ "Module.add" ] depGraph
     match d with
-    | PipelineDecision.FullPipeline ids ->
+    | TestCycleDecision.FullCycle ids ->
       ids.Length |> Expect.equal "1 affected" 1
       ids.[0] |> Expect.equal "test1" test1.Id
-    | other -> failwithf "Expected FullPipeline, got %A" other
+    | other -> failwithf "Expected FullCycle, got %A" other
   }
 
   test "decide filters integration tests on Keystroke" {
-    let d = PipelineOrchestrator.decide baseState RunTrigger.Keystroke [ "Module.dbCall" ] depGraph
+    let d = TestCycleOrchestrator.decide baseState RunTrigger.Keystroke [ "Module.dbCall" ] depGraph
     match d with
-    | PipelineDecision.TreeSitterOnly -> ()
+    | TestCycleDecision.TreeSitterOnly -> ()
     | other -> failwithf "Expected TreeSitterOnly (integration filtered), got %A" other
   }
 
@@ -176,43 +176,43 @@ let orchestratorTests = testList "PipelineOrchestrator" [
       baseState with
         RunPolicies = Map.ofList [ TestCategory.Unit, RunPolicy.OnDemand ]
     }
-    let d = PipelineOrchestrator.decide state RunTrigger.Keystroke [ "Module.add" ] depGraph
+    let d = TestCycleOrchestrator.decide state RunTrigger.Keystroke [ "Module.add" ] depGraph
     match d with
-    | PipelineDecision.TreeSitterOnly -> ()
+    | TestCycleDecision.TreeSitterOnly -> ()
     | other -> failwithf "Expected TreeSitterOnly, got %A" other
   }
 
   test "decide includes integration tests on ExplicitRun" {
-    let d = PipelineOrchestrator.decide baseState RunTrigger.ExplicitRun [ "Module.dbCall" ] depGraph
+    let d = TestCycleOrchestrator.decide baseState RunTrigger.ExplicitRun [ "Module.dbCall" ] depGraph
     match d with
-    | PipelineDecision.FullPipeline ids ->
+    | TestCycleDecision.FullCycle ids ->
       ids.Length |> Expect.equal "1 integration" 1
       ids.[0] |> Expect.equal "intTest" intTest.Id
-    | other -> failwithf "Expected FullPipeline, got %A" other
+    | other -> failwithf "Expected FullCycle, got %A" other
   }
 
   test "buildRunBatch returns matching test cases" {
-    let batch = PipelineOrchestrator.buildRunBatch baseState [| test1.Id |]
+    let batch = TestCycleOrchestrator.buildRunBatch baseState [| test1.Id |]
     batch.Length |> Expect.equal "1 test" 1
     batch.[0].FullName |> Expect.equal "test1" "Module.Tests.test1"
   }
 
   test "buildRunBatch filters out unknown IDs" {
     let unknownId = TestId.create "Unknown.test" TestFramework.XUnit
-    let batch = PipelineOrchestrator.buildRunBatch baseState [| unknownId |]
+    let batch = TestCycleOrchestrator.buildRunBatch baseState [| unknownId |]
     batch |> Expect.isEmpty "no matches"
   }
 ]
 
 // ============================================================
-// Pipeline Status Bar Tests
+// cycle Status Bar Tests
 // ============================================================
 
 [<Tests>]
-let pipelineStatusBarTests = testList "Pipeline Status Bar" [
-  test "full pipeline timing formats correctly" {
+let cycleStatusBarTests = testList "cycle Status Bar" [
+  test "full cycle timing formats correctly" {
     let timing = {
-      Depth = PipelineDepth.ThroughExecution (
+      Depth = TestCycleDepth.ThroughExecution (
         TimeSpan.FromMilliseconds 0.8,
         TimeSpan.FromMilliseconds 142.0,
         TimeSpan.FromMilliseconds 87.0)
@@ -220,7 +220,7 @@ let pipelineStatusBarTests = testList "Pipeline Status Bar" [
       Trigger = RunTrigger.Keystroke
       Timestamp = DateTimeOffset.UtcNow
     }
-    let bar = PipelineTiming.toStatusBar timing
+    let bar = TestCycleTiming.toStatusBar timing
     bar |> Expect.stringContains "TS" "TS:"
     bar |> Expect.stringContains "FCS" "FCS:"
     bar |> Expect.stringContains "Run" "Run:"
@@ -229,11 +229,11 @@ let pipelineStatusBarTests = testList "Pipeline Status Bar" [
 
   test "tree-sitter only timing shows partial" {
     let timing = {
-      Depth = PipelineDepth.TreeSitterOnly (TimeSpan.FromMilliseconds 0.5)
+      Depth = TestCycleDepth.TreeSitterOnly (TimeSpan.FromMilliseconds 0.5)
       TotalTests = 100; AffectedTests = 0
       Trigger = RunTrigger.Keystroke; Timestamp = DateTimeOffset.UtcNow
     }
-    let bar = PipelineTiming.toStatusBar timing
+    let bar = TestCycleTiming.toStatusBar timing
     bar |> Expect.stringContains "TS" "TS:"
     Expect.isFalse "no FCS" (bar.Contains "FCS:")
   }
@@ -523,21 +523,21 @@ let adaptiveDebouncePropertyTests = testList "AdaptiveDebounce properties" [
 ]
 
 // ============================================================
-// Pipeline Debounce Tests
+// cycle Debounce Tests
 // ============================================================
 
 [<Tests>]
-let pipelineDebounceTests = testList "PipelineDebounce" [
+let TestCycleDebounceTests = testList "TestCycleDebounce" [
   let t0 = DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)
 
   test "empty has no pending on either channel" {
-    let db = PipelineDebounce.empty
+    let db = TestCycleDebounce.empty
     db.TreeSitter.Pending |> Expect.isNone "no tree-sitter"
     db.Fcs.Pending |> Expect.isNone "no fcs"
   }
 
   test "onKeystroke submits to both channels" {
-    let db = PipelineDebounce.empty |> PipelineDebounce.onKeystroke "code" "file.fs" 300 t0
+    let db = TestCycleDebounce.empty |> TestCycleDebounce.onKeystroke "code" "file.fs" 300 t0
     db.TreeSitter.Pending |> Expect.isSome "tree-sitter pending"
     db.Fcs.Pending |> Expect.isSome "fcs pending"
     db.TreeSitter.Pending.Value.DelayMs |> Expect.equal "ts delay" 50
@@ -545,77 +545,77 @@ let pipelineDebounceTests = testList "PipelineDebounce" [
   }
 
   test "tree-sitter fires before FCS" {
-    let db = PipelineDebounce.empty |> PipelineDebounce.onKeystroke "code" "file.fs" 300 t0
-    let (tsResult, fcsResult), _ = PipelineDebounce.tick (t0.AddMilliseconds 51.0) db
+    let db = TestCycleDebounce.empty |> TestCycleDebounce.onKeystroke "code" "file.fs" 300 t0
+    let (tsResult, fcsResult), _ = TestCycleDebounce.tick (t0.AddMilliseconds 51.0) db
     tsResult |> Expect.isSome "tree-sitter fires"
     fcsResult |> Expect.isNone "fcs not yet"
   }
 
   test "both fire after 300ms" {
-    let db = PipelineDebounce.empty |> PipelineDebounce.onKeystroke "code" "file.fs" 300 t0
-    let (tsResult, fcsResult), _ = PipelineDebounce.tick (t0.AddMilliseconds 301.0) db
+    let db = TestCycleDebounce.empty |> TestCycleDebounce.onKeystroke "code" "file.fs" 300 t0
+    let (tsResult, fcsResult), _ = TestCycleDebounce.tick (t0.AddMilliseconds 301.0) db
     tsResult |> Expect.isSome "tree-sitter fires"
     fcsResult |> Expect.isSome "fcs fires"
   }
 
   test "rapid keystrokes cancel previous debounce" {
     let db =
-      PipelineDebounce.empty
-      |> PipelineDebounce.onKeystroke "v1" "file.fs" 300 t0
-      |> PipelineDebounce.onKeystroke "v2" "file.fs" 300 (t0.AddMilliseconds 30.0)
-      |> PipelineDebounce.onKeystroke "v3" "file.fs" 300 (t0.AddMilliseconds 60.0)
-    let (tsResult, _), _ = PipelineDebounce.tick (t0.AddMilliseconds 111.0) db
+      TestCycleDebounce.empty
+      |> TestCycleDebounce.onKeystroke "v1" "file.fs" 300 t0
+      |> TestCycleDebounce.onKeystroke "v2" "file.fs" 300 (t0.AddMilliseconds 30.0)
+      |> TestCycleDebounce.onKeystroke "v3" "file.fs" 300 (t0.AddMilliseconds 60.0)
+    let (tsResult, _), _ = TestCycleDebounce.tick (t0.AddMilliseconds 111.0) db
     tsResult |> Expect.isSome "fires for latest"
     tsResult.Value |> Expect.equal "latest content" "v3"
   }
 
   test "onFileSave uses short FCS delay" {
     let db =
-      PipelineDebounce.empty
-      |> PipelineDebounce.onKeystroke "code" "file.fs" 300 t0
-      |> PipelineDebounce.onFileSave "file.fs" (t0.AddMilliseconds 100.0)
+      TestCycleDebounce.empty
+      |> TestCycleDebounce.onKeystroke "code" "file.fs" 300 t0
+      |> TestCycleDebounce.onFileSave "file.fs" (t0.AddMilliseconds 100.0)
     db.Fcs.Pending.Value.DelayMs |> Expect.equal "save uses short delay" 50
-    let (_, fcsResult), _ = PipelineDebounce.tick (t0.AddMilliseconds 151.0) db
+    let (_, fcsResult), _ = TestCycleDebounce.tick (t0.AddMilliseconds 151.0) db
     fcsResult |> Expect.isSome "fcs fires soon after save"
   }
 
   test "tick clears fired ops" {
-    let db = PipelineDebounce.empty |> PipelineDebounce.onKeystroke "code" "file.fs" 300 t0
-    let _, db' = PipelineDebounce.tick (t0.AddMilliseconds 301.0) db
+    let db = TestCycleDebounce.empty |> TestCycleDebounce.onKeystroke "code" "file.fs" 300 t0
+    let _, db' = TestCycleDebounce.tick (t0.AddMilliseconds 301.0) db
     db'.TreeSitter.Pending |> Expect.isNone "ts cleared"
     db'.Fcs.Pending |> Expect.isNone "fcs cleared"
   }
 ]
 
 // ============================================================
-// Pipeline Effects Tests
+// cycle Effects Tests
 // ============================================================
 
 [<Tests>]
-let pipelineEffectsTests = testList "PipelineEffects" [
+let TestCycleEffectsTests = testList "TestCycleEffects" [
   test "fromTick with both payloads produces two effects" {
-    let effects = PipelineEffects.fromTick (Some "code") (Some "file.fs") "file.fs" None
+    let effects = TestCycleEffects.fromTick (Some "code") (Some "file.fs") "file.fs" None
     effects.Length |> Expect.equal "two effects" 2
     match effects.[0] with
-    | PipelineEffect.ParseTreeSitter (content, _) ->
+    | TestCycleEffect.ParseTreeSitter (content, _) ->
       content |> Expect.equal "ts content" "code"
     | _ -> failtest "expected ParseTreeSitter"
     match effects.[1] with
-    | PipelineEffect.RequestFcsTypeCheck (fp, _tsElapsed) ->
+    | TestCycleEffect.RequestFcsTypeCheck (fp, _tsElapsed) ->
       fp |> Expect.equal "fcs path" "file.fs"
     | _ -> failtest "expected RequestFcsTypeCheck"
   }
 
   test "fromTick with no payloads produces empty" {
-    let effects = PipelineEffects.fromTick None None "file.fs" None
+    let effects = TestCycleEffects.fromTick None None "file.fs" None
     effects.Length |> Expect.equal "no effects" 0
   }
 
   test "fromTick with only tree-sitter produces one effect" {
-    let effects = PipelineEffects.fromTick (Some "code") None "file.fs" None
+    let effects = TestCycleEffects.fromTick (Some "code") None "file.fs" None
     effects.Length |> Expect.equal "one effect" 1
     match effects.[0] with
-    | PipelineEffect.ParseTreeSitter _ -> ()
+    | TestCycleEffect.ParseTreeSitter _ -> ()
     | _ -> failtest "expected ParseTreeSitter"
   }
 
@@ -629,8 +629,8 @@ let pipelineEffectsTests = testList "PipelineEffects" [
         SymbolToTests = Map.ofList [ "Module.add", [| tc1.Id |] ]
         TransitiveCoverage = Map.ofList [ "Module.add", [| tc1.Id |] ]
     }
-    match PipelineEffects.afterTypeCheck ["Module.add"] "test.fs" RunTrigger.Keystroke graph state None Map.empty with
-    | [ PipelineEffect.RunAffectedTests (tests, trigger, _tsElapsed, _fcsElapsed, _sessionId, _maps) ] ->
+    match TestCycleEffects.afterTypeCheck ["Module.add"] "test.fs" RunTrigger.Keystroke graph state None Map.empty with
+    | [ TestCycleEffect.RunAffectedTests (tests, trigger, _tsElapsed, _fcsElapsed, _sessionId, _maps) ] ->
       tests.Length |> Expect.equal "one test" 1
       trigger |> Expect.equal "keystroke trigger" RunTrigger.Keystroke
     | other -> failtestf "expected single RunAffectedTests, got %A" other
@@ -639,14 +639,14 @@ let pipelineEffectsTests = testList "PipelineEffects" [
   test "afterTypeCheck with no affected tests returns None" {
     let state = { LiveTestState.empty with DiscoveredTests = [||]; Activation = LiveTestingActivation.Active }
     let graph = TestDependencyGraph.empty
-    PipelineEffects.afterTypeCheck ["unknown.symbol"] "test.fs" RunTrigger.Keystroke graph state None Map.empty
+    TestCycleEffects.afterTypeCheck ["unknown.symbol"] "test.fs" RunTrigger.Keystroke graph state None Map.empty
     |> Expect.isEmpty "no affected tests"
   }
 
   test "afterTypeCheck when disabled returns None" {
     let state = { LiveTestState.empty with Activation = LiveTestingActivation.Inactive }
     let graph = TestDependencyGraph.empty
-    PipelineEffects.afterTypeCheck ["Module.add"] "test.fs" RunTrigger.Keystroke graph state None Map.empty
+    TestCycleEffects.afterTypeCheck ["Module.add"] "test.fs" RunTrigger.Keystroke graph state None Map.empty
     |> Expect.isEmpty "disabled"
   }
 
@@ -666,7 +666,7 @@ let pipelineEffectsTests = testList "PipelineEffects" [
       TestDependencyGraph.empty with
         TransitiveCoverage = Map.ofList [ "Module.add", [| tc1.Id |] ]
     }
-    PipelineEffects.afterTypeCheck ["Module.add"] "test.fs" RunTrigger.Keystroke graph state None Map.empty
+    TestCycleEffects.afterTypeCheck ["Module.add"] "test.fs" RunTrigger.Keystroke graph state None Map.empty
     |> Expect.isEmpty "should not produce effect when tests are running"
   }
 
@@ -686,7 +686,7 @@ let pipelineEffectsTests = testList "PipelineEffects" [
       TestDependencyGraph.empty with
         TransitiveCoverage = Map.ofList [ "Module.add", [| tc1.Id |] ]
     }
-    PipelineEffects.afterTypeCheck ["Module.add"] "test.fs" RunTrigger.Keystroke graph state None Map.empty
+    TestCycleEffects.afterTypeCheck ["Module.add"] "test.fs" RunTrigger.Keystroke graph state None Map.empty
     |> Expect.isEmpty "should not produce effect when running-but-edited"
   }
 
@@ -707,8 +707,8 @@ let pipelineEffectsTests = testList "PipelineEffects" [
         SymbolToTests = Map.ofList [ "Module.add", [| tc1.Id; tc2.Id |] ]
         TransitiveCoverage = Map.ofList [ "Module.add", [| tc1.Id; tc2.Id |] ]
     }
-    match PipelineEffects.afterTypeCheck ["Module.add"] "test.fs" RunTrigger.Keystroke graph state None Map.empty with
-    | [ PipelineEffect.RunAffectedTests (tests, _, _, _, _, _) ] ->
+    match TestCycleEffects.afterTypeCheck ["Module.add"] "test.fs" RunTrigger.Keystroke graph state None Map.empty with
+    | [ TestCycleEffect.RunAffectedTests (tests, _, _, _, _, _) ] ->
       tests.Length |> Expect.equal "only unit test" 1
       tests.[0].Id |> Expect.equal "unit test id" tc1.Id
     | other -> failtestf "expected single RunAffectedTests, got %A" other
@@ -757,48 +757,48 @@ let cancellationChainTests = testList "CancellationChain" [
   }
 ]
 
-// --- Phase 4: Pipeline Integration Tests ---
+// --- Phase 4: cycle Integration Tests ---
 
-/// Test-only effect logger for asserting pipeline behavior.
-type EffectLog = { mutable Effects: PipelineEffect list }
+/// Test-only effect logger for asserting cycle behavior.
+type EffectLog = { mutable Effects: TestCycleEffect list }
 
 module EffectDispatcher =
   let create () = { Effects = [] }
 
-  let dispatch (log: EffectLog) (effect: PipelineEffect) =
+  let dispatch (log: EffectLog) (effect: TestCycleEffect) =
     log.Effects <- log.Effects @ [effect]
 
-  let dispatchAll (log: EffectLog) (effects: PipelineEffect list) =
+  let dispatchAll (log: EffectLog) (effects: TestCycleEffect list) =
     effects |> List.iter (dispatch log)
 
   let reset (log: EffectLog) =
     log.Effects <- []
 
 [<Tests>]
-let pipelineStateTests = testList "LiveTestPipelineState" [
+let cycleStateTests = testList "LiveTestCycleState" [
   test "onKeystroke updates debounce and active file" {
     let t0 = DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero)
-    let s = LiveTestPipelineState.empty |> LiveTestPipelineState.onKeystroke "let x = 1" "File.fs" t0
+    let s = LiveTestCycleState.empty |> LiveTestCycleState.onKeystroke "let x = 1" "File.fs" t0
     s.ActiveFile |> Expect.equal "active file set" (Some "File.fs")
     s.Debounce.TreeSitter.Pending |> Expect.isSome "ts channel has pending"
   }
 
   test "onFileSave updates fcs debounce with short delay" {
     let t0 = DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero)
-    let s = LiveTestPipelineState.empty |> LiveTestPipelineState.onFileSave "File.fs" t0
+    let s = LiveTestCycleState.empty |> LiveTestCycleState.onFileSave "File.fs" t0
     s.Debounce.Fcs.Pending |> Expect.isSome "fcs channel has pending"
   }
 
   test "tick with no pending produces no effects" {
     let t0 = DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero)
-    let effects, _ = LiveTestPipelineState.empty |> LiveTestPipelineState.tick t0
+    let effects, _ = LiveTestCycleState.empty |> LiveTestCycleState.tick t0
     effects |> Expect.isEmpty "no effects from empty state"
   }
 
   test "tick with no active file produces no effects even with pending" {
     let t0 = DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero)
     let state = {
-      LiveTestPipelineState.empty with
+      LiveTestCycleState.empty with
         Debounce = {
           TreeSitter = {
             CurrentGeneration = 1L
@@ -812,7 +812,7 @@ let pipelineStateTests = testList "LiveTestPipelineState" [
           }
         }
     }
-    let effects, s2 = state |> LiveTestPipelineState.tick (t0.AddMilliseconds(301.0))
+    let effects, s2 = state |> LiveTestCycleState.tick (t0.AddMilliseconds(301.0))
     effects |> Expect.isEmpty "no effects when no active file"
     s2.ActiveFile |> Expect.isNone "active file still None"
   }
@@ -820,12 +820,12 @@ let pipelineStateTests = testList "LiveTestPipelineState" [
   test "tick after keystroke delay fires tree-sitter parse" {
     let t0 = DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero)
     let t50 = t0.AddMilliseconds(51.0)
-    let s = LiveTestPipelineState.empty |> LiveTestPipelineState.onKeystroke "let x = 1" "File.fs" t0
-    let effects, _ = s |> LiveTestPipelineState.tick t50
+    let s = LiveTestCycleState.empty |> LiveTestCycleState.onKeystroke "let x = 1" "File.fs" t0
+    let effects, _ = s |> LiveTestCycleState.tick t50
     effects
     |> List.exists (fun e ->
       match e with
-      | PipelineEffect.ParseTreeSitter _ -> true
+      | TestCycleEffect.ParseTreeSitter _ -> true
       | _ -> false)
     |> Expect.isTrue "should have tree-sitter parse"
   }
@@ -833,18 +833,18 @@ let pipelineStateTests = testList "LiveTestPipelineState" [
   test "tick after full delay fires both tree-sitter and fcs" {
     let t0 = DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero)
     let t301 = t0.AddMilliseconds(301.0)
-    let s = LiveTestPipelineState.empty |> LiveTestPipelineState.onKeystroke "let x = 1" "File.fs" t0
-    let effects, _ = s |> LiveTestPipelineState.tick t301
+    let s = LiveTestCycleState.empty |> LiveTestCycleState.onKeystroke "let x = 1" "File.fs" t0
+    let effects, _ = s |> LiveTestCycleState.tick t301
     effects
     |> List.exists (fun e ->
       match e with
-      | PipelineEffect.ParseTreeSitter _ -> true
+      | TestCycleEffect.ParseTreeSitter _ -> true
       | _ -> false)
     |> Expect.isTrue "should have tree-sitter"
     effects
     |> List.exists (fun e ->
       match e with
-      | PipelineEffect.RequestFcsTypeCheck _ -> true
+      | TestCycleEffect.RequestFcsTypeCheck _ -> true
       | _ -> false)
     |> Expect.isTrue "should have fcs request"
   }
@@ -859,23 +859,23 @@ let pipelineStateTests = testList "LiveTestPipelineState" [
         TransitiveCoverage = Map.ofList ["mySymbol", [|tc.Id|]]
     }
     let state = {
-      LiveTestPipelineState.empty with
+      LiveTestCycleState.empty with
         DepGraph = depGraph
         ChangedSymbols = ["mySymbol"]
         TestState = { LiveTestState.empty with DiscoveredTests = [|tc|]; Activation = LiveTestingActivation.Active }
     }
-    let s = state |> LiveTestPipelineState.onKeystroke "let x = 1" "File.fs" t0
-    let effects, _ = s |> LiveTestPipelineState.tick t301
+    let s = state |> LiveTestCycleState.onKeystroke "let x = 1" "File.fs" t0
+    let effects, _ = s |> LiveTestCycleState.tick t301
     effects
     |> List.exists (fun e ->
       match e with
-      | PipelineEffect.RunAffectedTests _ -> true
+      | TestCycleEffect.RunAffectedTests _ -> true
       | _ -> false)
     |> Expect.isFalse "tick should not produce RunAffectedTests (stale symbols fix)"
     effects
     |> List.exists (fun e ->
       match e with
-      | PipelineEffect.RequestFcsTypeCheck _ -> true
+      | TestCycleEffect.RequestFcsTypeCheck _ -> true
       | _ -> false)
     |> Expect.isTrue "tick should produce RequestFcsTypeCheck"
   }
@@ -883,12 +883,12 @@ let pipelineStateTests = testList "LiveTestPipelineState" [
   test "file save shortens fcs debounce to 50ms" {
     let t0 = DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero)
     let t51 = t0.AddMilliseconds(51.0)
-    let s = LiveTestPipelineState.empty |> LiveTestPipelineState.onFileSave "File.fs" t0
-    let effects, _ = s |> LiveTestPipelineState.tick t51
+    let s = LiveTestCycleState.empty |> LiveTestCycleState.onFileSave "File.fs" t0
+    let effects, _ = s |> LiveTestCycleState.tick t51
     effects
     |> List.exists (fun e ->
       match e with
-      | PipelineEffect.RequestFcsTypeCheck _ -> true
+      | TestCycleEffect.RequestFcsTypeCheck _ -> true
       | _ -> false)
     |> Expect.isTrue "fcs fires at 50ms on save"
   }
@@ -898,10 +898,10 @@ let pipelineStateTests = testList "LiveTestPipelineState" [
 let effectDispatchTests = testList "EffectDispatcher" [
   test "ParseTreeSitter logs content and file" {
     let log = EffectDispatcher.create()
-    EffectDispatcher.dispatch log (PipelineEffect.ParseTreeSitter("let x = 1", "File.fs"))
+    EffectDispatcher.dispatch log (TestCycleEffect.ParseTreeSitter("let x = 1", "File.fs"))
     log.Effects |> Expect.hasLength "one effect logged" 1
     match log.Effects.[0] with
-    | PipelineEffect.ParseTreeSitter(c, f) ->
+    | TestCycleEffect.ParseTreeSitter(c, f) ->
       c |> Expect.equal "content" "let x = 1"
       f |> Expect.equal "file" "File.fs"
     | _ -> failtest "wrong effect type"
@@ -909,10 +909,10 @@ let effectDispatchTests = testList "EffectDispatcher" [
 
   test "RequestFcsTypeCheck logs file path" {
     let log = EffectDispatcher.create()
-    EffectDispatcher.dispatch log (PipelineEffect.RequestFcsTypeCheck("File.fs", System.TimeSpan.Zero))
+    EffectDispatcher.dispatch log (TestCycleEffect.RequestFcsTypeCheck("File.fs", System.TimeSpan.Zero))
     log.Effects |> Expect.hasLength "one effect" 1
     match log.Effects.[0] with
-    | PipelineEffect.RequestFcsTypeCheck (f, _) -> f |> Expect.equal "file" "File.fs"
+    | TestCycleEffect.RequestFcsTypeCheck (f, _) -> f |> Expect.equal "file" "File.fs"
     | _ -> failtest "wrong effect type"
   }
 
@@ -921,10 +921,10 @@ let effectDispatchTests = testList "EffectDispatcher" [
     let tests = [| { Id = TestId.create "t1" TestFramework.Expecto; FullName = "t1"; DisplayName = "t1"
                      Origin = TestOrigin.ReflectionOnly; Labels = []; Framework = TestFramework.Expecto
                      Category = TestCategory.Unit } |]
-    EffectDispatcher.dispatch log (PipelineEffect.RunAffectedTests(tests, RunTrigger.Keystroke, System.TimeSpan.Zero, System.TimeSpan.Zero, None, [||]))
+    EffectDispatcher.dispatch log (TestCycleEffect.RunAffectedTests(tests, RunTrigger.Keystroke, System.TimeSpan.Zero, System.TimeSpan.Zero, None, [||]))
     log.Effects |> Expect.hasLength "one effect" 1
     match log.Effects.[0] with
-    | PipelineEffect.RunAffectedTests(tcs, trigger, _, _, _, _) ->
+    | TestCycleEffect.RunAffectedTests(tcs, trigger, _, _, _, _) ->
       tcs |> Expect.hasLength "one test" 1
       trigger |> Expect.equal "trigger" RunTrigger.Keystroke
     | _ -> failtest "wrong effect type"
@@ -933,8 +933,8 @@ let effectDispatchTests = testList "EffectDispatcher" [
   test "dispatchAll processes multiple effects" {
     let log = EffectDispatcher.create()
     let effects = [
-      PipelineEffect.ParseTreeSitter("x", "f")
-      PipelineEffect.RequestFcsTypeCheck("f", System.TimeSpan.Zero)
+      TestCycleEffect.ParseTreeSitter("x", "f")
+      TestCycleEffect.RequestFcsTypeCheck("f", System.TimeSpan.Zero)
     ]
     EffectDispatcher.dispatchAll log effects
     log.Effects |> Expect.hasLength "two effects" 2
@@ -942,44 +942,44 @@ let effectDispatchTests = testList "EffectDispatcher" [
 ]
 
 [<Tests>]
-let endToEndPipelineTests = testList "End-to-end Pipeline" [
+let endToEndCycleTests = testList "End-to-end cycle" [
   test "keystroke → debounce → tree-sitter fires at 50ms" {
     let t0 = DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero)
     let log = EffectDispatcher.create()
-    let s0 = LiveTestPipelineState.empty |> LiveTestPipelineState.onKeystroke "let x = 1" "File.fs" t0
+    let s0 = LiveTestCycleState.empty |> LiveTestCycleState.onKeystroke "let x = 1" "File.fs" t0
     // at 30ms — nothing fires
-    let effects30, s30 = s0 |> LiveTestPipelineState.tick (t0.AddMilliseconds(30.0))
+    let effects30, s30 = s0 |> LiveTestCycleState.tick (t0.AddMilliseconds(30.0))
     EffectDispatcher.dispatchAll log effects30
     log.Effects |> Expect.isEmpty "nothing at 30ms"
     // at 51ms — tree-sitter fires
-    let effects51, _ = s30 |> LiveTestPipelineState.tick (t0.AddMilliseconds(51.0))
+    let effects51, _ = s30 |> LiveTestCycleState.tick (t0.AddMilliseconds(51.0))
     EffectDispatcher.dispatchAll log effects51
     log.Effects
-    |> List.exists (fun e -> match e with PipelineEffect.ParseTreeSitter _ -> true | _ -> false)
+    |> List.exists (fun e -> match e with TestCycleEffect.ParseTreeSitter _ -> true | _ -> false)
     |> Expect.isTrue "tree-sitter fired at 51ms"
   }
 
   test "burst typing resets debounce" {
     let t0 = DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero)
     let log = EffectDispatcher.create()
-    let s0 = LiveTestPipelineState.empty
-             |> LiveTestPipelineState.onKeystroke "l" "F.fs" t0
-             |> LiveTestPipelineState.onKeystroke "le" "F.fs" (t0.AddMilliseconds(20.0))
-             |> LiveTestPipelineState.onKeystroke "let" "F.fs" (t0.AddMilliseconds(40.0))
+    let s0 = LiveTestCycleState.empty
+             |> LiveTestCycleState.onKeystroke "l" "F.fs" t0
+             |> LiveTestCycleState.onKeystroke "le" "F.fs" (t0.AddMilliseconds(20.0))
+             |> LiveTestCycleState.onKeystroke "let" "F.fs" (t0.AddMilliseconds(40.0))
     // at 60ms from first keystroke — only 20ms from last, shouldn't fire
-    let effects60, _ = s0 |> LiveTestPipelineState.tick (t0.AddMilliseconds(60.0))
+    let effects60, _ = s0 |> LiveTestCycleState.tick (t0.AddMilliseconds(60.0))
     EffectDispatcher.dispatchAll log effects60
     log.Effects |> Expect.isEmpty "burst resets debounce"
     // at 91ms from first (51ms from last) — fires
     EffectDispatcher.reset log
-    let effects91, _ = s0 |> LiveTestPipelineState.tick (t0.AddMilliseconds(91.0))
+    let effects91, _ = s0 |> LiveTestCycleState.tick (t0.AddMilliseconds(91.0))
     EffectDispatcher.dispatchAll log effects91
     log.Effects
-    |> List.exists (fun e -> match e with PipelineEffect.ParseTreeSitter _ -> true | _ -> false)
+    |> List.exists (fun e -> match e with TestCycleEffect.ParseTreeSitter _ -> true | _ -> false)
     |> Expect.isTrue "fires 50ms after last keystroke"
   }
 
-  test "full pipeline: keystroke → TS → FCS → afterTypeCheck → run affected" {
+  test "full cycle: keystroke → TS → FCS → afterTypeCheck → run affected" {
     let t0 = DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero)
     let tc = mkTestCase "M.affectedTest" TestFramework.Expecto TestCategory.Unit
     let depGraph = {
@@ -988,25 +988,25 @@ let endToEndPipelineTests = testList "End-to-end Pipeline" [
         TransitiveCoverage = Map.ofList ["changedFn", [|tc.Id|]]
     }
     let state = {
-      LiveTestPipelineState.empty with
+      LiveTestCycleState.empty with
         DepGraph = depGraph
         ChangedSymbols = ["changedFn"]
         TestState = { LiveTestState.empty with DiscoveredTests = [|tc|]; Activation = LiveTestingActivation.Active }
     }
-    let s = state |> LiveTestPipelineState.onKeystroke "let x = 1" "File.fs" t0
+    let s = state |> LiveTestCycleState.onKeystroke "let x = 1" "File.fs" t0
     // Phase 1: tick fires TS + FCS
-    let effects, s2 = s |> LiveTestPipelineState.tick (t0.AddMilliseconds(301.0))
+    let effects, s2 = s |> LiveTestCycleState.tick (t0.AddMilliseconds(301.0))
     effects
-    |> List.exists (fun e -> match e with PipelineEffect.ParseTreeSitter _ -> true | _ -> false)
+    |> List.exists (fun e -> match e with TestCycleEffect.ParseTreeSitter _ -> true | _ -> false)
     |> Expect.isTrue "has tree-sitter"
     effects
-    |> List.exists (fun e -> match e with PipelineEffect.RequestFcsTypeCheck _ -> true | _ -> false)
+    |> List.exists (fun e -> match e with TestCycleEffect.RequestFcsTypeCheck _ -> true | _ -> false)
     |> Expect.isTrue "has fcs"
     // Phase 2: afterTypeCheck (after FCS completes) fires RunAffectedTests
-    let runEffects = PipelineEffects.afterTypeCheck s2.ChangedSymbols "test.fs" RunTrigger.Keystroke s2.DepGraph s2.TestState None s2.InstrumentationMaps
+    let runEffects = TestCycleEffects.afterTypeCheck s2.ChangedSymbols "test.fs" RunTrigger.Keystroke s2.DepGraph s2.TestState None s2.InstrumentationMaps
     runEffects |> List.isEmpty |> Expect.isFalse "afterTypeCheck produces RunAffectedTests"
     match runEffects with
-    | [ PipelineEffect.RunAffectedTests (tests, trigger, _, _, _, _) ] ->
+    | [ TestCycleEffect.RunAffectedTests (tests, trigger, _, _, _, _) ] ->
       tests |> Array.length |> Expect.equal "one affected test" 1
       trigger |> Expect.equal "trigger is keystroke" RunTrigger.Keystroke
     | _ -> failwith "expected single RunAffectedTests"
@@ -1021,16 +1021,16 @@ let endToEndPipelineTests = testList "End-to-end Pipeline" [
         TransitiveCoverage = Map.ofList ["sym", [|tc.Id|]]
     }
     let state = {
-      LiveTestPipelineState.empty with
+      LiveTestCycleState.empty with
         DepGraph = depGraph
         ChangedSymbols = ["sym"]
         TestState = { LiveTestState.empty with DiscoveredTests = [|tc|]; Activation = LiveTestingActivation.Inactive }
     }
-    let s = state |> LiveTestPipelineState.onKeystroke "let x = 1" "File.fs" t0
-    let effects, _ = s |> LiveTestPipelineState.tick (t0.AddMilliseconds(301.0))
+    let s = state |> LiveTestCycleState.onKeystroke "let x = 1" "File.fs" t0
+    let effects, _ = s |> LiveTestCycleState.tick (t0.AddMilliseconds(301.0))
     // TS and FCS fire (debounce doesn't check enabled), but RunAffected should not
     effects
-    |> List.exists (fun e -> match e with PipelineEffect.RunAffectedTests _ -> true | _ -> false)
+    |> List.exists (fun e -> match e with TestCycleEffect.RunAffectedTests _ -> true | _ -> false)
     |> Expect.isFalse "no test run when disabled"
   }
 
@@ -1043,64 +1043,64 @@ let endToEndPipelineTests = testList "End-to-end Pipeline" [
         TransitiveCoverage = Map.ofList ["sym", [|tc.Id|]]
     }
     let state = {
-      LiveTestPipelineState.empty with
+      LiveTestCycleState.empty with
         DepGraph = depGraph
         ChangedSymbols = ["sym"]
         TestState = { LiveTestState.empty with DiscoveredTests = [|tc|]; Activation = LiveTestingActivation.Active }
     }
-    let s = state |> LiveTestPipelineState.onKeystroke "let x = 1" "File.fs" t0
-    let effects, _ = s |> LiveTestPipelineState.tick (t0.AddMilliseconds(301.0))
+    let s = state |> LiveTestCycleState.onKeystroke "let x = 1" "File.fs" t0
+    let effects, _ = s |> LiveTestCycleState.tick (t0.AddMilliseconds(301.0))
     effects
-    |> List.exists (fun e -> match e with PipelineEffect.RunAffectedTests _ -> true | _ -> false)
+    |> List.exists (fun e -> match e with TestCycleEffect.RunAffectedTests _ -> true | _ -> false)
     |> Expect.isFalse "integration tests filtered out on keystroke"
   }
 ]
 
 [<Tests>]
-let pipelineCancellationTests = testList "PipelineCancellation" [
+let TestCycleCancellationTests = testList "TestCycleCancellation" [
   test "tokenForEffect returns live tokens" {
-    let pc = PipelineCancellation.create()
-    let t1 = PipelineCancellation.tokenForEffect (PipelineEffect.ParseTreeSitter("x", "f")) pc
-    let t2 = PipelineCancellation.tokenForEffect (PipelineEffect.RequestFcsTypeCheck("f", System.TimeSpan.Zero)) pc
-    let t3 = PipelineCancellation.tokenForEffect (PipelineEffect.RunAffectedTests([||], RunTrigger.Keystroke, System.TimeSpan.Zero, System.TimeSpan.Zero, None, [||])) pc
+    let pc = TestCycleCancellation.create()
+    let t1 = TestCycleCancellation.tokenForEffect (TestCycleEffect.ParseTreeSitter("x", "f")) pc
+    let t2 = TestCycleCancellation.tokenForEffect (TestCycleEffect.RequestFcsTypeCheck("f", System.TimeSpan.Zero)) pc
+    let t3 = TestCycleCancellation.tokenForEffect (TestCycleEffect.RunAffectedTests([||], RunTrigger.Keystroke, System.TimeSpan.Zero, System.TimeSpan.Zero, None, [||])) pc
     t1.IsCancellationRequested |> Expect.isFalse "ts token live"
     t2.IsCancellationRequested |> Expect.isFalse "fcs token live"
     t3.IsCancellationRequested |> Expect.isFalse "run token live"
-    PipelineCancellation.dispose pc
+    TestCycleCancellation.dispose pc
   }
 
   test "new tree-sitter effect cancels previous tree-sitter" {
-    let pc = PipelineCancellation.create()
-    let t1 = PipelineCancellation.tokenForEffect (PipelineEffect.ParseTreeSitter("a", "f")) pc
-    let _t2 = PipelineCancellation.tokenForEffect (PipelineEffect.ParseTreeSitter("b", "f")) pc
+    let pc = TestCycleCancellation.create()
+    let t1 = TestCycleCancellation.tokenForEffect (TestCycleEffect.ParseTreeSitter("a", "f")) pc
+    let _t2 = TestCycleCancellation.tokenForEffect (TestCycleEffect.ParseTreeSitter("b", "f")) pc
     t1.IsCancellationRequested |> Expect.isTrue "first ts cancelled"
-    PipelineCancellation.dispose pc
+    TestCycleCancellation.dispose pc
   }
 
   test "new fcs effect cancels previous fcs but not tree-sitter" {
-    let pc = PipelineCancellation.create()
-    let tsToken = PipelineCancellation.tokenForEffect (PipelineEffect.ParseTreeSitter("x", "f")) pc
-    let fcs1 = PipelineCancellation.tokenForEffect (PipelineEffect.RequestFcsTypeCheck("f", System.TimeSpan.Zero)) pc
-    let _fcs2 = PipelineCancellation.tokenForEffect (PipelineEffect.RequestFcsTypeCheck("f", System.TimeSpan.Zero)) pc
+    let pc = TestCycleCancellation.create()
+    let tsToken = TestCycleCancellation.tokenForEffect (TestCycleEffect.ParseTreeSitter("x", "f")) pc
+    let fcs1 = TestCycleCancellation.tokenForEffect (TestCycleEffect.RequestFcsTypeCheck("f", System.TimeSpan.Zero)) pc
+    let _fcs2 = TestCycleCancellation.tokenForEffect (TestCycleEffect.RequestFcsTypeCheck("f", System.TimeSpan.Zero)) pc
     fcs1.IsCancellationRequested |> Expect.isTrue "first fcs cancelled"
     tsToken.IsCancellationRequested |> Expect.isFalse "ts not affected"
-    PipelineCancellation.dispose pc
+    TestCycleCancellation.dispose pc
   }
 
   test "new test run cancels previous test run" {
-    let pc = PipelineCancellation.create()
-    let run1 = PipelineCancellation.tokenForEffect (PipelineEffect.RunAffectedTests([||], RunTrigger.Keystroke, System.TimeSpan.Zero, System.TimeSpan.Zero, None, [||])) pc
-    let _run2 = PipelineCancellation.tokenForEffect (PipelineEffect.RunAffectedTests([||], RunTrigger.Keystroke, System.TimeSpan.Zero, System.TimeSpan.Zero, None, [||])) pc
+    let pc = TestCycleCancellation.create()
+    let run1 = TestCycleCancellation.tokenForEffect (TestCycleEffect.RunAffectedTests([||], RunTrigger.Keystroke, System.TimeSpan.Zero, System.TimeSpan.Zero, None, [||])) pc
+    let _run2 = TestCycleCancellation.tokenForEffect (TestCycleEffect.RunAffectedTests([||], RunTrigger.Keystroke, System.TimeSpan.Zero, System.TimeSpan.Zero, None, [||])) pc
     run1.IsCancellationRequested |> Expect.isTrue "first run cancelled"
-    PipelineCancellation.dispose pc
+    TestCycleCancellation.dispose pc
   }
 
   test "dispose cancels all active tokens" {
-    let pc = PipelineCancellation.create()
-    let ts = PipelineCancellation.tokenForEffect (PipelineEffect.ParseTreeSitter("x", "f")) pc
-    let fcs = PipelineCancellation.tokenForEffect (PipelineEffect.RequestFcsTypeCheck("f", System.TimeSpan.Zero)) pc
-    let run = PipelineCancellation.tokenForEffect (PipelineEffect.RunAffectedTests([||], RunTrigger.Keystroke, System.TimeSpan.Zero, System.TimeSpan.Zero, None, [||])) pc
-    PipelineCancellation.dispose pc
+    let pc = TestCycleCancellation.create()
+    let ts = TestCycleCancellation.tokenForEffect (TestCycleEffect.ParseTreeSitter("x", "f")) pc
+    let fcs = TestCycleCancellation.tokenForEffect (TestCycleEffect.RequestFcsTypeCheck("f", System.TimeSpan.Zero)) pc
+    let run = TestCycleCancellation.tokenForEffect (TestCycleEffect.RunAffectedTests([||], RunTrigger.Keystroke, System.TimeSpan.Zero, System.TimeSpan.Zero, None, [||])) pc
+    TestCycleCancellation.dispose pc
     ts.IsCancellationRequested |> Expect.isTrue "ts cancelled"
     fcs.IsCancellationRequested |> Expect.isTrue "fcs cancelled"
     run.IsCancellationRequested |> Expect.isTrue "run cancelled"
@@ -1186,14 +1186,14 @@ let adaptiveDebounceTests = testList "AdaptiveDebounce" [
 ]
 
 [<Tests>]
-let pipelineTimingDispatchTests = testList "pipeline timing dispatch" [
-  test "PipelineTimingRecorded stores LastTiming in model" {
+let TestCycleTimingDispatchTests = testList "cycle timing dispatch" [
+  test "TestCycleTimingRecorded stores LastTiming in model" {
     let model0 = SageFsModel.initial
     model0.LiveTesting.LastTiming
     |> Expect.isNone "initial model should have no timing"
 
     let timing = {
-      Depth = PipelineDepth.ThroughExecution (
+      Depth = TestCycleDepth.ThroughExecution (
         System.TimeSpan.FromMilliseconds 1.2,
         System.TimeSpan.FromMilliseconds 85.0,
         System.TimeSpan.FromMilliseconds 42.0)
@@ -1203,19 +1203,19 @@ let pipelineTimingDispatchTests = testList "pipeline timing dispatch" [
       Timestamp = System.DateTimeOffset.UtcNow
     }
 
-    let msg = SageFsMsg.Event (SageFsEvent.PipelineTimingRecorded timing)
+    let msg = SageFsMsg.Event (SageFsEvent.TestCycleTimingRecorded timing)
     let model1, effects = SageFsUpdate.update msg model0
 
     model1.LiveTesting.LastTiming
     |> Expect.isSome "after dispatch, model should have timing"
 
     effects
-    |> Expect.isEmpty "PipelineTimingRecorded should produce no effects"
+    |> Expect.isEmpty "TestCycleTimingRecorded should produce no effects"
   }
 
-  test "PipelineTiming.toStatusBar formats correctly for ThroughExecution" {
+  test "TestCycleTiming.toStatusBar formats correctly for ThroughExecution" {
     let timing = {
-      Depth = PipelineDepth.ThroughExecution (
+      Depth = TestCycleDepth.ThroughExecution (
         System.TimeSpan.FromMilliseconds 1.2,
         System.TimeSpan.FromMilliseconds 85.0,
         System.TimeSpan.FromMilliseconds 42.0)
@@ -1224,25 +1224,25 @@ let pipelineTimingDispatchTests = testList "pipeline timing dispatch" [
       Trigger = RunTrigger.Keystroke
       Timestamp = System.DateTimeOffset.UtcNow
     }
-    PipelineTiming.toStatusBar timing
+    TestCycleTiming.toStatusBar timing
     |> Expect.equal "should format all three stages" "TS:1.2ms | FCS:85ms | Run:42ms (3)"
   }
 
-  test "PipelineTiming.toStatusBar formats TreeSitterOnly" {
+  test "TestCycleTiming.toStatusBar formats TreeSitterOnly" {
     let timing = {
-      Depth = PipelineDepth.TreeSitterOnly (System.TimeSpan.FromMilliseconds 0.8)
+      Depth = TestCycleDepth.TreeSitterOnly (System.TimeSpan.FromMilliseconds 0.8)
       TotalTests = 5
       AffectedTests = 0
       Trigger = RunTrigger.Keystroke
       Timestamp = System.DateTimeOffset.UtcNow
     }
-    PipelineTiming.toStatusBar timing
+    TestCycleTiming.toStatusBar timing
     |> Expect.equal "should only show tree-sitter" "TS:0.8ms"
   }
 
-  test "PipelineTiming.toStatusBar formats ThroughFcs" {
+  test "TestCycleTiming.toStatusBar formats ThroughFcs" {
     let timing = {
-      Depth = PipelineDepth.ThroughFcs (
+      Depth = TestCycleDepth.ThroughFcs (
         System.TimeSpan.FromMilliseconds 1.5,
         System.TimeSpan.FromMilliseconds 142.0)
       TotalTests = 20
@@ -1250,20 +1250,20 @@ let pipelineTimingDispatchTests = testList "pipeline timing dispatch" [
       Trigger = RunTrigger.FileSave
       Timestamp = System.DateTimeOffset.UtcNow
     }
-    PipelineTiming.toStatusBar timing
+    TestCycleTiming.toStatusBar timing
     |> Expect.equal "should show tree-sitter and FCS" "TS:1.5ms | FCS:142ms"
   }
 
   test "new timing replaces old timing" {
     let timing1 = {
-      Depth = PipelineDepth.TreeSitterOnly (System.TimeSpan.FromMilliseconds 0.5)
+      Depth = TestCycleDepth.TreeSitterOnly (System.TimeSpan.FromMilliseconds 0.5)
       TotalTests = 5
       AffectedTests = 0
       Trigger = RunTrigger.Keystroke
       Timestamp = System.DateTimeOffset.UtcNow
     }
     let timing2 = {
-      Depth = PipelineDepth.ThroughExecution (
+      Depth = TestCycleDepth.ThroughExecution (
         System.TimeSpan.FromMilliseconds 1.0,
         System.TimeSpan.FromMilliseconds 100.0,
         System.TimeSpan.FromMilliseconds 50.0)
@@ -1274,8 +1274,8 @@ let pipelineTimingDispatchTests = testList "pipeline timing dispatch" [
     }
 
     let model0 = SageFsModel.initial
-    let model1, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.PipelineTimingRecorded timing1)) model0
-    let model2, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.PipelineTimingRecorded timing2)) model1
+    let model1, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.TestCycleTimingRecorded timing1)) model0
+    let model2, _ = SageFsUpdate.update (SageFsMsg.Event (SageFsEvent.TestCycleTimingRecorded timing2)) model1
 
     match model2.LiveTesting.LastTiming with
     | Some t ->
@@ -1291,14 +1291,14 @@ let pipelineTimingDispatchTests = testList "pipeline timing dispatch" [
 let liveTestingStatusBarTests = testList "liveTestingStatusBar" [
 
   test "returns empty string when no timing and no tests" {
-    let state = LiveTestPipelineState.empty
-    LiveTestPipelineState.liveTestingStatusBar state
+    let state = LiveTestCycleState.empty
+    LiveTestCycleState.liveTestingStatusBar state
     |> Expect.equal "should be empty" ""
   }
 
   test "returns timing only when tests are empty" {
     let timing = {
-      Depth = PipelineDepth.ThroughExecution (
+      Depth = TestCycleDepth.ThroughExecution (
         TimeSpan.FromMilliseconds 1.0,
         TimeSpan.FromMilliseconds 50.0,
         TimeSpan.FromMilliseconds 30.0)
@@ -1307,8 +1307,8 @@ let liveTestingStatusBarTests = testList "liveTestingStatusBar" [
       Trigger = RunTrigger.FileSave
       Timestamp = DateTimeOffset.UtcNow
     }
-    let state = { LiveTestPipelineState.empty with LastTiming = Some timing }
-    let result = LiveTestPipelineState.liveTestingStatusBar state
+    let state = { LiveTestCycleState.empty with LastTiming = Some timing }
+    let result = LiveTestCycleState.liveTestingStatusBar state
     result |> Expect.isNotEmpty "should have timing text"
     result |> Expect.stringContains "should contain TS" "TS:"
   }
@@ -1326,16 +1326,16 @@ let liveTestingStatusBarTests = testList "liveTestingStatusBar" [
       Status = TestRunStatus.Passed (TimeSpan.FromMilliseconds 10.0)
       PreviousStatus = TestRunStatus.Detected
     }
-    let testState = { LiveTestPipelineState.empty.TestState with StatusEntries = [| entry |] }
-    let state = { LiveTestPipelineState.empty with TestState = testState }
-    let result = LiveTestPipelineState.liveTestingStatusBar state
+    let testState = { LiveTestCycleState.empty.TestState with StatusEntries = [| entry |] }
+    let state = { LiveTestCycleState.empty with TestState = testState }
+    let result = LiveTestCycleState.liveTestingStatusBar state
     result |> Expect.isNotEmpty "should have tests text"
     result |> Expect.stringContains "should contain pass count" "1"
   }
 
   test "returns combined timing and tests" {
     let timing = {
-      Depth = PipelineDepth.ThroughExecution (
+      Depth = TestCycleDepth.ThroughExecution (
         TimeSpan.FromMilliseconds 1.0,
         TimeSpan.FromMilliseconds 50.0,
         TimeSpan.FromMilliseconds 30.0)
@@ -1356,17 +1356,17 @@ let liveTestingStatusBarTests = testList "liveTestingStatusBar" [
       Status = TestRunStatus.Passed (TimeSpan.FromMilliseconds 10.0)
       PreviousStatus = TestRunStatus.Detected
     }
-    let testState = { LiveTestPipelineState.empty.TestState with StatusEntries = [| entry |] }
-    let state = { LiveTestPipelineState.empty with LastTiming = Some timing; TestState = testState }
-    let result = LiveTestPipelineState.liveTestingStatusBar state
+    let testState = { LiveTestCycleState.empty.TestState with StatusEntries = [| entry |] }
+    let state = { LiveTestCycleState.empty with LastTiming = Some timing; TestState = testState }
+    let result = LiveTestCycleState.liveTestingStatusBar state
     result |> Expect.stringContains "should contain TS" "TS:"
     result |> Expect.stringContains "should contain pipe separator" " | "
   }
 ]
 
 [<Tests>]
-let pipelineBenchmarkTests = testList "Pipeline Core Benchmark" [
-  test "200-test pipeline core completes under 5ms p95" {
+let cycleBenchmarkTests = testList "cycle Core Benchmark" [
+  test "200-test cycle core completes under 5ms p95" {
     let sw = System.Diagnostics.Stopwatch()
     let makeTestCase i =
       { Id = TestId.create (sprintf "Module.Tests.test%d" i) TestFramework.Expecto
@@ -1393,7 +1393,7 @@ let pipelineBenchmarkTests = testList "Pipeline Core Benchmark" [
 
     let timings = Array.init 100 (fun _ ->
       sw.Restart()
-      let _ = PipelineOrchestrator.decide stateWithEntries RunTrigger.Keystroke ["Module.func1"] graph
+      let _ = TestCycleOrchestrator.decide stateWithEntries RunTrigger.Keystroke ["Module.func1"] graph
       let _ = TestDependencyGraph.findAffected ["Module.func1"] graph
       let _ = LiveTesting.filterByPolicy RunPolicyDefaults.defaults RunTrigger.Keystroke tests
       let _ = LiveTesting.computeStatusEntries stateWithEntries
@@ -1406,7 +1406,7 @@ let pipelineBenchmarkTests = testList "Pipeline Core Benchmark" [
     (p95, 5.0) |> Expect.isLessThan "p95 under 5ms"
   }
 
-  test "1000-test pipeline core completes under 20ms p95" {
+  test "1000-test cycle core completes under 20ms p95" {
     let sw = System.Diagnostics.Stopwatch()
     let makeTestCase i =
       { Id = TestId.create (sprintf "M.T.t%d" i) TestFramework.Expecto
@@ -1433,7 +1433,7 @@ let pipelineBenchmarkTests = testList "Pipeline Core Benchmark" [
 
     let timings = Array.init 50 (fun _ ->
       sw.Restart()
-      let _ = PipelineOrchestrator.decide stateWithEntries RunTrigger.Keystroke ["func1"] graph
+      let _ = TestCycleOrchestrator.decide stateWithEntries RunTrigger.Keystroke ["func1"] graph
       let _ = TestDependencyGraph.findAffected ["func1"] graph
       let _ = LiveTesting.filterByPolicy RunPolicyDefaults.defaults RunTrigger.Keystroke tests
       let _ = LiveTesting.computeStatusEntries stateWithEntries
@@ -1447,10 +1447,10 @@ let pipelineBenchmarkTests = testList "Pipeline Core Benchmark" [
   }
 ]
 
-// --- E2E Pipeline Flow Tests ---
+// --- E2E cycle Flow Tests ---
 
 [<Tests>]
-let e2ePipelineFlowTests = testList "E2E Pipeline Flow" [
+let e2eCycleFlowTests = testList "E2E cycle Flow" [
   test "file change through to test status update" {
     let sessionId = "test-session"
     let tid = TestId.TestId "MyModule.myTest should work"

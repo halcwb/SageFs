@@ -2,7 +2,7 @@ namespace SageFs.Features.LiveTesting
 
 open System.Diagnostics
 
-/// OTEL instrumentation for the live testing pipeline.
+/// OTEL instrumentation for the live testing cycle.
 /// ActivitySource + Meter are BCL types (System.Diagnostics).
 /// When no collector is attached, StartActivity returns null (~50ns).
 /// Histograms no-op when no listener is registered.

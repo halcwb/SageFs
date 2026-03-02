@@ -171,28 +171,28 @@ export function parseResultsBatch(data) {
 }
 
 export class LiveTestingCallbacks extends Record {
-    constructor(OnStateChange, OnSummaryUpdate, OnStatusRefresh, OnBindingsUpdate, OnPipelineTraceUpdate, OnFeatureEvent) {
+    constructor(OnStateChange, OnSummaryUpdate, OnStatusRefresh, OnBindingsUpdate, OnTestTraceUpdate, OnFeatureEvent) {
         super();
         this.OnStateChange = OnStateChange;
         this.OnSummaryUpdate = OnSummaryUpdate;
         this.OnStatusRefresh = OnStatusRefresh;
         this.OnBindingsUpdate = OnBindingsUpdate;
-        this.OnPipelineTraceUpdate = OnPipelineTraceUpdate;
+        this.OnTestTraceUpdate = OnTestTraceUpdate;
         this.OnFeatureEvent = OnFeatureEvent;
     }
 }
 
 export function LiveTestingCallbacks_$reflection() {
-    return record_type("SageFs.Vscode.LiveTestingListener.LiveTestingCallbacks", [], LiveTestingCallbacks, () => [["OnStateChange", lambda_type(list_type(VscStateChange_$reflection()), unit_type)], ["OnSummaryUpdate", lambda_type(VscTestSummary_$reflection(), unit_type)], ["OnStatusRefresh", lambda_type(unit_type, unit_type)], ["OnBindingsUpdate", lambda_type(array_type(obj_type), unit_type)], ["OnPipelineTraceUpdate", lambda_type(obj_type, unit_type)], ["OnFeatureEvent", option_type(FeatureCallbacks_$reflection())]]);
+    return record_type("SageFs.Vscode.LiveTestingListener.LiveTestingCallbacks", [], LiveTestingCallbacks, () => [["OnStateChange", lambda_type(list_type(VscStateChange_$reflection()), unit_type)], ["OnSummaryUpdate", lambda_type(VscTestSummary_$reflection(), unit_type)], ["OnStatusRefresh", lambda_type(unit_type, unit_type)], ["OnBindingsUpdate", lambda_type(array_type(obj_type), unit_type)], ["OnTestTraceUpdate", lambda_type(obj_type, unit_type)], ["OnFeatureEvent", option_type(FeatureCallbacks_$reflection())]]);
 }
 
 export class LiveTestingListener extends Record {
-    constructor(State, Summary, Bindings, PipelineTrace, EvalDiff, CellGraph, BindingScope, Timeline, Dispose) {
+    constructor(State, Summary, Bindings, TestTrace, EvalDiff, CellGraph, BindingScope, Timeline, Dispose) {
         super();
         this.State = State;
         this.Summary = Summary;
         this.Bindings = Bindings;
-        this.PipelineTrace = PipelineTrace;
+        this.TestTrace = TestTrace;
         this.EvalDiff = EvalDiff;
         this.CellGraph = CellGraph;
         this.BindingScope = BindingScope;
@@ -202,13 +202,13 @@ export class LiveTestingListener extends Record {
 }
 
 export function LiveTestingListener_$reflection() {
-    return record_type("SageFs.Vscode.LiveTestingListener.LiveTestingListener", [], LiveTestingListener, () => [["State", lambda_type(unit_type, VscLiveTestState_$reflection())], ["Summary", lambda_type(unit_type, VscTestSummary_$reflection())], ["Bindings", lambda_type(unit_type, array_type(obj_type))], ["PipelineTrace", lambda_type(unit_type, option_type(obj_type))], ["EvalDiff", lambda_type(unit_type, option_type(VscEvalDiff_$reflection()))], ["CellGraph", lambda_type(unit_type, option_type(VscCellGraph_$reflection()))], ["BindingScope", lambda_type(unit_type, option_type(VscBindingScopeSnapshot_$reflection()))], ["Timeline", lambda_type(unit_type, option_type(VscTimelineStats_$reflection()))], ["Dispose", lambda_type(unit_type, unit_type)]]);
+    return record_type("SageFs.Vscode.LiveTestingListener.LiveTestingListener", [], LiveTestingListener, () => [["State", lambda_type(unit_type, VscLiveTestState_$reflection())], ["Summary", lambda_type(unit_type, VscTestSummary_$reflection())], ["Bindings", lambda_type(unit_type, array_type(obj_type))], ["TestTrace", lambda_type(unit_type, option_type(obj_type))], ["EvalDiff", lambda_type(unit_type, option_type(VscEvalDiff_$reflection()))], ["CellGraph", lambda_type(unit_type, option_type(VscCellGraph_$reflection()))], ["BindingScope", lambda_type(unit_type, option_type(VscBindingScopeSnapshot_$reflection()))], ["Timeline", lambda_type(unit_type, option_type(VscTimelineStats_$reflection()))], ["Dispose", lambda_type(unit_type, unit_type)]]);
 }
 
 export function start(port, callbacks) {
     let state = VscLiveTestStateModule_empty;
     let bindings = [];
-    let pipelineTrace = undefined;
+    let TestTrace = undefined;
     let evalDiff = undefined;
     let cellGraph = undefined;
     let bindingScope = undefined;
@@ -262,9 +262,9 @@ export function start(port, callbacks) {
                     }, toArray(fieldArray("Bindings", data)));
                     break;
                 }
-                case "pipeline_trace": {
-                    pipelineTrace = some(data);
-                    callbacks.OnPipelineTraceUpdate(data);
+                case "test_trace": {
+                    TestTrace = some(data);
+                    callbacks.OnTestTraceUpdate(data);
                     break;
                 }
                 case "eval_diff":
@@ -291,7 +291,7 @@ export function start(port, callbacks) {
             }
         });
     });
-    return new LiveTestingListener(() => state, () => VscLiveTestStateModule_summary(state), () => bindings, () => pipelineTrace, () => evalDiff, () => cellGraph, () => bindingScope, () => timeline, () => {
+    return new LiveTestingListener(() => state, () => VscLiveTestStateModule_summary(state), () => bindings, () => TestTrace, () => evalDiff, () => cellGraph, () => bindingScope, () => timeline, () => {
         disposable.dispose();
     });
 }

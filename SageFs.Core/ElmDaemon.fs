@@ -38,7 +38,7 @@ let createEffectDeps
       async { return SessionManager.QuerySnapshot.allSessions (readSnapshot()) }
     GetStreamingTestProxy = fun _sessionId -> None
     GetWarmupContext = None
-    PipelineCancellation = Features.LiveTesting.PipelineCancellation.create ()
+    TestCycleCancellation = Features.LiveTesting.TestCycleCancellation.create ()
   }
 
 /// Create an ElmProgram wired to real SageFs components.

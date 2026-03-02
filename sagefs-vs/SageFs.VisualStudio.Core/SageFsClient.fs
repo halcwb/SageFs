@@ -625,12 +625,12 @@ type SageFsClient() =
     with _ -> return false
   }
 
-  /// Get the live testing pipeline trace.
-  member this.GetPipelineTraceAsync(ct: CancellationToken) = task {
+  /// Get the live testing test trace.
+  member this.GetTestTraceAsync(ct: CancellationToken) = task {
     try
       let! body =
         http.GetStringAsync(
-          sprintf "%s/api/live-testing/pipeline-trace" this.BaseUrl, ct)
+          sprintf "%s/api/live-testing/test-trace" this.BaseUrl, ct)
       return Some body
     with _ -> return None
   }

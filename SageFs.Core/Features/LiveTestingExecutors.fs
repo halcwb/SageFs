@@ -731,14 +731,14 @@ type CancellationChain() =
   interface IDisposable with
     member this.Dispose() = this.dispose()
 
-/// Manages cancellation tokens for each pipeline stage.
-type PipelineCancellation = {
+/// Manages cancellation tokens for each test cycle stage.
+type TestCycleCancellation = {
   TreeSitter: CancellationChain
   Fcs: CancellationChain
   TestRun: CancellationChain
 }
 
-module PipelineCancellation =
+module TestCycleCancellation =
   let create () = {
     TreeSitter = new CancellationChain()
     Fcs = new CancellationChain()
@@ -746,13 +746,13 @@ module PipelineCancellation =
   }
 
   /// Cancel previous work and get a fresh token for the specified effect.
-  let tokenForEffect (effect: PipelineEffect) (pc: PipelineCancellation) : System.Threading.CancellationToken =
+  let tokenForEffect (effect: TestCycleEffect) (pc: TestCycleCancellation) : System.Threading.CancellationToken =
     match effect with
-    | PipelineEffect.ParseTreeSitter _ -> pc.TreeSitter.next()
-    | PipelineEffect.RequestFcsTypeCheck _ -> pc.Fcs.next()
-    | PipelineEffect.RunAffectedTests _ -> pc.TestRun.next()
+    | TestCycleEffect.ParseTreeSitter _ -> pc.TreeSitter.next()
+    | TestCycleEffect.RequestFcsTypeCheck _ -> pc.Fcs.next()
+    | TestCycleEffect.RunAffectedTests _ -> pc.TestRun.next()
 
-  let dispose (pc: PipelineCancellation) =
+  let dispose (pc: TestCycleCancellation) =
     pc.TreeSitter.dispose()
     pc.Fcs.dispose()
     pc.TestRun.dispose()

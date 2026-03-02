@@ -150,7 +150,7 @@ Every frontend connects to the same daemon. Open several at once — they all se
 | Type explorer | ✅ | ✅ | — | — | — | — | ✅ |
 | Call graph | ✅ | ✅ | — | — | — | — | — |
 | History browser | ✅ | ✅ | — | — | — | — | — |
-| Pipeline trace | ✅ | ✅ | — | — | — | — | ✅ |
+| Test trace | ✅ | ✅ | — | — | — | — | ✅ |
 
 > ¹ Server-side data ready. Editor UI integration pending (VS SDK limitations or work-in-progress).
 
@@ -313,7 +313,7 @@ Design: length-prefixed strings, section headers with byte-count envelopes, vers
 | `get_live_test_status` | Test state with optional file filter. |
 | `run_tests` | Run tests by pattern or category. |
 | `set_run_policy` | Auto-run policy per category (every/save/demand/disabled). |
-| `get_pipeline_trace` | Pipeline timing waterfall. |
+| `get_test_trace` | Test cycle timing waterfall. |
 
 </details>
 

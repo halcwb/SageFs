@@ -65,7 +65,7 @@ type SageFsEvent =
   | CoverageBitmapCollected of testIds: Features.LiveTesting.TestId array * bitmap: Features.LiveTesting.CoverageBitmap
   | RunPolicyChanged of category: Features.LiveTesting.TestCategory * policy: Features.LiveTesting.RunPolicy
   | ProvidersDetected of providers: Features.LiveTesting.ProviderDescription list
-  | PipelineTimingRecorded of timing: Features.LiveTesting.PipelineTiming
+  | TestCycleTimingRecorded of timing: Features.LiveTesting.TestCycleTiming
   | RunTestsRequested of tests: Features.LiveTesting.TestCase array
   | AssemblyLoadFailed of errors: Features.LiveTesting.AssemblyLoadError list
   | InstrumentationMapsReady of sessionId: string * maps: Features.LiveTesting.InstrumentationMap array

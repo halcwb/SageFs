@@ -382,7 +382,7 @@ let performanceTests = testList "Performance" [
     Expect.isLessThan avgUs 100.0 (sprintf "clear: %.1f µs" avgUs)
   }
 
-  test "Draw pipeline 200x60 under 500µs" {
+  test "Draw cycle 200x60 under 500µs" {
     let grid = CellGrid.create 60 200
     let fgDef = Theme.hexToRgb Theme.fgDefault
     let fgG = Theme.hexToRgb Theme.fgGreen
@@ -430,7 +430,7 @@ let performanceTests = testList "Performance" [
     Expect.isLessThan avgUs 2000.0 (sprintf "emit: %.1f µs" avgUs)
   }
 
-  test "Full frame pipeline 200x60 under 6.9ms (144fps)" {
+  test "Full frame cycle 200x60 under 6.9ms (144fps)" {
     let grid = CellGrid.create 60 200
     let fgDef = Theme.hexToRgb Theme.fgDefault
     let fgG = Theme.hexToRgb Theme.fgGreen

@@ -632,7 +632,7 @@ let sageFsUpdateTests = testList "SageFsUpdate" [
     effects
     |> List.exists (fun e ->
       match e with
-      | SageFsEffect.Pipeline (Features.LiveTesting.PipelineEffect.RunAffectedTests _) -> true
+      | SageFsEffect.TestCycle (Features.LiveTesting.TestCycleEffect.RunAffectedTests _) -> true
       | _ -> false)
     |> Expect.isTrue "should contain RunAffectedTests effect"
 

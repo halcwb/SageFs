@@ -1402,9 +1402,9 @@ module McpTools =
         | _, None -> return sprintf "Unknown policy: %s. Valid: every, save, demand, disabled." policy
     }
 
-  let getPipelineTrace (ctx: McpContext) : Task<string> =
+  let getTestTrace (ctx: McpContext) : Task<string> =
     match ctx.GetElmModel with
-    | None -> Task.FromResult "Pipeline trace not available — Elm loop not started."
+    | None -> Task.FromResult "Test trace not available — Elm loop not started."
     | Some getModel ->
       let model = getModel ()
       let state = model.LiveTesting.TestState
@@ -1422,7 +1422,7 @@ module McpTools =
         IsRunning = Features.LiveTesting.TestRunPhase.isAnyRunning state.RunPhases
         History = state.History
         Summary = summary
-        Timing = timing |> Option.map Features.LiveTesting.PipelineTiming.toStatusBar |> Option.defaultValue "no timing yet"
+        Timing = timing |> Option.map Features.LiveTesting.TestCycleTiming.toStatusBar |> Option.defaultValue "no timing yet"
         Providers = state.DetectedProviders |> List.map (fun p ->
           match p with
           | Features.LiveTesting.ProviderDescription.AttributeBased a -> Features.LiveTesting.TestFramework.toString a.Name
@@ -1534,7 +1534,7 @@ module McpTools =
             | other -> Some (Features.LiveTesting.TestCategory.Custom other)
           | None -> None
         let tests =
-          Features.LiveTesting.LiveTestPipelineState.filterTestsForExplicitRun
+          Features.LiveTesting.LiveTestCycleState.filterTestsForExplicitRun
             state.DiscoveredTests None patternFilter category
         match Array.isEmpty tests with
         | true ->

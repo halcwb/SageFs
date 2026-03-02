@@ -1209,15 +1209,15 @@ export function activate(context) {
             }
         }
     });
-    reg("sagefs.showPipelineTrace", (_arg_29) => {
+    reg("sagefs.showTestTrace", (_arg_29) => {
         let arg_11, arg_12, arg_13, arg_14, arg_15;
-        const matchValue_5 = bind((l_2) => l_2.PipelineTrace(), liveTestListener());
+        const matchValue_5 = bind((l_2) => l_2.TestTrace(), liveTestListener());
         if (matchValue_5 == null) {
-            Window_showInformationMessage("No pipeline trace data yet", []);
+            Window_showInformationMessage("No test trace data yet", []);
         }
         else {
             const trace = value_29(matchValue_5);
-            promiseIgnore(Window_showQuickPick([(arg_11 = defaultArg(fieldBool("Enabled", trace), false), toText(printf("Enabled: %b"))(arg_11)), (arg_12 = defaultArg(fieldBool("IsRunning", trace), false), toText(printf("Running: %b"))(arg_12)), (arg_13 = (defaultArg(bind((obj) => fieldInt("Total", obj), fieldObj("Summary")(trace)), 0) | 0), (arg_14 = (defaultArg(bind((obj_1) => fieldInt("Passed", obj_1), fieldObj("Summary")(trace)), 0) | 0), (arg_15 = (defaultArg(bind((obj_2) => fieldInt("Failed", obj_2), fieldObj("Summary")(trace)), 0) | 0), toText(printf("Total: %d | Passed: %d | Failed: %d"))(arg_13)(arg_14)(arg_15))))], "Pipeline Trace"));
+            promiseIgnore(Window_showQuickPick([(arg_11 = defaultArg(fieldBool("Enabled", trace), false), toText(printf("Enabled: %b"))(arg_11)), (arg_12 = defaultArg(fieldBool("IsRunning", trace), false), toText(printf("Running: %b"))(arg_12)), (arg_13 = (defaultArg(bind((obj) => fieldInt("Total", obj), fieldObj("Summary")(trace)), 0) | 0), (arg_14 = (defaultArg(bind((obj_1) => fieldInt("Passed", obj_1), fieldObj("Summary")(trace)), 0) | 0), (arg_15 = (defaultArg(bind((obj_2) => fieldInt("Failed", obj_2), fieldObj("Summary")(trace)), 0) | 0), toText(printf("Total: %d | Passed: %d | Failed: %d"))(arg_13)(arg_14)(arg_15))))], "test trace"));
         }
     });
     reg("sagefs.exportSession", (_arg_30) => {

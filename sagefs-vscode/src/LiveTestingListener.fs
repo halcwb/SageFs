@@ -140,7 +140,7 @@ type LiveTestingCallbacks = {
   OnSummaryUpdate: VscTestSummary -> unit
   OnStatusRefresh: unit -> unit
   OnBindingsUpdate: obj array -> unit
-  OnPipelineTraceUpdate: obj -> unit
+  OnTestTraceUpdate: obj -> unit
   OnFeatureEvent: FeatureCallbacks option
 }
 
@@ -148,7 +148,7 @@ type LiveTestingListener = {
   State: unit -> VscLiveTestState
   Summary: unit -> VscTestSummary
   Bindings: unit -> obj array
-  PipelineTrace: unit -> obj option
+  TestTrace: unit -> obj option
   EvalDiff: unit -> VscEvalDiff option
   CellGraph: unit -> VscCellGraph option
   BindingScope: unit -> VscBindingScopeSnapshot option
@@ -159,7 +159,7 @@ type LiveTestingListener = {
 let start (port: int) (callbacks: LiveTestingCallbacks) : LiveTestingListener =
   let mutable state = VscLiveTestState.empty
   let mutable bindings: obj array = [||]
-  let mutable pipelineTrace: obj option = None
+  let mutable TestTrace: obj option = None
   let mutable evalDiff: VscEvalDiff option = None
   let mutable cellGraph: VscCellGraph option = None
   let mutable bindingScope: VscBindingScopeSnapshot option = None
@@ -196,9 +196,9 @@ let start (port: int) (callbacks: LiveTestingCallbacks) : LiveTestingListener =
         |> Option.iter (fun arr ->
           bindings <- arr
           callbacks.OnBindingsUpdate bindings)
-      | "pipeline_trace" ->
-        pipelineTrace <- Some data
-        callbacks.OnPipelineTraceUpdate data
+      | "test_trace" ->
+        TestTrace <- Some data
+        callbacks.OnTestTraceUpdate data
       | "eval_diff"
       | "cell_dependencies"
       | "binding_scope_map"
@@ -220,7 +220,7 @@ let start (port: int) (callbacks: LiveTestingCallbacks) : LiveTestingListener =
   { State = fun () -> state
     Summary = fun () -> VscLiveTestState.summary state
     Bindings = fun () -> bindings
-    PipelineTrace = fun () -> pipelineTrace
+    TestTrace = fun () -> TestTrace
     EvalDiff = fun () -> evalDiff
     CellGraph = fun () -> cellGraph
     BindingScope = fun () -> bindingScope

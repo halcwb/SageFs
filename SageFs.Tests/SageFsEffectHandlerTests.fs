@@ -74,7 +74,7 @@ module TestDeps =
           return [sessionInfo]
         }
       GetWarmupContext = None
-      PipelineCancellation = Features.LiveTesting.PipelineCancellation.create ()
+      TestCycleCancellation = Features.LiveTesting.TestCycleCancellation.create ()
     }
 
   let noSessions () : EffectDeps =
@@ -102,7 +102,7 @@ module TestDeps =
         async { return Result.Error (SageFsError.SessionNotFound id) }
       ListSessions = fun () -> async { return [] }
       GetWarmupContext = None
-      PipelineCancellation = Features.LiveTesting.PipelineCancellation.create ()
+      TestCycleCancellation = Features.LiveTesting.TestCycleCancellation.create ()
     }
 
 [<Tests>]
@@ -436,7 +436,7 @@ let fullLoopTests = testList "Full ElmLoop + EffectHandler" [
         async { return Result.Error (SageFsError.NoActiveSessions) }
       ListSessions = fun () -> async { return [readySession] }
       GetWarmupContext = Some getWarmupCtx
-      PipelineCancellation = Features.LiveTesting.PipelineCancellation.create ()
+      TestCycleCancellation = Features.LiveTesting.TestCycleCancellation.create ()
     }
     do! SageFsEffectHandler.execute deps dispatch
           (SageFsEffect.Editor EditorEffect.RequestSessionList)
@@ -468,7 +468,7 @@ let fullLoopTests = testList "Full ElmLoop + EffectHandler" [
                   Status = SessionStatus.Ready; WorkerPid = Some 1 }]
       }
       GetWarmupContext = None
-      PipelineCancellation = Features.LiveTesting.PipelineCancellation.create ()
+      TestCycleCancellation = Features.LiveTesting.TestCycleCancellation.create ()
     }
     do! SageFsEffectHandler.execute deps dispatch
           (SageFsEffect.Editor EditorEffect.RequestSessionList)
@@ -502,7 +502,7 @@ let fullLoopTests = testList "Full ElmLoop + EffectHandler" [
       }
       GetWarmupContext =
         Some (fun _ -> async { ctxCalled <- true; return None })
-      PipelineCancellation = Features.LiveTesting.PipelineCancellation.create ()
+      TestCycleCancellation = Features.LiveTesting.TestCycleCancellation.create ()
     }
     do! SageFsEffectHandler.execute deps dispatch
           (SageFsEffect.Editor EditorEffect.RequestSessionList)

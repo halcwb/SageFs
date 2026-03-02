@@ -5,16 +5,16 @@ open System.Diagnostics.Metrics
 
 /// Centralized OTel instrumentation for SageFs.
 /// SessionManager: session lifecycle spans and counters.
-/// Pipeline: end-to-end file-change → test-result timing.
+/// Test cycle: end-to-end file-change → test-result timing.
 /// When no collector is attached, StartActivity returns null (~50ns no-op).
 module Instrumentation =
 
   let sessionSource = new ActivitySource("SageFs.SessionManager")
-  let pipelineSource = new ActivitySource("SageFs.Pipeline")
+  let testCycleSource = new ActivitySource("SageFs.TestCycle")
   let mcpSource = new ActivitySource("SageFs.Mcp")
 
   let sessionMeter = new Meter("SageFs.SessionManager")
-  let pipelineMeter = new Meter("SageFs.Pipeline")
+  let testCycleMeter = new Meter("SageFs.TestCycle")
   let mcpMeter = new Meter("SageFs.Mcp")
 
   let sessionsCreated =
@@ -30,14 +30,14 @@ module Instrumentation =
   let activeSessions =
     sessionMeter.CreateUpDownCounter<int64>("sagefs.sessions.active", description = "Currently active sessions")
 
-  let pipelineEndToEnd =
-    pipelineMeter.CreateHistogram<float>("sagefs.pipeline.end_to_end_ms", unit = "ms", description = "Pipeline end-to-end latency")
+  let testCycleEndToEnd =
+    testCycleMeter.CreateHistogram<float>("sagefs.test_cycle.end_to_end_ms", unit = "ms", description = "Test cycle end-to-end latency")
   let fcsTypecheckMs =
-    pipelineMeter.CreateHistogram<float>("sagefs.pipeline.fcs_typecheck_ms", unit = "ms", description = "FCS type-check latency")
+    testCycleMeter.CreateHistogram<float>("sagefs.test_cycle.fcs_typecheck_ms", unit = "ms", description = "FCS type-check latency")
   let treeSitterParseMs =
-    pipelineMeter.CreateHistogram<float>("sagefs.pipeline.treesitter_parse_ms", unit = "ms", description = "Tree-sitter parse latency")
+    testCycleMeter.CreateHistogram<float>("sagefs.test_cycle.treesitter_parse_ms", unit = "ms", description = "Tree-sitter parse latency")
   let testExecutionMs =
-    pipelineMeter.CreateHistogram<float>("sagefs.pipeline.test_execution_ms", unit = "ms", description = "Test execution latency")
+    testCycleMeter.CreateHistogram<float>("sagefs.test_cycle.test_execution_ms", unit = "ms", description = "Test execution latency")
 
   let mcpToolInvocations =
     mcpMeter.CreateCounter<int64>("sagefs.mcp.tool_invocations_total", description = "Total MCP tool invocations")
@@ -64,7 +64,7 @@ module Instrumentation =
 
   // File watcher counter
   let fileWatcherChanges =
-    pipelineMeter.CreateCounter<int64>("sagefs.filewatcher.changes_total", description = "Total file watcher change events")
+    testCycleMeter.CreateCounter<int64>("sagefs.filewatcher.changes_total", description = "Total file watcher change events")
 
   // P0: EventStore retry envelope metrics
   let eventstoreAppendRetries =
@@ -86,47 +86,47 @@ module Instrumentation =
 
   // P1: Elm loop metrics (histograms only — no spans near the lock)
   let elmloopUpdateMs =
-    pipelineMeter.CreateHistogram<float>("sagefs.elmloop.update_ms", "ms", "Elm loop Update phase duration")
+    testCycleMeter.CreateHistogram<float>("sagefs.elmloop.update_ms", "ms", "Elm loop Update phase duration")
   let elmloopRenderMs =
-    pipelineMeter.CreateHistogram<float>("sagefs.elmloop.render_ms", "ms", "Elm loop Render phase duration")
+    testCycleMeter.CreateHistogram<float>("sagefs.elmloop.render_ms", "ms", "Elm loop Render phase duration")
   let elmloopCallbackMs =
-    pipelineMeter.CreateHistogram<float>("sagefs.elmloop.callback_ms", "ms", "Elm loop OnModelChanged callback duration")
+    testCycleMeter.CreateHistogram<float>("sagefs.elmloop.callback_ms", "ms", "Elm loop OnModelChanged callback duration")
   let elmloopEffectsSpawned =
-    pipelineMeter.CreateCounter<int64>("sagefs.elmloop.effects_spawned_total", description = "Total effects spawned from Elm loop")
+    testCycleMeter.CreateCounter<int64>("sagefs.elmloop.effects_spawned_total", description = "Total effects spawned from Elm loop")
 
   // P1: LiveTesting additions
   let liveTestingDiscoveryMs =
-    pipelineMeter.CreateHistogram<float>("sagefs.live_testing.discovery_ms", "ms", "Test discovery duration")
+    testCycleMeter.CreateHistogram<float>("sagefs.live_testing.discovery_ms", "ms", "Test discovery duration")
   let liveTestingAssemblyLoadErrors =
-    pipelineMeter.CreateCounter<int64>("sagefs.live_testing.assembly_load_errors_total", description = "Total assembly load errors during test discovery")
+    testCycleMeter.CreateCounter<int64>("sagefs.live_testing.assembly_load_errors_total", description = "Total assembly load errors during test discovery")
 
   // Coverage instrumentation observability
   let coverageMapsReceived =
-    pipelineMeter.CreateCounter<int64>("sagefs.coverage.maps_received_total", description = "Total instrumentation map batches received from workers")
+    testCycleMeter.CreateCounter<int64>("sagefs.coverage.maps_received_total", description = "Total instrumentation map batches received from workers")
   let coverageProbesTotal =
-    pipelineMeter.CreateCounter<int64>("sagefs.coverage.probes_total", description = "Total IL probes across received instrumentation maps")
+    testCycleMeter.CreateCounter<int64>("sagefs.coverage.probes_total", description = "Total IL probes across received instrumentation maps")
   let coverageBitmapsCollected =
-    pipelineMeter.CreateCounter<int64>("sagefs.coverage.bitmaps_collected_total", description = "Total coverage bitmap collections from test runs")
+    testCycleMeter.CreateCounter<int64>("sagefs.coverage.bitmaps_collected_total", description = "Total coverage bitmap collections from test runs")
 
   // Daemon blocking diagnostics
   let threadPoolPending =
-    pipelineMeter.CreateObservableGauge<int64>(
+    testCycleMeter.CreateObservableGauge<int64>(
       "sagefs.threadpool.pending_work_items",
       (fun () -> int64 System.Threading.ThreadPool.PendingWorkItemCount),
       description = "ThreadPool pending work items")
   let threadPoolCount =
-    pipelineMeter.CreateObservableGauge<int64>(
+    testCycleMeter.CreateObservableGauge<int64>(
       "sagefs.threadpool.thread_count",
       (fun () -> int64 System.Threading.ThreadPool.ThreadCount),
       description = "ThreadPool active thread count")
   let elmDispatchCount =
-    pipelineMeter.CreateCounter<int64>("sagefs.elmloop.dispatch_total", description = "Total Elm dispatch calls")
+    testCycleMeter.CreateCounter<int64>("sagefs.elmloop.dispatch_total", description = "Total Elm dispatch calls")
   let elmloopErrors =
-    pipelineMeter.CreateCounter<int64>("sagefs.elmloop.errors_total", description = "Total errors in Elm loop phases")
+    testCycleMeter.CreateCounter<int64>("sagefs.elmloop.errors_total", description = "Total errors in Elm loop phases")
   let testResultBatchSize =
-    pipelineMeter.CreateHistogram<int64>("sagefs.live_testing.result_batch_size", description = "Number of results per TestResultsBatch dispatch")
+    testCycleMeter.CreateHistogram<int64>("sagefs.live_testing.result_batch_size", description = "Number of results per TestResultsBatch dispatch")
   let testExecutionActiveCount =
-    pipelineMeter.CreateUpDownCounter<int64>("sagefs.live_testing.active_executions", description = "Currently executing test runs")
+    testCycleMeter.CreateUpDownCounter<int64>("sagefs.live_testing.active_executions", description = "Currently executing test runs")
 
   // Eval actor queue diagnostics (Level 1)
   let evalQueueWaitMs =
@@ -172,7 +172,7 @@ module Instrumentation =
   /// All ActivitySource names for OTel registration in McpServer.
   let allSources =
     [ "SageFs.SessionManager"
-      "SageFs.Pipeline"
+      "SageFs.TestCycle"
       "SageFs.LiveTesting"
       "SageFs.Mcp"
       "Marten" ]
@@ -180,7 +180,7 @@ module Instrumentation =
   /// All Meter names for OTel registration in McpServer.
   let allMeters =
     [ "SageFs.SessionManager"
-      "SageFs.Pipeline"
+      "SageFs.TestCycle"
       "SageFs.LiveTesting"
       "SageFs.Mcp"
       "Marten" ]

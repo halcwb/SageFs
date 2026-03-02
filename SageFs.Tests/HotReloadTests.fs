@@ -121,10 +121,10 @@ let noWatchFlagTests =
       shouldWatch |> Flip.Expect.isTrue "should enable with project dirs"
   ]
 
-/// Tests the full reload-to-detour pipeline contract:
+/// Tests the full reload-to-detour cycle contract:
 /// file change → #load → EvalRequest with hotReload=true → middleware check.
-let reloadToDetourPipelineTests =
-  testList "reload to detour pipeline" [
+let reloadToDetourCycleTests =
+  testList "reload to detour cycle" [
     testCase "#load code format matches expected pattern" <| fun () ->
       let filePath = @"C:\Code\Harmony\HarmonyServer\harmonyServer.fs"
       let code = sprintf "#load @\"%s\"" filePath
@@ -266,7 +266,7 @@ let allHotReloadTests =
     hotReloadArgTests
     fileWatcherIntegrationTests
     noWatchFlagTests
-    reloadToDetourPipelineTests
+    reloadToDetourCycleTests
     watchConfigTests
     noInliningInjectionTests
   ]

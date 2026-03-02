@@ -66,7 +66,7 @@ let getDiagnostics (fsiSession: Shell.FsiEvaluationSession) text =
   |> Seq.distinct
   |> Seq.toArray
 
-/// Result of type-check with symbol extraction for the live testing pipeline.
+/// Result of type-check with symbol extraction for the live testing cycle.
 type TypeCheckWithSymbolsResult = {
   Diagnostics: Diagnostic array
   HasErrors: bool
@@ -95,7 +95,7 @@ let extractSymbolReferences
   |> Seq.toList
 
 /// Type-check with both diagnostics and symbol extraction.
-/// Used by the live testing pipeline's RequestFcsTypeCheck effect.
+/// Used by the live testing cycle's RequestFcsTypeCheck effect.
 let getTypeCheckWithSymbols
   (fsiSession: Shell.FsiEvaluationSession)
   (filePath: string)

@@ -843,10 +843,10 @@ let coverageCorrelationTests = testList "CoverageCorrelation" [
   }
 ]
 
-// --- CoverageBitmap Pipeline Wiring Tests ---
+// --- CoverageBitmap cycle Wiring Tests ---
 
 [<Tests>]
-let coverageBitmapWiringTests = testList "CoverageBitmap Pipeline Wiring" [
+let coverageBitmapWiringTests = testList "CoverageBitmap cycle Wiring" [
   test "CoverageBitmapCollected populates TestCoverageBitmaps map" {
     let tid1 = mkTestId "ns" (TestFramework.Unknown "t1")
     let tid2 = mkTestId "ns" (TestFramework.Unknown "t2")
@@ -1002,8 +1002,8 @@ let coverageSelectionTests = testList "Coverage-based test selection" [
           TestCoverageBitmaps = Map.ofList [ tid2, bm ]
           TestSessionMap = Map.ofList [ tid1, "s"; tid2, "s" ] }
     let instrMaps = Map.ofList [ "s", maps ]
-    match PipelineEffects.afterTypeCheck ["Module.add"] "Module.fs" RunTrigger.Keystroke graph state None instrMaps with
-    | [ PipelineEffect.RunAffectedTests (tests, _, _, _, _, _) ] ->
+    match TestCycleEffects.afterTypeCheck ["Module.add"] "Module.fs" RunTrigger.Keystroke graph state None instrMaps with
+    | [ TestCycleEffect.RunAffectedTests (tests, _, _, _, _, _) ] ->
       let ids = tests |> Array.map (fun t -> t.Id) |> Set.ofArray
       ids |> Set.contains tid1 |> Expect.isTrue "t1 from symbol heuristic"
       ids |> Set.contains tid2 |> Expect.isTrue "t2 from coverage bitmap"
@@ -1059,11 +1059,11 @@ let rangeLookupTests = testList "FileAnnotations.projectWithCoverage range enric
       { Symbol = "MyModule.foo"; FilePath = filePath; DefinitionLine = 10
         Status = CoverageStatus.Covered(1, CoverageHealth.AllPassing) }
     let state = { LiveTestState.empty with CoverageAnnotations = [| ca |] }
-    let pipeline =
-      { LiveTestPipelineState.empty with
+    let cycle =
+      { LiveTestCycleState.empty with
           TestState = state
           InstrumentationMaps = Map.ofList [ "sess1", maps ] }
-    let result = FileAnnotations.projectWithCoverage filePath pipeline
+    let result = FileAnnotations.projectWithCoverage filePath cycle
     result.CoverageAnnotations |> Expect.hasLength "should have one annotation" 1
     result.CoverageAnnotations.[0].EndLine |> Expect.equal "EndLine should come from SP" 15
     result.CoverageAnnotations.[0].EndColumn |> Expect.equal "EndColumn should come from SP" 20
@@ -1077,11 +1077,11 @@ let rangeLookupTests = testList "FileAnnotations.projectWithCoverage range enric
       { Symbol = "MyModule.foo"; FilePath = filePath; DefinitionLine = 10
         Status = CoverageStatus.Covered(1, CoverageHealth.AllPassing) }
     let state = { LiveTestState.empty with CoverageAnnotations = [| ca |] }
-    let pipeline =
-      { LiveTestPipelineState.empty with
+    let cycle =
+      { LiveTestCycleState.empty with
           TestState = state
           InstrumentationMaps = Map.ofList [ "sess1", maps ] }
-    let result = FileAnnotations.projectWithCoverage filePath pipeline
+    let result = FileAnnotations.projectWithCoverage filePath cycle
     result.CoverageAnnotations |> Expect.hasLength "should have one annotation" 1
     result.CoverageAnnotations.[0].EndLine |> Expect.equal "EndLine should be 0" 0
     result.CoverageAnnotations.[0].EndColumn |> Expect.equal "EndColumn should be 0" 0
@@ -1096,11 +1096,11 @@ let rangeLookupTests = testList "FileAnnotations.projectWithCoverage range enric
       { Symbol = "MyModule.foo"; FilePath = filePath; DefinitionLine = 10
         Status = CoverageStatus.Covered(1, CoverageHealth.AllPassing) }
     let state = { LiveTestState.empty with CoverageAnnotations = [| ca |] }
-    let pipeline =
-      { LiveTestPipelineState.empty with
+    let cycle =
+      { LiveTestCycleState.empty with
           TestState = state
           InstrumentationMaps = Map.ofList [ "sess1", maps ] }
-    let result = FileAnnotations.projectWithCoverage filePath pipeline
+    let result = FileAnnotations.projectWithCoverage filePath cycle
     result.CoverageAnnotations.[0].EndLine |> Expect.equal "should pick widest EndLine" 12
     result.CoverageAnnotations.[0].EndColumn |> Expect.equal "should pick widest EndColumn" 30
   }
@@ -1115,11 +1115,11 @@ let rangeLookupTests = testList "FileAnnotations.projectWithCoverage range enric
       { Symbol = "MyModule.foo"; FilePath = filePath; DefinitionLine = 10
         Status = CoverageStatus.Covered(1, CoverageHealth.AllPassing) }
     let state = { LiveTestState.empty with CoverageAnnotations = [| ca |] }
-    let pipeline =
-      { LiveTestPipelineState.empty with
+    let cycle =
+      { LiveTestCycleState.empty with
           TestState = state
           InstrumentationMaps = Map.ofList [ "sess1", maps ] }
-    let result = FileAnnotations.projectWithCoverage filePath pipeline
+    let result = FileAnnotations.projectWithCoverage filePath cycle
     result.CoverageAnnotations.[0].EndLine |> Expect.equal "should use good SP" 15
     result.CoverageAnnotations.[0].EndColumn |> Expect.equal "should use good SP EndColumn" 20
   }
@@ -1147,12 +1147,12 @@ let rangeLookupTests = testList "FileAnnotations.projectWithCoverage range enric
     let state =
       { LiveTestState.empty with
           LastResults = lastResults; CoverageAnnotations = [||] }
-    let pipeline =
-      { LiveTestPipelineState.empty with
+    let cycle =
+      { LiveTestCycleState.empty with
           TestState = state; DepGraph = depGraph
           AnalysisCache = analysisCache
           InstrumentationMaps = Map.ofList [ "sess1", maps ] }
-    let result = FileAnnotations.projectWithCoverage filePath pipeline
+    let result = FileAnnotations.projectWithCoverage filePath cycle
     result.CoverageAnnotations |> Expect.hasLength "should synthesize one annotation" 1
     result.CoverageAnnotations.[0].EndLine |> Expect.equal "synthesized EndLine from SP" 15
     result.CoverageAnnotations.[0].EndColumn |> Expect.equal "synthesized EndColumn from SP" 20
@@ -1309,10 +1309,10 @@ let coverageBitmapTests = testList "CoverageBitmap" [
   ]
 ]
 
-// --- Coverage Pipeline Verification Tests ---
+// --- Coverage cycle Verification Tests ---
 
 [<Tests>]
-let coveragePipelineVerificationTests = testList "Coverage Pipeline Verification" [
+let coverageCycleVerificationTests = testList "Coverage cycle Verification" [
   test "InstrumentationMapsReady populates model maps" {
     let maps = [|
       { InstrumentationMap.Slots = [| { SequencePoint.File = "test.fs"; Line = 10; Column = 1; EndLine = 0; EndColumn = 0; BranchId = 0 } |]
@@ -1361,7 +1361,7 @@ let coveragePipelineVerificationTests = testList "Coverage Pipeline Verification
     }
     let instrumentationMaps = Map.ofList [ "s1", [| imap |] ]
     let effects =
-      PipelineEffects.afterTypeCheck
+      TestCycleEffects.afterTypeCheck
         [] "src/MyFile.fs" RunTrigger.FileSave
         TestDependencyGraph.empty state None instrumentationMaps
     effects
@@ -1390,7 +1390,7 @@ let coveragePipelineVerificationTests = testList "Coverage Pipeline Verification
     }
     let instrumentationMaps = Map.ofList [ "s1", [| imap |] ]
     let effects =
-      PipelineEffects.afterTypeCheck
+      TestCycleEffects.afterTypeCheck
         [] "src/Other.fs" RunTrigger.FileSave
         TestDependencyGraph.empty state None instrumentationMaps
     effects

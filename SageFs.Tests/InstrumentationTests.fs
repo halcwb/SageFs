@@ -14,17 +14,17 @@ let instrumentationTests = testSequenced (testList "Instrumentation" [
     Instrumentation.sessionSource.Name
     |> Expect.equal "name" "SageFs.SessionManager"
   }
-  test "Pipeline source name" {
-    Instrumentation.pipelineSource.Name
-    |> Expect.equal "name" "SageFs.Pipeline"
+  test "cycle source name" {
+    Instrumentation.testCycleSource.Name
+    |> Expect.equal "name" "SageFs.TestCycle"
   }
   test "SessionManager meter name" {
     Instrumentation.sessionMeter.Name
     |> Expect.equal "name" "SageFs.SessionManager"
   }
-  test "Pipeline meter name" {
-    Instrumentation.pipelineMeter.Name
-    |> Expect.equal "name" "SageFs.Pipeline"
+  test "cycle meter name" {
+    Instrumentation.testCycleMeter.Name
+    |> Expect.equal "name" "SageFs.TestCycle"
   }
   test "counters are not null" {
     Instrumentation.sessionsCreated |> Expect.isNotNull "sessionsCreated"
@@ -35,12 +35,12 @@ let instrumentationTests = testSequenced (testList "Instrumentation" [
     Instrumentation.activeSessions |> Expect.isNotNull "activeSessions"
   }
   test "histogram is not null" {
-    Instrumentation.pipelineEndToEnd |> Expect.isNotNull "pipelineEndToEnd"
+    Instrumentation.testCycleEndToEnd |> Expect.isNotNull "testCycleEndToEnd"
   }
   test "allSources has expected entries" {
     Instrumentation.allSources |> Expect.hasLength "5 sources" 5
     Instrumentation.allSources |> Expect.contains "has SessionManager" "SageFs.SessionManager"
-    Instrumentation.allSources |> Expect.contains "has Pipeline" "SageFs.Pipeline"
+    Instrumentation.allSources |> Expect.contains "has cycle" "SageFs.TestCycle"
     Instrumentation.allSources |> Expect.contains "has LiveTesting" "SageFs.LiveTesting"
     Instrumentation.allSources |> Expect.contains "has Mcp" "SageFs.Mcp"
     Instrumentation.allSources |> Expect.contains "has Marten" "Marten"
@@ -92,7 +92,7 @@ let instrumentationTests = testSequenced (testList "Instrumentation" [
 
   test "tracedAsync returns correct value" {
     Instrumentation.tracedAsync
-      Instrumentation.pipelineSource "test.async" []
+      Instrumentation.testCycleSource "test.async" []
       (fun () -> async { return 99 })
     |> Async.RunSynchronously
     |> Expect.equal "return value" 99
@@ -103,7 +103,7 @@ let instrumentationTests = testSequenced (testList "Instrumentation" [
       "should rethrow"
       (fun () ->
         Instrumentation.tracedAsync
-          Instrumentation.pipelineSource "test.fail" []
+          Instrumentation.testCycleSource "test.fail" []
           (fun () -> async { return raise (System.InvalidOperationException "boom") })
         |> Async.RunSynchronously
         |> ignore)
@@ -171,7 +171,7 @@ let instrumentationTests = testSequenced (testList "Instrumentation" [
     let mutable capturedTagKeys : string list = []
     let mutable capturedName = ""
     let listener = new ActivityListener()
-    listener.ShouldListenTo <- fun src -> src.Name = "SageFs.Pipeline"
+    listener.ShouldListenTo <- fun src -> src.Name = "SageFs.TestCycle"
     listener.Sample <- fun _ -> ActivitySamplingResult.AllDataAndRecorded
     listener.ActivityStopped <- fun a ->
       capturedName <- a.DisplayName
@@ -179,15 +179,15 @@ let instrumentationTests = testSequenced (testList "Instrumentation" [
     ActivitySource.AddActivityListener(listener)
 
     Instrumentation.tracedAsync
-      Instrumentation.pipelineSource
-      "pipeline.run"
+      Instrumentation.testCycleSource
+      "cycle.run"
       [("trigger", box "file_change")]
       (fun () -> async { return 42 })
     |> Async.RunSynchronously |> ignore
 
     listener.Dispose()
 
-    capturedName |> Expect.equal "activity name" "pipeline.run"
+    capturedName |> Expect.equal "activity name" "cycle.run"
     capturedTagKeys |> Expect.contains "has trigger" "trigger"
     capturedTagKeys |> Expect.contains "has duration_ms" "duration_ms"
   }
@@ -207,7 +207,7 @@ let instrumentationTests = testSequenced (testList "Instrumentation" [
     Instrumentation.fsiStatements |> Expect.isNotNull "fsiStatements"
     Instrumentation.sseConnectionsActive |> Expect.isNotNull "sseConnectionsActive"
   }
-  test "pipeline histograms are not null" {
+  test "cycle histograms are not null" {
     Instrumentation.fcsTypecheckMs |> Expect.isNotNull "fcsTypecheckMs"
     Instrumentation.treeSitterParseMs |> Expect.isNotNull "treeSitterParseMs"
     Instrumentation.testExecutionMs |> Expect.isNotNull "testExecutionMs"

@@ -74,7 +74,7 @@ module TestFramework =
     | "tunit" -> TestFramework.TUnit
     | s -> TestFramework.Unknown s
 
-/// Configuration constants for the live testing pipeline.
+/// Configuration constants for the live testing cycle.
 [<RequireQualifiedAccess>]
 module LiveTestingDefaults =
   /// Default test module identifier for detecting test functions by namespace.
@@ -561,16 +561,16 @@ type CoverageDetail =
   | Pending
   | Covered of tests: CoveringTestInfo array
 
-// --- Pipeline Timing ---
+// --- Test Cycle Timing ---
 
 [<RequireQualifiedAccess>]
-type PipelineDepth =
+type TestCycleDepth =
   | TreeSitterOnly of treeSitter: TimeSpan
   | ThroughFcs of treeSitter: TimeSpan * fcs: TimeSpan
   | ThroughExecution of treeSitter: TimeSpan * fcs: TimeSpan * execution: TimeSpan
 
-type PipelineTiming = {
-  Depth: PipelineDepth
+type TestCycleTiming = {
+  Depth: TestCycleDepth
   TotalTests: int
   AffectedTests: int
   Trigger: RunTrigger
@@ -1556,54 +1556,54 @@ module CoverageCorrelation =
        | None -> CoverageDetail.NotCovered
        | Some ann -> testsForSymbol graph discoveredTests results ann.Symbol
 
-module PipelineTiming =
-  let treeSitterMs (t: PipelineTiming) : float =
+module TestCycleTiming =
+  let treeSitterMs (t: TestCycleTiming) : float =
     match t.Depth with
-    | PipelineDepth.TreeSitterOnly ts -> ts.TotalMilliseconds
-    | PipelineDepth.ThroughFcs (ts, _) -> ts.TotalMilliseconds
-    | PipelineDepth.ThroughExecution (ts, _, _) -> ts.TotalMilliseconds
+    | TestCycleDepth.TreeSitterOnly ts -> ts.TotalMilliseconds
+    | TestCycleDepth.ThroughFcs (ts, _) -> ts.TotalMilliseconds
+    | TestCycleDepth.ThroughExecution (ts, _, _) -> ts.TotalMilliseconds
 
-  let fcsMs (t: PipelineTiming) : float =
+  let fcsMs (t: TestCycleTiming) : float =
     match t.Depth with
-    | PipelineDepth.TreeSitterOnly _ -> 0.0
-    | PipelineDepth.ThroughFcs (_, fcs) -> fcs.TotalMilliseconds
-    | PipelineDepth.ThroughExecution (_, fcs, _) -> fcs.TotalMilliseconds
+    | TestCycleDepth.TreeSitterOnly _ -> 0.0
+    | TestCycleDepth.ThroughFcs (_, fcs) -> fcs.TotalMilliseconds
+    | TestCycleDepth.ThroughExecution (_, fcs, _) -> fcs.TotalMilliseconds
 
-  let executionMs (t: PipelineTiming) : float =
+  let executionMs (t: TestCycleTiming) : float =
     match t.Depth with
-    | PipelineDepth.ThroughExecution (_, _, exec) -> exec.TotalMilliseconds
+    | TestCycleDepth.ThroughExecution (_, _, exec) -> exec.TotalMilliseconds
     | _ -> 0.0
 
-  let totalMs (t: PipelineTiming) : float =
+  let totalMs (t: TestCycleTiming) : float =
     treeSitterMs t + fcsMs t + executionMs t
 
-  /// Extract tree-sitter elapsed from any pipeline depth.
-  let accumulatedTsElapsed (t: PipelineTiming option) : System.TimeSpan =
+  /// Extract tree-sitter elapsed from any test cycle depth.
+  let accumulatedTsElapsed (t: TestCycleTiming option) : System.TimeSpan =
     match t with
     | Some timing ->
       match timing.Depth with
-      | PipelineDepth.TreeSitterOnly ts
-      | PipelineDepth.ThroughFcs (ts, _)
-      | PipelineDepth.ThroughExecution (ts, _, _) -> ts
+      | TestCycleDepth.TreeSitterOnly ts
+      | TestCycleDepth.ThroughFcs (ts, _)
+      | TestCycleDepth.ThroughExecution (ts, _, _) -> ts
     | None -> System.TimeSpan.Zero
 
-  /// Extract FCS elapsed from pipeline depth (Zero if FCS hasn't run).
-  let accumulatedFcsElapsed (t: PipelineTiming option) : System.TimeSpan =
+  /// Extract FCS elapsed from test cycle depth (Zero if FCS hasn't run).
+  let accumulatedFcsElapsed (t: TestCycleTiming option) : System.TimeSpan =
     match t with
     | Some timing ->
       match timing.Depth with
-      | PipelineDepth.ThroughFcs (_, fcs)
-      | PipelineDepth.ThroughExecution (_, fcs, _) -> fcs
+      | TestCycleDepth.ThroughFcs (_, fcs)
+      | TestCycleDepth.ThroughExecution (_, fcs, _) -> fcs
       | _ -> System.TimeSpan.Zero
     | None -> System.TimeSpan.Zero
 
-  let toStatusBar (t: PipelineTiming) : string =
+  let toStatusBar (t: TestCycleTiming) : string =
     match t.Depth with
-    | PipelineDepth.TreeSitterOnly ts ->
+    | TestCycleDepth.TreeSitterOnly ts ->
       sprintf "TS:%.1fms" ts.TotalMilliseconds
-    | PipelineDepth.ThroughFcs (ts, fcs) ->
+    | TestCycleDepth.ThroughFcs (ts, fcs) ->
       sprintf "TS:%.1fms | FCS:%.0fms" ts.TotalMilliseconds fcs.TotalMilliseconds
-    | PipelineDepth.ThroughExecution (ts, fcs, exec) ->
+    | TestCycleDepth.ThroughExecution (ts, fcs, exec) ->
       sprintf "TS:%.1fms | FCS:%.0fms | Run:%.0fms (%d)"
         ts.TotalMilliseconds fcs.TotalMilliseconds exec.TotalMilliseconds t.AffectedTests
 
@@ -1693,13 +1693,13 @@ module Staleness =
       let updatedState = { state with AffectedTests = Set.union state.AffectedTests affected }
       { updatedState with StatusEntries = LiveTesting.computeStatusEntriesWithHistory previousStatuses updatedState }
 
-// --- Pipeline Orchestrator ---
+// --- Test Cycle Orchestrator ---
 
 [<RequireQualifiedAccess>]
-type PipelineDecision =
+type TestCycleDecision =
   | Skip of reason: string
   | TreeSitterOnly
-  | FullPipeline of affectedTestIds: TestId array
+  | FullCycle of affectedTestIds: TestId array
 
 module TestPrioritization =
   let durationMs (r: TestResult) =
@@ -1725,22 +1725,22 @@ module TestPrioritization =
         (failedOrder, durationMs result.Result)
       | None -> (4, 0.0))
 
-module PipelineOrchestrator =
+module TestCycleOrchestrator =
   let decide
     (state: LiveTestState)
     (trigger: RunTrigger)
     (changedSymbols: string list)
     (depGraph: TestDependencyGraph)
-    : PipelineDecision =
+    : TestCycleDecision =
     match state.Activation = LiveTestingActivation.Inactive,
           TestRunPhase.isAnyRunning state.RunPhases,
           Array.isEmpty state.DiscoveredTests with
     | true, _, _ ->
-      PipelineDecision.Skip "Live testing disabled"
+      TestCycleDecision.Skip "Live testing disabled"
     | _, true, _ ->
-      PipelineDecision.Skip "Pipeline already running"
+      TestCycleDecision.Skip "Cycle already running"
     | _, _, true ->
-      PipelineDecision.TreeSitterOnly
+      TestCycleDecision.TreeSitterOnly
     | false, false, false ->
       let affected = TestDependencyGraph.findAffected changedSymbols depGraph
       let affectedSet = Set.ofArray affected
@@ -1749,9 +1749,9 @@ module PipelineOrchestrator =
         |> Array.filter (fun tc -> affectedSet.Contains tc.Id)
         |> LiveTesting.filterByPolicy state.RunPolicies trigger
       match Array.isEmpty filtered with
-      | true -> PipelineDecision.TreeSitterOnly
+      | true -> TestCycleDecision.TreeSitterOnly
       | false ->
-        PipelineDecision.FullPipeline (filtered |> Array.map (fun tc -> tc.Id))
+        TestCycleDecision.FullCycle (filtered |> Array.map (fun tc -> tc.Id))
 
   let buildRunBatch
     (state: LiveTestState)
@@ -1807,12 +1807,12 @@ module DebounceChannel =
     | Some op -> op.Generation < ch.CurrentGeneration
     | None -> false
 
-type PipelineDebounce = {
+type TestCycleDebounce = {
   TreeSitter: DebounceChannel<string>
   Fcs: DebounceChannel<string>
 }
 
-module PipelineDebounce =
+module TestCycleDebounce =
   let empty = {
     TreeSitter = DebounceChannel.empty
     Fcs = DebounceChannel.empty
@@ -1820,40 +1820,40 @@ module PipelineDebounce =
 
   let treeSitterDelayMs = 50
 
-  let onKeystroke (content: string) (filePath: string) (fcsDelay: int) (now: DateTimeOffset) (db: PipelineDebounce) =
+  let onKeystroke (content: string) (filePath: string) (fcsDelay: int) (now: DateTimeOffset) (db: TestCycleDebounce) =
     { db with
         TreeSitter = db.TreeSitter |> DebounceChannel.submit content treeSitterDelayMs now
         Fcs = db.Fcs |> DebounceChannel.submit filePath fcsDelay now }
 
-  let onFileSave (filePath: string) (now: DateTimeOffset) (db: PipelineDebounce) =
+  let onFileSave (filePath: string) (now: DateTimeOffset) (db: TestCycleDebounce) =
     { db with
         Fcs = db.Fcs |> DebounceChannel.submit filePath 50 now }
 
-  let tick (now: DateTimeOffset) (db: PipelineDebounce) =
+  let tick (now: DateTimeOffset) (db: TestCycleDebounce) =
     let tsPayload, tsChannel = DebounceChannel.tryFire now db.TreeSitter
     let fcsPayload, fcsChannel = DebounceChannel.tryFire now db.Fcs
     (tsPayload, fcsPayload), { db with TreeSitter = tsChannel; Fcs = fcsChannel }
 
 [<RequireQualifiedAccess>]
-type PipelineEffect =
+type TestCycleEffect =
   | ParseTreeSitter of content: string * filePath: string
   | RequestFcsTypeCheck of filePath: string * treeSitterElapsed: System.TimeSpan
   | RunAffectedTests of tests: TestCase array * trigger: RunTrigger * treeSitterElapsed: System.TimeSpan * fcsElapsed: System.TimeSpan * sessionId: string option * instrumentationMaps: InstrumentationMap array
 
-module PipelineEffects =
+module TestCycleEffects =
   let fromTick
     (tsPayload: string option)
     (fcsPayload: string option)
     (filePath: string)
-    (lastTiming: PipelineTiming option)
-    : PipelineEffect list =
+    (lastTiming: TestCycleTiming option)
+    : TestCycleEffect list =
     [ match tsPayload with
-      | Some content -> PipelineEffect.ParseTreeSitter(content, filePath)
+      | Some content -> TestCycleEffect.ParseTreeSitter(content, filePath)
       | None -> ()
       match fcsPayload with
       | Some fp ->
-        let tsElapsed = PipelineTiming.accumulatedTsElapsed lastTiming
-        PipelineEffect.RequestFcsTypeCheck(fp, tsElapsed)
+        let tsElapsed = TestCycleTiming.accumulatedTsElapsed lastTiming
+        TestCycleEffect.RequestFcsTypeCheck(fp, tsElapsed)
       | None -> () ]
 
   let afterTypeCheck
@@ -1862,9 +1862,9 @@ module PipelineEffects =
     (trigger: RunTrigger)
     (depGraph: TestDependencyGraph)
     (state: LiveTestState)
-    (lastTiming: PipelineTiming option)
+    (lastTiming: TestCycleTiming option)
     (instrumentationMaps: Map<string, InstrumentationMap array>)
-    : PipelineEffect list =
+    : TestCycleEffect list =
     match state.Activation = LiveTestingActivation.Inactive with
     | true -> []
     | false ->
@@ -1895,8 +1895,8 @@ module PipelineEffects =
         match Array.isEmpty filtered with
         | true -> []
         | false ->
-          let tsElapsed = PipelineTiming.accumulatedTsElapsed lastTiming
-          let fcsElapsed = PipelineTiming.accumulatedFcsElapsed lastTiming
+          let tsElapsed = TestCycleTiming.accumulatedTsElapsed lastTiming
+          let fcsElapsed = TestCycleTiming.accumulatedFcsElapsed lastTiming
           // Group affected tests by session, emit one effect per session
           filtered
           |> Array.groupBy (fun tc ->
@@ -1913,7 +1913,7 @@ module PipelineEffects =
                 match targetSession |> Option.bind (fun s -> Map.tryFind s instrumentationMaps) with
                 | Some maps -> maps
                 | None -> instrumentationMaps |> Map.values |> Seq.collect id |> Array.ofSeq
-              Some (PipelineEffect.RunAffectedTests(groupTests, trigger, tsElapsed, fcsElapsed, targetSession, sessionMaps)))
+              Some (TestCycleEffect.RunAffectedTests(groupTests, trigger, tsElapsed, fcsElapsed, targetSession, sessionMaps)))
 
 /// Adaptive debounce configuration.
 type AdaptiveDebounceConfig = {
@@ -2068,11 +2068,11 @@ type FcsTypeCheckResult =
   | Failed of filePath: string * errors: string list
   | Cancelled of filePath: string
 
-/// Wraps LiveTestState + PipelineDebounce + TestDependencyGraph + adaptive
+/// Wraps LiveTestState + TestCycleDebounce + TestDependencyGraph + adaptive
 /// debounce + file analysis cache into a single state record for the Elm loop.
-type LiveTestPipelineState = {
+type LiveTestCycleState = {
   TestState: LiveTestState
-  Debounce: PipelineDebounce
+  Debounce: TestCycleDebounce
   DepGraph: TestDependencyGraph
   ActiveFile: string option
   ChangedSymbols: string list
@@ -2080,15 +2080,15 @@ type LiveTestPipelineState = {
   AnalysisCache: FileAnalysisCache
   AdaptiveDebounce: AdaptiveDebounce
   LastTrigger: RunTrigger
-  LastTiming: PipelineTiming option
+  LastTiming: TestCycleTiming option
   /// IL coverage instrumentation maps per session (sessionId → maps for that session's assemblies).
   InstrumentationMaps: Map<string, InstrumentationMap array>
 }
 
-module LiveTestPipelineState =
+module LiveTestCycleState =
   let empty = {
     TestState = LiveTestState.empty
-    Debounce = PipelineDebounce.empty
+    Debounce = TestCycleDebounce.empty
     DepGraph = TestDependencyGraph.empty
     ActiveFile = None
     ChangedSymbols = []
@@ -2100,11 +2100,11 @@ module LiveTestPipelineState =
     InstrumentationMaps = Map.empty
   }
 
-  let liveTestingStatusBarForSession (activeSessionId: string) (state: LiveTestPipelineState) : string =
+  let liveTestingStatusBarForSession (activeSessionId: string) (state: LiveTestCycleState) : string =
     let timing =
       match state.LastTiming with
       | None -> ""
-      | Some t -> PipelineTiming.toStatusBar t
+      | Some t -> TestCycleTiming.toStatusBar t
     let entries = LiveTestState.statusEntriesForSession activeSessionId state.TestState
     let statuses = entries |> Array.map (fun e -> e.Status)
     let summary = TestSummary.fromStatuses state.TestState.Activation statuses |> TestSummary.toStatusBar
@@ -2114,25 +2114,25 @@ module LiveTestPipelineState =
     | t, "Tests: none" -> t
     | t, s -> sprintf "%s | %s" t s
 
-  let liveTestingStatusBar (state: LiveTestPipelineState) : string =
+  let liveTestingStatusBar (state: LiveTestCycleState) : string =
     liveTestingStatusBarForSession "" state
 
-  let currentFcsDelay (s: LiveTestPipelineState) =
+  let currentFcsDelay (s: LiveTestCycleState) =
     AdaptiveDebounce.currentFcsDelay s.AdaptiveDebounce
 
-  let onKeystroke (content: string) (filePath: string) (now: DateTimeOffset) (s: LiveTestPipelineState) =
+  let onKeystroke (content: string) (filePath: string) (now: DateTimeOffset) (s: LiveTestCycleState) =
     let fcsDelay = int (currentFcsDelay s)
-    let db = s.Debounce |> PipelineDebounce.onKeystroke content filePath fcsDelay now
+    let db = s.Debounce |> TestCycleDebounce.onKeystroke content filePath fcsDelay now
     // When edits arrive while tests are running, mark phase as edited so in-flight results are stale.
     let ts = { s.TestState with RunPhases = s.TestState.RunPhases |> Map.map (fun _ p -> TestRunPhase.onEdit p) }
     { s with Debounce = db; TestState = ts; ActiveFile = Some filePath; LastTrigger = RunTrigger.Keystroke }
 
-  let onFileSave (filePath: string) (now: DateTimeOffset) (s: LiveTestPipelineState) =
-    let db = s.Debounce |> PipelineDebounce.onFileSave filePath now
+  let onFileSave (filePath: string) (now: DateTimeOffset) (s: LiveTestCycleState) =
+    let db = s.Debounce |> TestCycleDebounce.onFileSave filePath now
     let ts = { s.TestState with RunPhases = s.TestState.RunPhases |> Map.map (fun _ p -> TestRunPhase.onEdit p) }
     { s with Debounce = db; TestState = ts; ActiveFile = Some filePath; LastTrigger = RunTrigger.FileSave }
 
-  let onFcsComplete (filePath: string) (refs: SymbolReference list) (s: LiveTestPipelineState) =
+  let onFcsComplete (filePath: string) (refs: SymbolReference list) (s: LiveTestCycleState) =
     let changes, newCache = FileAnalysisCache.update filePath refs s.AnalysisCache
     let newDepGraph =
       SymbolGraphBuilder.updateGraph
@@ -2146,19 +2146,19 @@ module LiveTestPipelineState =
         AnalysisCache = newCache
         AdaptiveDebounce = newDebounce }
 
-  let onFcsCanceled (s: LiveTestPipelineState) =
+  let onFcsCanceled (s: LiveTestCycleState) =
     { s with AdaptiveDebounce = AdaptiveDebounce.onFcsCanceled s.AdaptiveDebounce }
 
-  /// Ticks the debounce channels and produces pipeline effects.
+  /// Ticks the debounce channels and produces test cycle effects.
   /// Returns (effects, updatedState).
   /// Note: afterTypeCheck is NOT called here — it runs after FCS completes,
   /// not when the FCS request is emitted (avoids stale symbol data).
-  let tick (now: DateTimeOffset) (s: LiveTestPipelineState) =
+  let tick (now: DateTimeOffset) (s: LiveTestCycleState) =
     match s.ActiveFile with
     | None -> [], s
     | Some filePath ->
-      let (tsPayload, fcsPayload), db = s.Debounce |> PipelineDebounce.tick now
-      let effects = PipelineEffects.fromTick tsPayload fcsPayload filePath s.LastTiming
+      let (tsPayload, fcsPayload), db = s.Debounce |> TestCycleDebounce.tick now
+      let effects = TestCycleEffects.fromTick tsPayload fcsPayload filePath s.LastTiming
       effects, { s with Debounce = db }
 
   /// Handles an FCS type-check result: updates state and produces effects.
@@ -2168,13 +2168,13 @@ module LiveTestPipelineState =
   /// Cancelled: updates adaptive debounce backoff.
   let handleFcsResult
     (result: FcsTypeCheckResult)
-    (s: LiveTestPipelineState)
-    : PipelineEffect list * LiveTestPipelineState =
+    (s: LiveTestCycleState)
+    : TestCycleEffect list * LiveTestCycleState =
     match result with
     | FcsTypeCheckResult.Success (filePath, refs) ->
       let s1 = onFcsComplete filePath refs s
       let trigger = s.LastTrigger
-      let effects = PipelineEffects.afterTypeCheck s1.ChangedSymbols filePath trigger s1.DepGraph s1.TestState s1.LastTiming s1.InstrumentationMaps
+      let effects = TestCycleEffects.afterTypeCheck s1.ChangedSymbols filePath trigger s1.DepGraph s1.TestState s1.LastTiming s1.InstrumentationMaps
       effects, s1
     | FcsTypeCheckResult.Failed _ ->
       [], s
@@ -2184,13 +2184,13 @@ module LiveTestPipelineState =
   /// When the hot-reload hook identifies affected tests (via method name matching),
   /// look up full TestCase objects, filter by RunPolicy, and produce a RunAffectedTests
   /// effect if any tests should run. This bridges the gap between discovery and execution
-  /// for MCP-triggered evals (which don't go through the FCS type-check pipeline).
+  /// for MCP-triggered evals (which don't go through the FCS type-check cycle).
   let triggerExecutionForAffected
     (affectedIds: TestId array)
     (trigger: RunTrigger)
     (targetSession: string option)
-    (s: LiveTestPipelineState)
-    : PipelineEffect list =
+    (s: LiveTestCycleState)
+    : TestCycleEffect list =
     match Array.isEmpty affectedIds
           || s.TestState.Activation = LiveTestingActivation.Inactive
           || TestRunPhase.isSessionRunning targetSession s.TestState.RunPhases with
@@ -2210,7 +2210,7 @@ module LiveTestPipelineState =
           match targetSession |> Option.bind (fun sid -> Map.tryFind sid s.InstrumentationMaps) with
           | Some maps -> maps
           | None -> s.InstrumentationMaps |> Map.values |> Seq.collect id |> Array.ofSeq
-        [ PipelineEffect.RunAffectedTests(filtered, trigger, System.TimeSpan.Zero, System.TimeSpan.Zero, targetSession, sessionMaps) ]
+        [ TestCycleEffect.RunAffectedTests(filtered, trigger, System.TimeSpan.Zero, System.TimeSpan.Zero, targetSession, sessionMaps) ]
 
   /// Filter tests by optional criteria for explicit MCP-triggered runs.
   /// All filters are AND'd. None = no filter = match all.
@@ -2541,12 +2541,12 @@ module FileAnnotations =
       |> Array.ofList
 
   /// Project file annotations with coverage synthesized from the dependency graph.
-  /// Use this instead of `project` when the full pipeline state is available.
-  let projectWithCoverage (filePath: string) (pipelineState: LiveTestPipelineState) : FileAnnotations =
-    let depGraph = Some pipelineState.DepGraph
-    let base' = project filePath depGraph pipelineState.TestState
-    let allMaps = pipelineState.InstrumentationMaps |> Map.values |> Seq.collect id |> Array.ofSeq
-    let lineCovMap = CoverageBitmap.computeLineCoverageForFile filePath allMaps pipelineState.TestState.TestCoverageBitmaps
+  /// Use this instead of `project` when the full cycle state is available.
+  let projectWithCoverage (filePath: string) (cycleState: LiveTestCycleState) : FileAnnotations =
+    let depGraph = Some cycleState.DepGraph
+    let base' = project filePath depGraph cycleState.TestState
+    let allMaps = cycleState.InstrumentationMaps |> Map.values |> Seq.collect id |> Array.ofSeq
+    let lineCovMap = CoverageBitmap.computeLineCoverageForFile filePath allMaps cycleState.TestState.TestCoverageBitmaps
     let rangeLookup = buildRangeLookup allMaps
     let enrichWithRange (ca: CoverageLineAnnotation) =
       match Map.tryFind (filePath, ca.Line) rangeLookup with
@@ -2562,7 +2562,7 @@ module FileAnnotations =
     | true ->
       { base' with CoverageAnnotations = enrichWithBranch base'.CoverageAnnotations }
     | false ->
-      let synthesized = synthesizeCoverage filePath pipelineState.AnalysisCache pipelineState.DepGraph pipelineState.TestState.LastResults
+      let synthesized = synthesizeCoverage filePath cycleState.AnalysisCache cycleState.DepGraph cycleState.TestState.LastResults
       let coverageLineAnnotations =
         synthesized
         |> Array.map (fun ca ->
@@ -2575,7 +2575,7 @@ module FileAnnotations =
             EndColumn = endColumn
             Detail = ca.Status
             CoveringTestIds =
-              match Map.tryFind ca.Symbol pipelineState.DepGraph.SymbolToTests with
+              match Map.tryFind ca.Symbol cycleState.DepGraph.SymbolToTests with
               | Some ids -> ids
               | None -> [||]
             BranchCoverage = Map.tryFind ca.DefinitionLine lineCovMap })
