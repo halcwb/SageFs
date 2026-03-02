@@ -6,6 +6,7 @@ open Expecto.Flip
 open FsCheck
 open FsCheck.FSharp
 open SageFs
+open SageFs.WarmUp
 open SageFs.Features.Events
 open SageFs.Features.Replay
 open SageFs.SessionEvents
@@ -126,14 +127,14 @@ let genSessionEvent =
         Gen.listOfLength nsCount (gen {
           let! n = Gen.elements [ "System"; "SageFs"; "Expecto" ]
           let! isModule = Gen.elements [ true; false ]
-          return { OpenedBinding.Name = n; IsModule = isModule; Source = "warmup" }
+          return { OpenedBinding.Name = n; IsModule = isModule; Source = "warmup"; DurationMs = 0.0 }
         })
       return {
         SourceFilesScanned = files
         AssembliesLoaded = asms
         NamespacesOpened = nss
         FailedOpens = []
-        WarmupDurationMs = dur
+        PhaseTiming = { ScanSourceFilesMs = 0L; ScanAssembliesMs = 0L; OpenNamespacesMs = 0L; TotalMs = dur }
         StartedAt = DateTimeOffset.UtcNow
       }
     }

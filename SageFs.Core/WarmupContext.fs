@@ -1,18 +1,13 @@
 namespace SageFs
 
+open SageFs.WarmUp
+
 /// Represents an assembly that was loaded during warmup.
 type LoadedAssembly = {
   Name: string
   Path: string
   NamespaceCount: int
   ModuleCount: int
-}
-
-/// Represents a namespace or module that was opened during warmup.
-type OpenedBinding = {
-  Name: string
-  IsModule: bool
-  Source: string
 }
 
 /// File readiness in the FSI session.
@@ -35,8 +30,8 @@ type WarmupContext = {
   SourceFilesScanned: int
   AssembliesLoaded: LoadedAssembly list
   NamespacesOpened: OpenedBinding list
-  FailedOpens: (string * string) list
-  WarmupDurationMs: int64
+  FailedOpens: WarmupOpenFailure list
+  PhaseTiming: WarmupPhaseTiming
   StartedAt: System.DateTimeOffset
 }
 
@@ -46,7 +41,7 @@ module WarmupContext =
     AssembliesLoaded = []
     NamespacesOpened = []
     FailedOpens = []
-    WarmupDurationMs = 0L
+    PhaseTiming = { ScanSourceFilesMs = 0L; ScanAssembliesMs = 0L; OpenNamespacesMs = 0L; TotalMs = 0L }
     StartedAt = System.DateTimeOffset.UtcNow
   }
 
@@ -55,6 +50,9 @@ module WarmupContext =
 
   let totalFailedCount (ctx: WarmupContext) =
     ctx.FailedOpens |> List.length
+
+  let totalDurationMs (ctx: WarmupContext) =
+    ctx.PhaseTiming.TotalMs
 
   let assemblyNames (ctx: WarmupContext) =
     ctx.AssembliesLoaded |> List.map (fun a -> a.Name)
@@ -106,7 +104,7 @@ module SessionContext =
       |> List.length
     let total = ctx.FileStatuses |> List.length
     sprintf "%s | %d/%d files loaded | %d namespaces (%d failed) | %dms"
-      ctx.Status loaded total opened failed ctx.Warmup.WarmupDurationMs
+      ctx.Status loaded total opened failed (WarmupContext.totalDurationMs ctx.Warmup)
 
   let assemblyLine (asm: LoadedAssembly) =
     sprintf "📦 %s (%d ns, %d mod)" asm.Name asm.NamespaceCount asm.ModuleCount
@@ -132,7 +130,7 @@ module SessionContextTui =
     let nsCount = WarmupContext.totalOpenedCount ctx.Warmup
     let failCount = WarmupContext.totalFailedCount ctx.Warmup
     sprintf "[%s] %d/%d files | %d ns (%d fail) | %dms"
-      ctx.Status loaded total nsCount failCount ctx.Warmup.WarmupDurationMs
+      ctx.Status loaded total nsCount failCount (WarmupContext.totalDurationMs ctx.Warmup)
 
   let detailLines (ctx: SessionContext) =
     let lines = System.Collections.Generic.List<string>()
@@ -161,8 +159,15 @@ module SessionContextTui =
     match failed.Length > 0 with
     | true ->
       lines.Add(sprintf "── Failed (%d) ──" failed.Length)
-      for (name, err) in failed do
-        lines.Add(sprintf "✖ %s: %s" name err)
+      for f in failed do
+        let kind = match f.IsModule with | true -> "module" | false -> "namespace"
+        lines.Add(sprintf "✖ %s (%s): %s" f.Name kind f.ErrorMessage)
+        for d in f.Diagnostics do
+          let loc =
+            match d.FileName with
+            | Some fn -> sprintf "%s:%d:%d" fn d.StartLine d.StartColumn
+            | None -> "unknown"
+          lines.Add(sprintf "    FS%04d %s — %s" d.ErrorNumber loc d.Message)
     | false -> ()
 
     let files = ctx.FileStatuses

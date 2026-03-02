@@ -8,6 +8,7 @@ open System.Text.Json
 open Expecto
 open Expecto.Flip
 open SageFs
+open SageFs.WarmUp
 open SageFs.Affordances
 open SageFs.AppState
 open SageFs.Features.Diagnostics
@@ -22,11 +23,11 @@ let mkTestWarmup (nFiles: int) (fails: (string * string) list) : WarmupContext =
       { Name = "Expecto"; Path = "/lib/Expecto.dll"; NamespaceCount = 2; ModuleCount = 3 }
     ]
     NamespacesOpened = [
-      { Name = "System"; IsModule = false; Source = "auto" }
-      { Name = "Expecto"; IsModule = true; Source = "auto" }
+      { Name = "System"; IsModule = false; Source = "auto"; DurationMs = 0.0 }
+      { Name = "Expecto"; IsModule = true; Source = "auto"; DurationMs = 0.0 }
     ]
-    FailedOpens = fails
-    WarmupDurationMs = 150L
+    FailedOpens = fails |> List.map (fun (n, e) -> { Name = n; IsModule = false; ErrorMessage = e; Diagnostics = []; RetryCount = 1; DurationMs = 0.0 })
+    PhaseTiming = { ScanSourceFilesMs = 0L; ScanAssembliesMs = 0L; OpenNamespacesMs = 0L; TotalMs = 150L }
     StartedAt = DateTimeOffset.UtcNow }
 
 let mkTestSessionCtx id projects warmup files : SessionContext =

@@ -60,6 +60,7 @@ let loadSolution (logger: ILogger) (args: Arguments list) =
   let projects =
     match explicitProjects with
     | _ :: _ -> explicitProjects |> List.map Path.GetFullPath
+    | [] when not explicitSolutions.IsEmpty -> [] // --sln handles its own projects
     | [] ->
       Directory.EnumerateFiles directory
       |> Seq.filter (fun s -> s.EndsWith(".fsproj", System.StringComparison.Ordinal))

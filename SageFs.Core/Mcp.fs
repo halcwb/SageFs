@@ -136,7 +136,7 @@ module McpAdapter =
 
     lines.Add(
       sprintf "🔧 Warmup: %d assemblies, %d/%d namespaces opened, %dms"
-        asmCount opened (opened + failed) w.WarmupDurationMs)
+        asmCount opened (opened + failed) (WarmupContext.totalDurationMs w))
 
     match asmCount > 0 with
     | true ->
@@ -145,19 +145,31 @@ module McpAdapter =
         lines.Add(sprintf "    📦 %s (%d ns, %d modules)" a.Name a.NamespaceCount a.ModuleCount)
     | false -> ()
 
+    // Phase timing breakdown
+    let t = w.PhaseTiming
+    lines.Add(sprintf "  Timing: scan=%dms, asm=%dms, open=%dms, total=%dms"
+      t.ScanSourceFilesMs t.ScanAssembliesMs t.OpenNamespacesMs t.TotalMs)
+
     match w.NamespacesOpened.Length > 0 with
     | true ->
       lines.Add(sprintf "  Opened (%d):" w.NamespacesOpened.Length)
       for b in w.NamespacesOpened do
         let kind = match b.IsModule with | true -> "module" | false -> "namespace"
-        lines.Add(sprintf "    open %s // %s" b.Name kind)
+        lines.Add(sprintf "    open %s // %s (%.1fms)" b.Name kind b.DurationMs)
     | false -> ()
 
     match w.FailedOpens.Length > 0 with
     | true ->
       lines.Add(sprintf "  ⚠ Failed opens (%d):" w.FailedOpens.Length)
-      for (name, err) in w.FailedOpens do
-        lines.Add(sprintf "    ✖ %s — %s" name err)
+      for f in w.FailedOpens do
+        let kind = match f.IsModule with | true -> "module" | false -> "namespace"
+        lines.Add(sprintf "    ✖ %s (%s) — %s" f.Name kind f.ErrorMessage)
+        for d in f.Diagnostics do
+          let loc =
+            match d.FileName with
+            | Some fn -> sprintf "%s:%d:%d" fn d.StartLine d.StartColumn
+            | None -> "unknown"
+          lines.Add(sprintf "      FS%04d %s — %s" d.ErrorNumber loc d.Message)
     | false -> ()
 
     let files = ctx.FileStatuses

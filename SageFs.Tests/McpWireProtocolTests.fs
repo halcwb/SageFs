@@ -10,6 +10,7 @@ open System.Text.Json
 open Expecto
 open Expecto.Flip
 open SageFs
+open SageFs.WarmUp
 open SageFs.SessionEvents
 
 // ─── Tool Registration ────────────────────────────────────────────
@@ -97,13 +98,13 @@ let private minimalWarmup : WarmupContext =
     AssembliesLoaded = []
     NamespacesOpened = []
     FailedOpens = []
-    WarmupDurationMs = 0L
+    PhaseTiming = { ScanSourceFilesMs = 0L; ScanAssembliesMs = 0L; OpenNamespacesMs = 0L; TotalMs = 0L }
     StartedAt = DateTimeOffset.UtcNow }
 
 [<Tests>]
 let sessionEventSerializationTests = testList "SessionEvent serialization" [
   test "WarmupContextSnapshot has correct type and sessionId" {
-    let evt = WarmupContextSnapshot("sess-1", { minimalWarmup with SourceFilesScanned = 5; WarmupDurationMs = 100L })
+    let evt = WarmupContextSnapshot("sess-1", { minimalWarmup with SourceFilesScanned = 5; PhaseTiming = { ScanSourceFilesMs = 0L; ScanAssembliesMs = 0L; OpenNamespacesMs = 0L; TotalMs = 100L } })
     let json = serializeSessionEvent evt
     expectJsonField json "type" "warmup_context_snapshot"
     expectJsonField json "sessionId" "sess-1"
@@ -119,8 +120,8 @@ let sessionEventSerializationTests = testList "SessionEvent serialization" [
     let evt = WarmupContextSnapshot("s", {
       minimalWarmup with
         AssembliesLoaded = [{ Name = "A"; Path = "/a.dll"; NamespaceCount = 10; ModuleCount = 3 }]
-        NamespacesOpened = [{ Name = "System"; IsModule = false; Source = "auto" }]
-        FailedOpens = [("Bad", "err")]
+        NamespacesOpened = [{ Name = "System"; IsModule = false; Source = "auto"; DurationMs = 0.0 }]
+        FailedOpens = [{ Name = "Bad"; IsModule = false; ErrorMessage = "err"; Diagnostics = []; RetryCount = 1; DurationMs = 0.0 }]
     })
     let json = serializeSessionEvent evt
     let doc = JsonDocument.Parse(json)

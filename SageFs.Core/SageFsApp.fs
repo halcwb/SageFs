@@ -19,7 +19,7 @@ module WarmupBanner =
     lines.Add {
       Kind = OutputKind.System
       Text = sprintf "🔧 Warmup: %d assemblies, %d opened, %d failed, %dms"
-        asmCount opened failed w.WarmupDurationMs
+        asmCount opened failed (WarmupContext.totalDurationMs w)
       Timestamp = now; SessionId = sid
     }
     match asmCount > 0 with
@@ -41,12 +41,23 @@ module WarmupBanner =
           Timestamp = now; SessionId = sid
         }
     | false -> ()
-    for (name, err) in w.FailedOpens do
+    for f in w.FailedOpens do
+      let kind = match f.IsModule with | true -> "module" | false -> "namespace"
       lines.Add {
         Kind = OutputKind.Error
-        Text = sprintf "  ✖ Failed to open %s — %s" name err
+        Text = sprintf "  ✖ Failed to open %s (%s) — %s" f.Name kind f.ErrorMessage
         Timestamp = now; SessionId = sid
       }
+      for d in f.Diagnostics do
+        let loc =
+          match d.FileName with
+          | Some fn -> sprintf "%s:%d:%d" fn d.StartLine d.StartColumn
+          | None -> "unknown"
+        lines.Add {
+          Kind = OutputKind.Error
+          Text = sprintf "    FS%04d %s — %s" d.ErrorNumber loc d.Message
+          Timestamp = now; SessionId = sid
+        }
     match ctx.FileStatuses.Length > 0 with
     | true ->
       let loaded = ctx.FileStatuses |> List.filter (fun f -> f.Readiness = Loaded) |> List.length

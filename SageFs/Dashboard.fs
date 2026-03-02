@@ -1341,18 +1341,96 @@ let renderSessionContextPanel (ctx: SessionContext) =
       Elem.div [ Attr.style "font-size: 0.7rem;" ] [
         Elem.ul [ Attr.style "margin: 2px 0; padding-left: 1.2em;" ] [
           for b in opened do
-            Elem.li [] [ Elem.code [] [ Text.raw (SessionContext.openLine b) ] ]
+            Elem.li [] [
+              Elem.code [] [ Text.raw (SessionContext.openLine b) ]
+              match b.DurationMs > 0.0 with
+              | true ->
+                Elem.span [ Attr.style "color: #888; margin-left: 0.5em;" ] [
+                  Text.raw (sprintf "(%.1fms)" b.DurationMs)
+                ]
+              | false -> ()
+            ]
         ]
         match List.isEmpty failed with
         | false ->
-          Elem.div [ Attr.style "color: #e74c3c; margin-top: 0.3em;" ] [
-            Elem.strong [] [ Text.raw "Failed:" ]
-            Elem.ul [ Attr.style "margin: 2px 0; padding-left: 1.2em;" ] [
-              for (name, err) in failed do
-                Elem.li [] [ Text.raw (sprintf "✖ %s: %s" name err) ]
+          Elem.details [ Attr.create "open" ""; Attr.style "margin-top: 0.5em;" ] [
+            Elem.summary [ Attr.style "color: #e74c3c; cursor: pointer; font-weight: bold;" ] [
+              Text.raw (sprintf "⚠️ %d Failed Opens (expanded)" failed.Length)
+            ]
+            Elem.div [ Attr.style "padding-left: 0.5em;" ] [
+              for f in failed do
+                Elem.div [ Attr.style "margin: 0.4em 0; padding: 0.4em; background: rgba(231,76,60,0.08); border-left: 3px solid #e74c3c; border-radius: 3px;" ] [
+                  Elem.div [ Attr.style "font-weight: bold; color: #e74c3c;" ] [
+                    let kind = match f.IsModule with | true -> "module" | false -> "namespace"
+                    Text.raw (sprintf "✖ %s (%s)" f.Name kind)
+                    match f.RetryCount > 1 with
+                    | true ->
+                      Elem.span [ Attr.style "color: #888; font-weight: normal; margin-left: 0.5em;" ] [
+                        Text.raw (sprintf "(%d retries)" f.RetryCount)
+                      ]
+                    | false -> ()
+                  ]
+                  Elem.div [ Attr.style "color: #c0392b; margin-top: 0.2em;" ] [
+                    Text.raw f.ErrorMessage
+                  ]
+                  match List.isEmpty f.Diagnostics with
+                  | false ->
+                    Elem.ul [ Attr.style "margin: 0.2em 0; padding-left: 1.2em; list-style: none;" ] [
+                      for d in f.Diagnostics do
+                        let sevColor =
+                          match d.Severity with
+                          | "error" -> "#e74c3c"
+                          | "warning" -> "#f39c12"
+                          | _ -> "#3498db"
+                        Elem.li [ Attr.style (sprintf "color: %s; margin: 0.15em 0;" sevColor) ] [
+                          Elem.code [ Attr.style "background: rgba(0,0,0,0.1); padding: 0.1em 0.3em; border-radius: 2px; font-size: 0.65rem;" ] [
+                            Text.raw (sprintf "FS%04d" d.ErrorNumber)
+                          ]
+                          match d.FileName with
+                          | Some fn ->
+                            Elem.span [ Attr.style "margin-left: 0.4em; color: #888;" ] [
+                              Text.raw (sprintf "%s:%d:%d" fn d.StartLine d.StartColumn)
+                            ]
+                          | None -> ()
+                          Elem.span [ Attr.style "margin-left: 0.4em;" ] [
+                            Text.raw d.Message
+                          ]
+                        ]
+                    ]
+                  | true -> ()
+                ]
             ]
           ]
         | true -> ()
+      ]
+    ]
+
+  let timingSection =
+    let t = ctx.Warmup.PhaseTiming
+    Elem.details [] [
+      Elem.summary [ Attr.style "font-size: 0.75rem; cursor: pointer;" ] [
+        Text.raw (sprintf "⏱️ Warmup Timing (%dms total)" t.TotalMs)
+      ]
+      Elem.div [ Attr.style "font-size: 0.7rem; padding-left: 0.5em;" ] [
+        let phases = [
+          "Scan source files", t.ScanSourceFilesMs
+          "Scan assemblies", t.ScanAssembliesMs
+          "Open namespaces", t.OpenNamespacesMs
+        ]
+        let maxMs = match t.TotalMs with | 0L -> 1L | v -> v
+        for (label, ms) in phases do
+          let pct = float ms / float maxMs * 100.0
+          Elem.div [ Attr.style "margin: 0.2em 0;" ] [
+            Elem.div [ Attr.style "display: flex; align-items: center; gap: 0.5em;" ] [
+              Elem.span [ Attr.style "min-width: 120px;" ] [ Text.raw label ]
+              Elem.div [ Attr.style "flex: 1; height: 8px; background: rgba(0,0,0,0.1); border-radius: 4px; overflow: hidden;" ] [
+                Elem.div [ Attr.style (sprintf "width: %.1f%%; height: 100%%; background: #3498db; border-radius: 4px;" pct) ] []
+              ]
+              Elem.span [ Attr.style "min-width: 50px; text-align: right; color: #888;" ] [
+                Text.raw (sprintf "%dms" ms)
+              ]
+            ]
+          ]
       ]
     ]
 
@@ -1385,6 +1463,7 @@ let renderSessionContextPanel (ctx: SessionContext) =
         Text.raw (sprintf "🔍 Session Context: %s" summaryText)
       ]
       Elem.div [ Attr.style "padding-left: 0.5em; margin-top: 0.3em;" ] [
+        timingSection
         assembliesSection
         namespacesSection
         filesSection

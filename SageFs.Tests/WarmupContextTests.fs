@@ -3,6 +3,7 @@ module SageFs.Tests.WarmupContextTests
 open Expecto
 open Expecto.Flip
 open SageFs
+open SageFs.WarmUp
 open SageFs.McpAdapter
 
 let sampleAssembly: LoadedAssembly = {
@@ -19,13 +20,13 @@ let sampleCtx: WarmupContext = {
     { Name = "MyLib"; Path = "/bin/MyLib.dll"; NamespaceCount = 1; ModuleCount = 0 }
   ]
   NamespacesOpened = [
-    { Name = "System"; IsModule = false; Source = "reflection" }
-    { Name = "System.IO"; IsModule = false; Source = "reflection" }
-    { Name = "MyApp.Utils"; IsModule = true; Source = "source-scan" }
-    { Name = "MyApp.Domain"; IsModule = false; Source = "source-scan" }
+    { Name = "System"; IsModule = false; Source = "reflection"; DurationMs = 0.0 }
+    { Name = "System.IO"; IsModule = false; Source = "reflection"; DurationMs = 0.0 }
+    { Name = "MyApp.Utils"; IsModule = true; Source = "source-scan"; DurationMs = 0.0 }
+    { Name = "MyApp.Domain"; IsModule = false; Source = "source-scan"; DurationMs = 0.0 }
   ]
-  FailedOpens = [ ("BrokenNs", "type not found") ]
-  WarmupDurationMs = 1234L
+  FailedOpens = [ { Name = "BrokenNs"; IsModule = false; ErrorMessage = "type not found"; Diagnostics = []; RetryCount = 1; DurationMs = 0.0 } ]
+  PhaseTiming = { ScanSourceFilesMs = 0L; ScanAssembliesMs = 0L; OpenNamespacesMs = 0L; TotalMs = 1234L }
   StartedAt = System.DateTimeOffset.UtcNow
 }
 
@@ -124,9 +125,9 @@ let sessionContextTests = testList "SessionContext" [
     |> Expect.stringContains "has ns count" "3 ns"
 
   testCase "openLine shows open statement with kind" <| fun _ ->
-    SessionContext.openLine { Name = "System"; IsModule = false; Source = "reflection" }
+    SessionContext.openLine { Name = "System"; IsModule = false; Source = "reflection"; DurationMs = 0.0 }
     |> Expect.equal "namespace open" "open System // namespace via reflection"
-    SessionContext.openLine { Name = "MyApp.Utils"; IsModule = true; Source = "source-scan" }
+    SessionContext.openLine { Name = "MyApp.Utils"; IsModule = true; Source = "source-scan"; DurationMs = 0.0 }
     |> Expect.equal "module open" "open MyApp.Utils // module via source-scan"
 
   testCase "fileLine shows icon and path" <| fun _ ->
@@ -148,13 +149,13 @@ let sampleTuiSession: SessionContext = {
       { Name = "MyLib"; Path = "/bin/MyLib.dll"; NamespaceCount = 1; ModuleCount = 0 }
     ]
     NamespacesOpened = [
-      { Name = "System"; IsModule = false; Source = "MyApp" }
-      { Name = "System.IO"; IsModule = false; Source = "MyApp" }
-      { Name = "MyApp.Domain"; IsModule = true; Source = "MyApp" }
-      { Name = "MyLib.Utils"; IsModule = true; Source = "MyLib" }
+      { Name = "System"; IsModule = false; Source = "MyApp"; DurationMs = 0.0 }
+      { Name = "System.IO"; IsModule = false; Source = "MyApp"; DurationMs = 0.0 }
+      { Name = "MyApp.Domain"; IsModule = true; Source = "MyApp"; DurationMs = 0.0 }
+      { Name = "MyLib.Utils"; IsModule = true; Source = "MyLib"; DurationMs = 0.0 }
     ]
-    FailedOpens = [ ("Bogus.Ns", "Type not found") ]
-    WarmupDurationMs = 450L
+    FailedOpens = [ { Name = "Bogus.Ns"; IsModule = false; ErrorMessage = "Type not found"; Diagnostics = []; RetryCount = 1; DurationMs = 0.0 } ]
+    PhaseTiming = { ScanSourceFilesMs = 0L; ScanAssembliesMs = 0L; OpenNamespacesMs = 0L; TotalMs = 450L }
     StartedAt = System.DateTimeOffset.UtcNow
   }
   FileStatuses = [
@@ -234,7 +235,7 @@ let mkLlmAsm name ns mods : LoadedAssembly =
   { Name = name; Path = sprintf "%s.dll" name; NamespaceCount = ns; ModuleCount = mods }
 
 let mkLlmOpen name : OpenedBinding =
-  { Name = name; IsModule = false; Source = "warmup" }
+  { Name = name; IsModule = false; Source = "warmup"; DurationMs = 0.0 }
 
 let mkLlmFile path readiness : FileStatus =
   { Path = path; Readiness = readiness; LastLoadedAt = None; IsWatched = true }
@@ -251,7 +252,7 @@ let formatWarmupDetailForLlmTests = testList "formatWarmupDetailForLlm" [
         AssembliesLoaded = [mkLlmAsm "Asm1" 3 1; mkLlmAsm "Asm2" 2 0]
         NamespacesOpened = [mkLlmOpen "System"; mkLlmOpen "System.IO"]
         FailedOpens = []
-        WarmupDurationMs = 890L
+        PhaseTiming = { ScanSourceFilesMs = 0L; ScanAssembliesMs = 0L; OpenNamespacesMs = 0L; TotalMs = 890L }
         SourceFilesScanned = 5
         StartedAt = System.DateTimeOffset.UtcNow
       }
@@ -273,8 +274,8 @@ let formatWarmupDetailForLlmTests = testList "formatWarmupDetailForLlm" [
       Warmup = {
         AssembliesLoaded = [mkLlmAsm "Asm1" 3 1]
         NamespacesOpened = [mkLlmOpen "System"]
-        FailedOpens = [("Bad.Ns", "not found")]
-        WarmupDurationMs = 1200L
+        FailedOpens = [{ Name = "Bad.Ns"; IsModule = false; ErrorMessage = "not found"; Diagnostics = []; RetryCount = 1; DurationMs = 0.0 }]
+        PhaseTiming = { ScanSourceFilesMs = 0L; ScanAssembliesMs = 0L; OpenNamespacesMs = 0L; TotalMs = 1200L }
         SourceFilesScanned = 3
         StartedAt = System.DateTimeOffset.UtcNow
       }
@@ -295,7 +296,7 @@ let formatWarmupDetailForLlmTests = testList "formatWarmupDetailForLlm" [
         AssembliesLoaded = [mkLlmAsm "Asm1" 2 1]
         NamespacesOpened = [mkLlmOpen "System"]
         FailedOpens = []
-        WarmupDurationMs = 500L
+        PhaseTiming = { ScanSourceFilesMs = 0L; ScanAssembliesMs = 0L; OpenNamespacesMs = 0L; TotalMs = 500L }
         SourceFilesScanned = 2
         StartedAt = System.DateTimeOffset.UtcNow
       }
@@ -327,10 +328,10 @@ let formatWarmupDetailForLlmTests = testList "formatWarmupDetailForLlm" [
       Warmup = {
         AssembliesLoaded = [mkLlmAsm "A" 1 1]
         NamespacesOpened = [
-          { Name = "MyModule"; IsModule = true; Source = "warmup" }
+          { Name = "MyModule"; IsModule = true; Source = "warmup"; DurationMs = 0.0 }
         ]
         FailedOpens = []
-        WarmupDurationMs = 100L
+        PhaseTiming = { ScanSourceFilesMs = 0L; ScanAssembliesMs = 0L; OpenNamespacesMs = 0L; TotalMs = 100L }
         SourceFilesScanned = 1
         StartedAt = System.DateTimeOffset.UtcNow
       }

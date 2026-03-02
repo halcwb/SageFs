@@ -33,6 +33,7 @@ let serializeSessionEvent (evt: SessionEvent) : string =
   let writeInt (k: string) (v: int) = w.WriteNumber(k, v)
   let writeInt64 (k: string) (v: int64) = w.WriteNumber(k, v)
   let writeBool (k: string) (v: bool) = w.WriteBoolean(k, v)
+  let writeFloat (k: string) (v: float) = w.WriteNumber(k, v)
   w.WriteStartObject()
   match evt with
   | WarmupContextSnapshot(sid, ctx) ->
@@ -41,7 +42,14 @@ let serializeSessionEvent (evt: SessionEvent) : string =
     w.WritePropertyName("context")
     w.WriteStartObject()
     writeInt "sourceFilesScanned" ctx.SourceFilesScanned
-    writeInt64 "warmupDurationMs" ctx.WarmupDurationMs
+    writeInt64 "warmupDurationMs" (WarmupContext.totalDurationMs ctx)
+    w.WritePropertyName("phaseTiming")
+    w.WriteStartObject()
+    writeInt64 "scanSourceFilesMs" ctx.PhaseTiming.ScanSourceFilesMs
+    writeInt64 "scanAssembliesMs" ctx.PhaseTiming.ScanAssembliesMs
+    writeInt64 "openNamespacesMs" ctx.PhaseTiming.OpenNamespacesMs
+    writeInt64 "totalMs" ctx.PhaseTiming.TotalMs
+    w.WriteEndObject()
     w.WritePropertyName("assembliesLoaded")
     w.WriteStartArray()
     for a in ctx.AssembliesLoaded do
@@ -59,14 +67,33 @@ let serializeSessionEvent (evt: SessionEvent) : string =
       writeStr "name" ns.Name
       writeBool "isModule" ns.IsModule
       writeStr "source" ns.Source
+      writeFloat "durationMs" ns.DurationMs
       w.WriteEndObject()
     w.WriteEndArray()
     w.WritePropertyName("failedOpens")
     w.WriteStartArray()
-    for (name, err) in ctx.FailedOpens do
+    for f in ctx.FailedOpens do
       w.WriteStartObject()
-      writeStr "name" name
-      writeStr "error" err
+      writeStr "name" f.Name
+      writeBool "isModule" f.IsModule
+      writeStr "error" f.ErrorMessage
+      writeInt "retryCount" f.RetryCount
+      w.WritePropertyName("diagnostics")
+      w.WriteStartArray()
+      for d in f.Diagnostics do
+        w.WriteStartObject()
+        writeStr "message" d.Message
+        writeStr "severity" d.Severity
+        writeInt "errorNumber" d.ErrorNumber
+        match d.FileName with
+        | Some fn -> writeStr "fileName" fn
+        | None -> ()
+        writeInt "startLine" d.StartLine
+        writeInt "endLine" d.EndLine
+        writeInt "startColumn" d.StartColumn
+        writeInt "endColumn" d.EndColumn
+        w.WriteEndObject()
+      w.WriteEndArray()
       w.WriteEndObject()
     w.WriteEndArray()
     w.WriteEndObject()
