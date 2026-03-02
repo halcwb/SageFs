@@ -375,3 +375,13 @@ module TestCacheFile =
         TestCacheReader.read bytes
       with ex ->
         Error (sprintf "Failed to read test cache: %s" ex.Message)
+
+  /// Remove orphaned .sagetc.tmp files left by interrupted writes.
+  let cleanupOrphanedTmpFiles (sageFsDir: string) : int =
+    let dir = IO.Path.Combine(sageFsDir, "cache")
+    match IO.Directory.Exists(dir) with
+    | false -> 0
+    | true ->
+      let tmpFiles = IO.Directory.GetFiles(dir, "*.sagetc.tmp")
+      tmpFiles |> Array.iter (fun f -> try IO.File.Delete(f) with _ -> ())
+      tmpFiles.Length

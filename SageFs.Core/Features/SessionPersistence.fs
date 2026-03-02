@@ -474,3 +474,13 @@ module SessionFile =
       IO.Directory.GetFiles(dir, "*.sagefs")
       |> Array.map IO.Path.GetFileNameWithoutExtension
       |> Array.toList
+
+  /// Remove orphaned .sagefs.tmp files left by interrupted writes.
+  let cleanupOrphanedTmpFiles (sageFsDir: string) : int =
+    let dir = IO.Path.Combine(sageFsDir, "sessions")
+    match IO.Directory.Exists(dir) with
+    | false -> 0
+    | true ->
+      let tmpFiles = IO.Directory.GetFiles(dir, "*.sagefs.tmp")
+      tmpFiles |> Array.iter (fun f -> try IO.File.Delete(f) with _ -> ())
+      tmpFiles.Length

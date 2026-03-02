@@ -1232,6 +1232,65 @@ let versionAndValidationTests = testList "Version & Validation" [
     | Result.Ok _ -> failwith "Accepted unknown Outcome 42"
 ]
 
+// ─── Tmp File Cleanup ────────────────────────────────────────────
+
+let tmpCleanupTests = testList "tmp cleanup" [
+  test "removes .sagetc.tmp files" {
+    let tmpDir = IO.Path.Combine(IO.Path.GetTempPath(), sprintf "sagefs-test-cleanup-%d" (System.Random.Shared.Next()))
+    try
+      let cacheD = IO.Path.Combine(tmpDir, "cache")
+      IO.Directory.CreateDirectory(cacheD) |> ignore
+      IO.File.WriteAllText(IO.Path.Combine(cacheD, "abc123.sagetc.tmp"), "junk")
+      IO.File.WriteAllText(IO.Path.Combine(cacheD, "abc123.sagetc"), "real")
+      let removed = TestCacheFile.cleanupOrphanedTmpFiles tmpDir
+      removed |> Expect.equal "should remove 1 tmp file" 1
+      IO.File.Exists(IO.Path.Combine(cacheD, "abc123.sagetc.tmp"))
+      |> Expect.isFalse "tmp file should be gone"
+      IO.File.Exists(IO.Path.Combine(cacheD, "abc123.sagetc"))
+      |> Expect.isTrue "real file should remain"
+    finally
+      if IO.Directory.Exists(tmpDir) then IO.Directory.Delete(tmpDir, true)
+  }
+
+  test "removes .sagefs.tmp files" {
+    let tmpDir = IO.Path.Combine(IO.Path.GetTempPath(), sprintf "sagefs-test-cleanup-%d" (System.Random.Shared.Next()))
+    try
+      let sessD = IO.Path.Combine(tmpDir, "sessions")
+      IO.Directory.CreateDirectory(sessD) |> ignore
+      IO.File.WriteAllText(IO.Path.Combine(sessD, "sess1.sagefs.tmp"), "junk")
+      IO.File.WriteAllText(IO.Path.Combine(sessD, "sess2.sagefs.tmp"), "junk2")
+      IO.File.WriteAllText(IO.Path.Combine(sessD, "sess1.sagefs"), "real")
+      let removed = SessionFile.cleanupOrphanedTmpFiles tmpDir
+      removed |> Expect.equal "should remove 2 tmp files" 2
+      IO.File.Exists(IO.Path.Combine(sessD, "sess1.sagefs.tmp"))
+      |> Expect.isFalse "tmp1 should be gone"
+      IO.File.Exists(IO.Path.Combine(sessD, "sess2.sagefs.tmp"))
+      |> Expect.isFalse "tmp2 should be gone"
+      IO.File.Exists(IO.Path.Combine(sessD, "sess1.sagefs"))
+      |> Expect.isTrue "real file should remain"
+    finally
+      if IO.Directory.Exists(tmpDir) then IO.Directory.Delete(tmpDir, true)
+  }
+
+  test "returns 0 when no tmp files" {
+    let tmpDir = IO.Path.Combine(IO.Path.GetTempPath(), sprintf "sagefs-test-cleanup-%d" (System.Random.Shared.Next()))
+    try
+      let cacheD = IO.Path.Combine(tmpDir, "cache")
+      IO.Directory.CreateDirectory(cacheD) |> ignore
+      IO.File.WriteAllText(IO.Path.Combine(cacheD, "abc.sagetc"), "real")
+      let removed = TestCacheFile.cleanupOrphanedTmpFiles tmpDir
+      removed |> Expect.equal "should remove 0" 0
+    finally
+      if IO.Directory.Exists(tmpDir) then IO.Directory.Delete(tmpDir, true)
+  }
+
+  test "returns 0 when dir does not exist" {
+    let tmpDir = IO.Path.Combine(IO.Path.GetTempPath(), sprintf "sagefs-test-cleanup-nonexist-%d" (System.Random.Shared.Next()))
+    let removed = TestCacheFile.cleanupOrphanedTmpFiles tmpDir
+    removed |> Expect.equal "should remove 0 for nonexistent dir" 0
+  }
+]
+
 // ─── Combined ────────────────────────────────────────────────────
 
 [<Tests>]
@@ -1247,4 +1306,5 @@ let allBinaryFormatTests = testList "Binary Format" [
   daemonRoundtripPropertyTests
   robustnessTests
   versionAndValidationTests
+  tmpCleanupTests
 ]

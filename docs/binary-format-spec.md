@@ -470,3 +470,19 @@ A reader with version `R` can read a file if `R >= min_reader_version`.
 | Compression support | Yes (per-section zstd) | No |
 | String deduplication | Optional (DDUP) | N/A |
 | Stride extensibility | Yes (toc_entry_stride) | N/A |
+
+### 5.4 Reader Behavior (MUST)
+
+Readers **MUST** enforce the following after CRC validation:
+
+1. **Version gate**: If `min_reader_version > READER_VERSION`, return an error with both version numbers. Current reader versions: SFS = 3, STC = 1.
+2. **Enum validation**: Unknown enum byte values (e.g., `Outcome`, `InteractionKind`, `RefKind`) **MUST** produce an error, not a silent default. After the version check passes, unknown enum values indicate corruption, not forward-compatibility.
+3. **CRC mismatch**: If header CRC or any section CRC fails, return an error with expected and actual values.
+
+### 5.5 Atomic Writes
+
+Writers use write-to-tmp-then-rename to avoid partial writes:
+1. Write bytes to `<path>.tmp`
+2. `File.Move(<path>.tmp, <path>, overwrite=true)`
+
+On startup, readers **SHOULD** delete orphaned `.sagefs.tmp` and `.sagetc.tmp` files in their respective directories. These indicate interrupted writes and contain incomplete data.
