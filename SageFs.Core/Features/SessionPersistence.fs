@@ -15,6 +15,12 @@ module SessionBinaryTypes =
     | Directive = 2us
     | ScriptLoad = 3us
 
+  module InteractionKind =
+    let tryParse (v: uint16) : Result<InteractionKind, string> =
+      match v <= 3us with
+      | true -> Ok (LanguagePrimitives.EnumOfValue<uint16, InteractionKind> v)
+      | false -> Error (sprintf "Unknown InteractionKind value: %d" v)
+
   [<System.Flags>]
   type EntryFlags =
     | None = 0us
@@ -28,6 +34,12 @@ module SessionBinaryTypes =
     | NuGet = 1uy
     | IncludePath = 2uy
     | LoadedScript = 3uy
+
+  module RefKind =
+    let tryParse (b: byte) : Result<RefKind, string> =
+      match b <= 3uy with
+      | true -> Ok (LanguagePrimitives.EnumOfValue<byte, RefKind> b)
+      | false -> Error (sprintf "Unknown RefKind value: %d" b)
 
   type Interaction = {
     Code: string
@@ -253,10 +265,9 @@ module SessionBinaryReader =
       let pool = br.ReadBytes(poolSize)
       ok [
         for (codeOff, outputOff, tsMs, kind, flags, durMicros) in entries do
-          match kind <= 3us with
-          | true -> ()
-          | false -> failwithf "Unknown InteractionKind value: %d" kind
-          let validKind = LanguagePrimitives.EnumOfValue<uint16, InteractionKind> kind
+          match InteractionKind.tryParse kind with
+          | Error msg -> failwith msg
+          | Ok validKind ->
           yield {
             Code = readPoolString pool codeOff
             Output = readPoolString pool outputOff
@@ -275,10 +286,9 @@ module SessionBinaryReader =
       ok [
         for _ in 0 .. count - 1 do
           let rawKind = br.ReadByte()
-          match rawKind <= 3uy with
-          | true -> ()
-          | false -> failwithf "Unknown RefKind value: %d" rawKind
-          let validKind = LanguagePrimitives.EnumOfValue<byte, RefKind>(rawKind)
+          match RefKind.tryParse rawKind with
+          | Error msg -> failwith msg
+          | Ok validKind ->
           yield {
             Kind = validKind
             Path = BinaryPrimitives.readLpString br
@@ -303,6 +313,7 @@ module SessionBinaryReader =
         else
         let sectionCount = BitConverter.ToUInt32(data, 8) |> int
         let createdAtMs = BitConverter.ToInt64(data, 16)
+        let fileLen = uint64 data.Length
         let dirEntries = [
           for i in 0 .. sectionCount - 1 do
             let o = 64 + i * 20
@@ -313,6 +324,12 @@ module SessionBinaryReader =
               Size = BitConverter.ToUInt32(data, o + 12)
               Crc = BitConverter.ToUInt32(data, o + 16)
             } ]
+        // Bounds check: all section offset+size must be within the file
+        let oob = dirEntries |> List.tryFind (fun e ->
+          e.Offset >= fileLen || uint64 e.Size > fileLen || e.Offset + uint64 e.Size > fileLen)
+        match oob with
+        | Some e -> err (sprintf "Section offset %d + size %d exceeds file length %d" e.Offset e.Size fileLen)
+        | None ->
         let crcOk = dirEntries |> List.forall (fun e ->
           let p = data.[int e.Offset .. int e.Offset + int e.Size - 1]
           Crc32.computeAll p = e.Crc)

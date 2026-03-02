@@ -15,6 +15,12 @@ module TestCacheTypes =
     | Skip = 2uy
     | Error = 3uy
 
+  module Outcome =
+    let tryParse (b: byte) : Result<Outcome, string> =
+      match b <= 3uy with
+      | true -> Ok (LanguagePrimitives.EnumOfValue<byte, Outcome> b)
+      | false -> Error (sprintf "Unknown Outcome value: %d" b)
+
   type CoverageEntry = {
     TestId: string
     BitmapWordCount: uint32
@@ -174,10 +180,9 @@ module TestCacheReader =
       ok [ for _ in 0 .. count - 1 do
               let tid = BinaryPrimitives.readLpString br
               let rawOutcome = br.ReadByte()
-              match rawOutcome <= 3uy with
-              | true -> ()
-              | false -> failwithf "Unknown Outcome value: %d" rawOutcome
-              let outcome = LanguagePrimitives.EnumOfValue<byte, Outcome>(rawOutcome)
+              match Outcome.tryParse rawOutcome with
+              | Error msg -> failwith msg
+              | Ok outcome ->
               let dur = br.ReadUInt32()
               let msg = BinaryPrimitives.readLpStringOption br
               yield { TestId = tid; Outcome = outcome; DurationMs = dur; Message = msg } ]
@@ -215,6 +220,13 @@ module TestCacheReader =
         // Compute section sizes from offset gaps
         let sorted = dirEntries |> List.sortBy (fun e -> e.Offset)
         let totalSize = BitConverter.ToUInt64(data, 24)
+        let fileLen = uint64 data.Length
+
+        // Bounds check: all offsets must be within the file
+        let oob = sorted |> List.tryFind (fun e -> e.Offset >= fileLen)
+        match oob with
+        | Some e -> err (sprintf "Section offset %d exceeds file length %d" e.Offset fileLen)
+        | None ->
 
         let sectionPayloads =
           sorted |> List.mapi (fun i e ->
@@ -222,6 +234,10 @@ module TestCacheReader =
               match List.tryItem (i + 1) sorted with
               | Some next -> next.Offset
               | None -> totalSize
+            let endPos = int e.Offset + int (nextOff - e.Offset)
+            match endPos > data.Length with
+            | true -> (e, [||], false)
+            | false ->
             let size = int (nextOff - e.Offset)
             let payload = data.[int e.Offset .. int e.Offset + size - 1]
             let computed = Crc32.computeAll payload

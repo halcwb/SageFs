@@ -1291,6 +1291,203 @@ let tmpCleanupTests = testList "tmp cleanup" [
   }
 ]
 
+// ─── Bounds Check Tests ──────────────────────────────────────────
+
+let boundsCheckTests = testList "bounds check" [
+  test "STC rejects out-of-bounds offset" {
+    let data: StcData = {
+      CoverageEntries = [ { TestId = "t1"; BitmapWordCount = 1u; BitmapWords = [| 1UL |] } ]
+      ResultEntries = [ { TestId = "t1"; Outcome = Outcome.Pass; DurationMs = 10u; Message = None } ]
+      ImapGeneration = 1u; CreatedAtMs = 0L
+    }
+    let bytes = TestCacheWriter.write data
+    let patchedBytes = Array.copy bytes
+    // TOC entry: tag(4) + offset(8) + crc(4). Offset is at tocStart + 4
+    BitConverter.GetBytes(0xFFFFFFFF_FFFFFFFFuL)
+    |> fun b -> Array.Copy(b, 0, patchedBytes, 64 + 4, 8)
+    patchedBytes.[36] <- 0uy; patchedBytes.[37] <- 0uy; patchedBytes.[38] <- 0uy; patchedBytes.[39] <- 0uy
+    let crc = Crc32.computeAll patchedBytes
+    BitConverter.GetBytes(crc) |> fun b -> Array.Copy(b, 0, patchedBytes, 36, 4)
+    match TestCacheReader.read patchedBytes with
+    | Result.Error msg ->
+      (msg.Contains("offset") || msg.Contains("bounds") || msg.Contains("exceeds"))
+      |> Expect.isTrue (sprintf "error mentions bounds: '%s'" msg)
+    | Result.Ok _ -> failwith "Should have rejected out-of-bounds offset"
+  }
+
+  test "SFS rejects out-of-bounds offset" {
+    let data: SfsData = {
+      Meta = {
+        SageFsVersion = "1"; FSharpVersion = "1"; DotNetVersion = "1"
+        ProjectPath = "p"; WorkingDirectory = "w"
+        EvalCount = 0u; FailedEvalCount = 0u; SessionId = "s"
+      }
+      Interactions = [
+        { Code = "1;;"; Output = "1"; TimestampMs = 0L
+          Kind = InteractionKind.Interaction; Flags = EntryFlags.None; DurationMicros = 10u }
+      ]
+      References = [ { Kind = RefKind.DllPath; Path = "a.dll" } ]
+      CreatedAtMs = 0L
+    }
+    let bytes = SessionBinaryWriter.write data
+    let patchedBytes = Array.copy bytes
+    // SFS dir entry: tag(4) + flags(2) + offset(8) + size(4) + crc(4). Offset at tocStart + 6
+    for i in 0 .. 7 do patchedBytes.[64 + 6 + i] <- 0xFFuy
+    patchedBytes.[36] <- 0uy; patchedBytes.[37] <- 0uy; patchedBytes.[38] <- 0uy; patchedBytes.[39] <- 0uy
+    let crc = Crc32.computeAll patchedBytes
+    BitConverter.GetBytes(crc) |> fun b -> Array.Copy(b, 0, patchedBytes, 36, 4)
+    match SessionBinaryReader.read patchedBytes with
+    | Result.Error msg ->
+      (msg.Contains("offset") || msg.Contains("bounds") || msg.Contains("exceeds") || msg.Contains("Bounds"))
+      |> Expect.isTrue (sprintf "error mentions bounds: '%s'" msg)
+    | Result.Ok _ -> failwith "Should have rejected out-of-bounds offset"
+  }
+]
+
+// ─── Version Consistency Tests ───────────────────────────────────
+
+let versionConsistencyTests = testList "version consistency" [
+  test "STC version consistency" {
+    let data: StcData = StcData.empty
+    let bytes = TestCacheWriter.write data
+    let writerMinReader = BitConverter.ToUInt16(bytes, 6)
+    writerMinReader |> Expect.equal "writer min_reader matches reader constant" TestCacheReader.readerVersion
+  }
+
+  test "SFS version consistency" {
+    let data: SfsData = {
+      Meta = {
+        SageFsVersion = "1"; FSharpVersion = "1"; DotNetVersion = "1"
+        ProjectPath = "p"; WorkingDirectory = "w"
+        EvalCount = 0u; FailedEvalCount = 0u; SessionId = "s"
+      }
+      Interactions = []; References = []; CreatedAtMs = 0L
+    }
+    let bytes = SessionBinaryWriter.write data
+    let writerMinReader = BitConverter.ToUInt16(bytes, 6)
+    writerMinReader |> Expect.equal "writer min_reader matches reader constant" SessionBinaryReader.readerVersion
+  }
+]
+
+// ─── Golden File Tests ───────────────────────────────────────────
+
+let goldenFileTests = testList "golden files" [
+  test "STC writer is deterministic" {
+    let data: StcData = {
+      CoverageEntries = [
+        { TestId = "test-alpha"; BitmapWordCount = 2u; BitmapWords = [| 0xDEADBEEF_CAFEBABEuL; 0x0102030405060708UL |] }
+        { TestId = "test-beta"; BitmapWordCount = 1u; BitmapWords = [| 0UL |] }
+      ]
+      ResultEntries = [
+        { TestId = "test-alpha"; Outcome = Outcome.Pass; DurationMs = 100u; Message = None }
+        { TestId = "test-beta"; Outcome = Outcome.Fail; DurationMs = 200u; Message = Some "assertion failed" }
+      ]
+      ImapGeneration = 42u; CreatedAtMs = 1709337600000L
+    }
+    let bytes1 = TestCacheWriter.write data
+    let bytes2 = TestCacheWriter.write data
+    bytes1 |> Expect.equal "identical input -> identical bytes" bytes2
+  }
+
+  test "SFS writer is deterministic" {
+    let data: SfsData = {
+      Meta = {
+        SageFsVersion = "0.5.409"; FSharpVersion = "10.0.100"; DotNetVersion = "10.0.0"
+        ProjectPath = "C:\\Projects\\MyApp.fsproj"; WorkingDirectory = "C:\\Projects"
+        EvalCount = 3u; FailedEvalCount = 1u; SessionId = "golden-session-1"
+      }
+      Interactions = [
+        { Code = "let x = 42;;"; Output = "val x: int = 42"; TimestampMs = 1000L
+          Kind = InteractionKind.Interaction; Flags = EntryFlags.None; DurationMicros = 5000u }
+      ]
+      References = [ { Kind = RefKind.DllPath; Path = "mscorlib.dll" } ]
+      CreatedAtMs = 1709337600000L
+    }
+    let bytes1 = SessionBinaryWriter.write data
+    let bytes2 = SessionBinaryWriter.write data
+    bytes1 |> Expect.equal "identical input -> identical bytes" bytes2
+  }
+
+  test "STC golden roundtrip" {
+    let data: StcData = {
+      CoverageEntries = [
+        { TestId = "golden-test"; BitmapWordCount = 1u; BitmapWords = [| 0xABCD1234_5678EF00UL |] }
+      ]
+      ResultEntries = [
+        { TestId = "golden-test"; Outcome = Outcome.Pass; DurationMs = 50u; Message = None }
+      ]
+      ImapGeneration = 7u; CreatedAtMs = 1709337600000L
+    }
+    let bytes = TestCacheWriter.write data
+    Text.Encoding.ASCII.GetString(bytes, 0, 4) |> Expect.equal "magic" "STC1"
+    match TestCacheReader.read bytes with
+    | Result.Ok rt -> rt |> Expect.equal "roundtrip" data
+    | Result.Error e -> failwith e
+  }
+
+  test "SFS golden roundtrip" {
+    let data: SfsData = {
+      Meta = {
+        SageFsVersion = "0.5.409"; FSharpVersion = "10.0.100"; DotNetVersion = "10.0.0"
+        ProjectPath = "golden.fsproj"; WorkingDirectory = "/tmp"
+        EvalCount = 1u; FailedEvalCount = 0u; SessionId = "golden-1"
+      }
+      Interactions = [
+        { Code = "1+1;;"; Output = "val it: int = 2"; TimestampMs = 0L
+          Kind = InteractionKind.Interaction; Flags = EntryFlags.None; DurationMicros = 100u }
+      ]
+      References = [ { Kind = RefKind.DllPath; Path = "mscorlib.dll" } ]
+      CreatedAtMs = 1709337600000L
+    }
+    let bytes = SessionBinaryWriter.write data
+    Text.Encoding.ASCII.GetString(bytes, 0, 4) |> Expect.equal "magic" "SFS3"
+    match SessionBinaryReader.read bytes with
+    | Result.Ok rt -> rt |> Expect.equal "roundtrip" data
+    | Result.Error e -> failwith e
+  }
+]
+
+// ─── Centralized Enum tryParse Tests ─────────────────────────────
+
+let enumTryParseTests = testList "centralized enum tryParse" [
+  test "Outcome.tryParse valid range" {
+    for b in 0uy .. 3uy do
+      match Outcome.tryParse b with
+      | Result.Ok _ -> ()
+      | Result.Error e -> failwith (sprintf "Valid byte %d rejected: %s" b e)
+  }
+  test "Outcome.tryParse invalid byte" {
+    for b in [ 4uy; 128uy; 255uy ] do
+      match Outcome.tryParse b with
+      | Result.Error _ -> ()
+      | Result.Ok v -> failwith (sprintf "Invalid byte %d accepted as %A" b v)
+  }
+  test "InteractionKind.tryParse valid range" {
+    for v in 0us .. 3us do
+      match InteractionKind.tryParse v with
+      | Result.Ok _ -> ()
+      | Result.Error e -> failwith (sprintf "Valid value %d rejected: %s" v e)
+  }
+  test "InteractionKind.tryParse invalid" {
+    for v in [ 4us; 100us; 65535us ] do
+      match InteractionKind.tryParse v with
+      | Result.Error _ -> ()
+      | Result.Ok k -> failwith (sprintf "Invalid value %d accepted as %A" v k)
+  }
+  test "RefKind.tryParse valid range" {
+    for b in 0uy .. 3uy do
+      match RefKind.tryParse b with
+      | Result.Ok _ -> ()
+      | Result.Error e -> failwith (sprintf "Valid byte %d rejected: %s" b e)
+  }
+  test "RefKind.tryParse invalid byte" {
+    for b in [ 4uy; 128uy; 255uy ] do
+      match RefKind.tryParse b with
+      | Result.Error _ -> ()
+      | Result.Ok v -> failwith (sprintf "Invalid byte %d accepted as %A" b v)
+  }
+]
+
 // ─── Combined ────────────────────────────────────────────────────
 
 [<Tests>]
@@ -1307,4 +1504,8 @@ let allBinaryFormatTests = testList "Binary Format" [
   robustnessTests
   versionAndValidationTests
   tmpCleanupTests
+  boundsCheckTests
+  versionConsistencyTests
+  goldenFileTests
+  enumTryParseTests
 ]
