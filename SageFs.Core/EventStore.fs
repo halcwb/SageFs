@@ -115,7 +115,7 @@ let countEvents (store: IDocumentStore) (streamId: string) =
 let createSessionId () =
   sprintf "session-%s" (Guid.NewGuid().ToString("N").[..7])
 
-/// Persistence abstraction: InMemory (no-op) or PostgreSQL-backed.
+/// Persistence abstraction: PostgreSQL-backed via Marten.
 type EventPersistence = {
   AppendEvents: string -> SageFsEvent list -> Threading.Tasks.Task<Result<unit, string>>
   FetchStream: string -> Threading.Tasks.Task<(DateTimeOffset * SageFsEvent) list>
@@ -123,24 +123,6 @@ type EventPersistence = {
 }
 
 module EventPersistence =
-  let inMemory () : EventPersistence =
-    let streams = System.Collections.Concurrent.ConcurrentDictionary<string, (DateTimeOffset * SageFsEvent) list>()
-    {
-      AppendEvents = fun streamId events ->
-        let now = DateTimeOffset.UtcNow
-        let stamped = events |> List.map (fun e -> (now, e))
-        streams.AddOrUpdate(streamId, stamped, fun _ existing -> existing @ stamped) |> ignore
-        Threading.Tasks.Task.FromResult (Ok ())
-      FetchStream = fun streamId ->
-        match streams.TryGetValue streamId with
-        | true, events -> Threading.Tasks.Task.FromResult events
-        | false, _ -> Threading.Tasks.Task.FromResult []
-      CountEvents = fun streamId ->
-        match streams.TryGetValue streamId with
-        | true, events -> Threading.Tasks.Task.FromResult events.Length
-        | false, _ -> Threading.Tasks.Task.FromResult 0
-    }
-
   let postgres (store: IDocumentStore) : EventPersistence = {
     AppendEvents = fun streamId events -> appendEvents store streamId events
     FetchStream = fun streamId -> fetchStream store streamId

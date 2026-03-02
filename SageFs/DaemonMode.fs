@@ -72,31 +72,16 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
 
   log.LogInformation("SageFs daemon v{Version} starting on port {Port}", version, mcpPort)
 
-  // Set up persistence: InMemory by default, PostgreSQL with --persist or SAGEFS_CONNECTION_STRING
-  let hasPersist = args |> List.exists (function Args.Arguments.Persist -> true | _ -> false)
-  let envConnStr = System.Environment.GetEnvironmentVariable("SAGEFS_CONNECTION_STRING")
+  // Set up persistence: PostgreSQL is required (via Docker auto-start or SAGEFS_CONNECTION_STRING)
   let persistence =
-    match hasPersist || not (System.String.IsNullOrEmpty envConnStr) with
-    | true ->
-      let connectionString =
-        match System.String.IsNullOrEmpty envConnStr with
-        | false ->
-          log.LogInformation("Using PostgreSQL from SAGEFS_CONNECTION_STRING")
-          Some envConnStr
-        | true ->
-          log.LogInformation("--persist: starting PostgreSQL via Docker...")
-          PostgresInfra.getOrStartPostgres ()
-      match connectionString with
-      | Some connStr ->
-        let store = SageFs.EventStore.configureStore connStr
-        log.LogInformation("Event persistence: PostgreSQL")
-        SageFs.EventStore.EventPersistence.postgres store
-      | None ->
-        log.LogWarning("PostgreSQL unavailable, falling back to InMemory mode")
-        SageFs.EventStore.EventPersistence.inMemory ()
-    | false ->
-      log.LogInformation("Event persistence: InMemory (use --persist for PostgreSQL)")
-      SageFs.EventStore.EventPersistence.inMemory ()
+    match PostgresInfra.getOrStartPostgres () with
+    | Ok connStr ->
+      let store = SageFs.EventStore.configureStore connStr
+      log.LogInformation("Event persistence: PostgreSQL")
+      SageFs.EventStore.EventPersistence.postgres store
+    | Error msg ->
+      log.LogCritical("PostgreSQL is required: {Error}", msg)
+      failwith msg
   let daemonStreamId = "daemon-sessions"
 
   // Handle --prune: mark all alive sessions as stopped and exit

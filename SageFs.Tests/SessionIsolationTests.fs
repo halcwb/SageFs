@@ -258,7 +258,12 @@ module WorkingDirRoutingPriority =
 
   let mkCtx (sessions: WorkerProtocol.SessionInfo list) (proxies: Map<string, WorkerProtocol.SessionProxy>) : McpContext =
     let sessionMap = ConcurrentDictionary<string, string>()
-    { Persistence = SageFs.EventStore.EventPersistence.inMemory (); DiagnosticsChanged = Unchecked.defaultof<_>
+    let stubPersistence : SageFs.EventStore.EventPersistence = {
+      AppendEvents = fun _ _ -> Task.FromResult(Ok ())
+      FetchStream = fun _ -> Task.FromResult([])
+      CountEvents = fun _ -> Task.FromResult(0)
+    }
+    { Persistence = stubPersistence; DiagnosticsChanged = Unchecked.defaultof<_>
       StateChanged = None
       SessionOps =
         { CreateSession = fun _ _ -> Task.FromResult(Error(SageFsError.SessionCreationFailed "n/a"))

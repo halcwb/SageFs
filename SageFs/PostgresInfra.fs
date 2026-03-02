@@ -3,7 +3,7 @@ module SageFs.Server.PostgresInfra
 open System
 open Testcontainers.PostgreSql
 
-/// Auto-start Postgres if no explicit connection string is provided.
+/// Get or auto-start Postgres. Returns Result — failure is fatal.
 /// .WithReuse(true) means the container survives SageFs process exit
 /// and is reused on next launch (instant restart, no 2s startup).
 let getOrStartPostgres () =
@@ -21,14 +21,8 @@ let getOrStartPostgres () =
           .Build()
       container.StartAsync().GetAwaiter().GetResult()
       let connStr = container.GetConnectionString()
-      printfn "✓ Event store: PostgreSQL (auto-started via Docker)"
-      Some connStr
+      Ok connStr
     with ex ->
-      eprintfn "⚠ Docker is not available — session history will not be persisted."
-      eprintfn "  Install and start Docker for persistent session resume across restarts."
-      eprintfn "  Alternatively, set SageFs_CONNECTION_STRING to an existing PostgreSQL instance."
-      eprintfn "  Detail: %s" ex.Message
-      None
+      Error (sprintf "PostgreSQL is required but unavailable. Install and start Docker, or set SAGEFS_CONNECTION_STRING.\n  Detail: %s" ex.Message)
   | connectionString ->
-    printfn "✓ Event store: PostgreSQL (explicit connection)"
-    Some connectionString
+    Ok connectionString
