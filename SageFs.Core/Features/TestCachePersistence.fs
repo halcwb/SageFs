@@ -128,12 +128,11 @@ module TestCacheWriter =
     bw.Write(tresPayload)
     bw.Flush()
 
-    // Patch header CRC
+    // Patch header CRC — covers entire file (header + TOC + payloads)
     let result = ms.ToArray()
-    let hdr = Array.zeroCreate<byte> 64
-    Array.Copy(result, hdr, 64)
-    hdr.[36] <- 0uy; hdr.[37] <- 0uy; hdr.[38] <- 0uy; hdr.[39] <- 0uy
-    let hcrc = Crc32.computeAll hdr
+    let forCrc = Array.copy result
+    forCrc.[36] <- 0uy; forCrc.[37] <- 0uy; forCrc.[38] <- 0uy; forCrc.[39] <- 0uy
+    let hcrc = Crc32.computeAll forCrc
     let cb = BitConverter.GetBytes(hcrc)
     Array.Copy(cb, 0, result, 36, 4)
     result
@@ -170,7 +169,11 @@ module TestCacheReader =
     let count = br.ReadUInt32() |> int
     [ for _ in 0 .. count - 1 do
         let tid = BinaryPrimitives.readLpString br
-        let outcome = LanguagePrimitives.EnumOfValue<byte, Outcome>(br.ReadByte())
+        let rawOutcome = br.ReadByte()
+        let outcome =
+          match rawOutcome <= 3uy with
+          | true -> LanguagePrimitives.EnumOfValue<byte, Outcome>(rawOutcome)
+          | false -> Outcome.Fail // default to Fail for unknown values
         let dur = br.ReadUInt32()
         let msg = BinaryPrimitives.readLpStringOption br
         yield { TestId = tid; Outcome = outcome; DurationMs = dur; Message = msg } ]
@@ -181,11 +184,10 @@ module TestCacheReader =
       err "Invalid magic: expected STC1"
     else
       let storedCrc = BitConverter.ToUInt32(data, 36)
-      let hdr = Array.zeroCreate<byte> 64
-      Array.Copy(data, hdr, 64)
-      hdr.[36] <- 0uy; hdr.[37] <- 0uy; hdr.[38] <- 0uy; hdr.[39] <- 0uy
-      if storedCrc <> Crc32.computeAll hdr then
-        err (sprintf "Header CRC mismatch: stored=%08X computed=%08X" storedCrc (Crc32.computeAll hdr))
+      let forCrc = Array.copy data
+      forCrc.[36] <- 0uy; forCrc.[37] <- 0uy; forCrc.[38] <- 0uy; forCrc.[39] <- 0uy
+      if storedCrc <> Crc32.computeAll forCrc then
+        err (sprintf "Header CRC mismatch: stored=%08X computed=%08X" storedCrc (Crc32.computeAll forCrc))
       else
         let sectionCount = BitConverter.ToUInt32(data, 8) |> int
         let createdAtMs = BitConverter.ToInt64(data, 16)
@@ -345,10 +347,7 @@ module TestCacheFile =
       let tmpPath = path + ".tmp"
       let bytes = TestCacheWriter.write data
       IO.File.WriteAllBytes(tmpPath, bytes)
-      match IO.File.Exists(path) with
-      | true -> IO.File.Delete(path)
-      | false -> ()
-      IO.File.Move(tmpPath, path)
+      IO.File.Move(tmpPath, path, overwrite = true)
       Ok path
     with ex ->
       Error (sprintf "Failed to save test cache: %s" ex.Message)

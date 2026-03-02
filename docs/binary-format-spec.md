@@ -87,7 +87,7 @@ Offset  Size  Type      Field                 Description
 0x10    8     i64       created_at_ms         Unix epoch milliseconds
 0x18    8     u64       total_file_size       Total file size in bytes
 0x20    4     u32       interaction_count     Total interactions
-0x24    4     u32       header_crc32          CRC-32 of header (§2.10)
+0x24    4     u32       header_crc32          CRC-32 of entire file (§2.10)
 0x28    4     u32       string_dedup_count    Unique strings in dedup table (0 if no dedup)
 0x2C    4     u32       reserved_1            Must be 0
 0x30    8     u64       reserved_2            Must be 0
@@ -332,7 +332,7 @@ Offset  Size  Type      Field                 Description
 0x10    8     i64       created_at_ms         Unix epoch milliseconds
 0x18    8     u64       total_file_size       Total file size in bytes
 0x20    4     u32       test_count            Total test entries (coverage + results)
-0x24    4     u32       header_crc32          CRC-32 of header (§4)
+0x24    4     u32       header_crc32          CRC-32 of entire file (§4)
 0x28    4     u32       imap_generation       Instrumentation map generation counter
 0x2C    20    u8[20]    reserved              Must be zero
 ```
@@ -412,12 +412,16 @@ Both formats use CRC-32 (ISO 3309 / ITU-T V.42, polynomial `0xEDB88320` reflecte
 
 ### 4.1 Header CRC
 
-1. Write all 64 header bytes to a buffer
+The header CRC covers the **entire file** (header + TOC + all section payloads), not just the 64-byte header. This ensures the TOC directory entries are also integrity-protected.
+
+1. Copy the complete file bytes to a buffer
 2. Zero bytes at offsets `0x24–0x27` (the CRC field itself)
-3. Compute `CRC32(buffer[0..63])`
+3. Compute `CRC32(buffer[0..file_size-1])`
 4. Store result at offset `0x24`
 
-Readers validate by copying the header, zeroing `[0x24..0x27]`, computing CRC, and comparing to the stored value.
+Readers validate by copying the entire file, zeroing `[0x24..0x27]`, computing CRC, and comparing to the stored value.
+
+> **Rationale:** An earlier design computed CRC over only the 64-byte header, leaving the TOC directory entries (section tags, offsets, per-section CRCs) unprotected. A bit flip in the TOC region could silently corrupt file interpretation. The full-file approach matches formats like PNG and ZIP.
 
 ### 4.2 Section CRC
 

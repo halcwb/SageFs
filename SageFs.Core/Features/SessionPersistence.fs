@@ -83,7 +83,7 @@ module SessionBinaryWriter =
   open SessionBinaryTypes
 
   let private buildStringPool (strings: string list) : byte[] * Map<string, uint32> =
-    let ms = new MemoryStream()
+    use ms = new MemoryStream()
     let mutable offsets = Map.empty<string, uint32>
     for s in strings do
       match Map.tryFind s offsets with
@@ -185,12 +185,11 @@ module SessionBinaryWriter =
     bw.Write(refsP)
     bw.Flush()
 
-    // Patch header CRC
+    // Patch header CRC — covers entire file (header + TOC + payloads)
     let result = ms.ToArray()
-    let hdr = Array.zeroCreate<byte> 64
-    Array.Copy(result, hdr, 64)
-    hdr.[36] <- 0uy; hdr.[37] <- 0uy; hdr.[38] <- 0uy; hdr.[39] <- 0uy
-    let hcrc = Crc32.computeAll hdr
+    let forCrc = Array.copy result
+    forCrc.[36] <- 0uy; forCrc.[37] <- 0uy; forCrc.[38] <- 0uy; forCrc.[39] <- 0uy
+    let hcrc = Crc32.computeAll forCrc
     let cb = BitConverter.GetBytes(hcrc)
     Array.Copy(cb, 0, result, 36, 4)
     result
@@ -210,8 +209,13 @@ module SessionBinaryReader =
 
   let private readPoolString (pool: byte[]) (offset: uint32) : string =
     let off = int offset
-    let len = BitConverter.ToUInt32(pool, off) |> int
-    Encoding.UTF8.GetString(pool, off + 4, len)
+    match off + 4 > pool.Length with
+    | true -> failwith (sprintf "String pool offset %d exceeds pool size %d" off pool.Length)
+    | false ->
+      let len = BitConverter.ToUInt32(pool, off) |> int
+      match off + 4 + len > pool.Length with
+      | true -> failwith (sprintf "String pool entry at %d (len %d) exceeds pool size %d" off len pool.Length)
+      | false -> Encoding.UTF8.GetString(pool, off + 4, len)
 
   let private parseMeta (payload: byte[]) : Result<SessionMeta, string> =
     try
@@ -246,11 +250,15 @@ module SessionBinaryReader =
       let pool = br.ReadBytes(poolSize)
       ok [
         for (codeOff, outputOff, tsMs, kind, flags, durMicros) in entries do
+          let validKind =
+            match kind <= 3us with
+            | true -> LanguagePrimitives.EnumOfValue<uint16, InteractionKind> kind
+            | false -> InteractionKind.Interaction
           yield {
             Code = readPoolString pool codeOff
             Output = readPoolString pool outputOff
             TimestampMs = tsMs
-            Kind = LanguagePrimitives.EnumOfValue<uint16, InteractionKind> kind
+            Kind = validKind
             Flags = LanguagePrimitives.EnumOfValue<uint16, EntryFlags> flags
             DurationMicros = durMicros
           } ]
@@ -263,8 +271,13 @@ module SessionBinaryReader =
       let count = br.ReadUInt32() |> int
       ok [
         for _ in 0 .. count - 1 do
+          let rawKind = br.ReadByte()
+          let validKind =
+            match rawKind <= 3uy with
+            | true -> LanguagePrimitives.EnumOfValue<byte, RefKind>(rawKind)
+            | false -> RefKind.DllPath
           yield {
-            Kind = LanguagePrimitives.EnumOfValue<byte, RefKind>(br.ReadByte())
+            Kind = validKind
             Path = BinaryPrimitives.readLpString br
           } ]
     with ex -> err (sprintf "REFS parse error: %s" ex.Message)
@@ -275,11 +288,10 @@ module SessionBinaryReader =
       err "Invalid magic: expected SFS3"
     else
       let storedCrc = BitConverter.ToUInt32(data, 36)
-      let hdr = Array.zeroCreate<byte> 64
-      Array.Copy(data, hdr, 64)
-      hdr.[36] <- 0uy; hdr.[37] <- 0uy; hdr.[38] <- 0uy; hdr.[39] <- 0uy
-      if storedCrc <> Crc32.computeAll hdr then
-        err (sprintf "Header CRC mismatch: stored=%08X computed=%08X" storedCrc (Crc32.computeAll hdr))
+      let forCrc = Array.copy data
+      forCrc.[36] <- 0uy; forCrc.[37] <- 0uy; forCrc.[38] <- 0uy; forCrc.[39] <- 0uy
+      if storedCrc <> Crc32.computeAll forCrc then
+        err (sprintf "Header CRC mismatch: stored=%08X computed=%08X" storedCrc (Crc32.computeAll forCrc))
       else
         let sectionCount = BitConverter.ToUInt32(data, 8) |> int
         let createdAtMs = BitConverter.ToInt64(data, 16)
@@ -428,10 +440,7 @@ module SessionFile =
       let tmpPath = path + ".tmp"
       let bytes = SessionBinaryWriter.write data
       IO.File.WriteAllBytes(tmpPath, bytes)
-      match IO.File.Exists(path) with
-      | true -> IO.File.Delete(path)
-      | false -> ()
-      IO.File.Move(tmpPath, path)
+      IO.File.Move(tmpPath, path, overwrite = true)
       Ok path
     with ex ->
       Error (sprintf "Failed to save session: %s" ex.Message)

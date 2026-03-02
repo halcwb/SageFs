@@ -283,11 +283,10 @@ let stcTests = testList "STC v1" [
     "header CRC validates" <|
       Prop.forAll (Arb.fromGen genStcData) (fun data ->
         let bytes = TestCacheWriter.write data
-        let hdr = Array.zeroCreate<byte> 64
-        Array.Copy(bytes, hdr, 64)
-        let storedCrc = BitConverter.ToUInt32(hdr, 36)
-        hdr.[36] <- 0uy; hdr.[37] <- 0uy; hdr.[38] <- 0uy; hdr.[39] <- 0uy
-        Crc32.computeAll hdr = storedCrc)
+        let storedCrc = BitConverter.ToUInt32(bytes, 36)
+        let forCrc = Array.copy bytes
+        forCrc.[36] <- 0uy; forCrc.[37] <- 0uy; forCrc.[38] <- 0uy; forCrc.[39] <- 0uy
+        Crc32.computeAll forCrc = storedCrc)
 
   testPropertyWithConfig { FsCheckConfig.defaultConfig with maxTest = 100 }
     "total_file_size field matches actual" <|
@@ -404,11 +403,10 @@ let sfsTests = testList "SFS v3" [
     "header CRC validates" <|
       Prop.forAll (Arb.fromGen genSfsData) (fun data ->
         let bytes = SessionBinaryWriter.write data
-        let hdr = Array.zeroCreate<byte> 64
-        Array.Copy(bytes, hdr, 64)
-        let storedCrc = BitConverter.ToUInt32(hdr, 36)
-        hdr.[36] <- 0uy; hdr.[37] <- 0uy; hdr.[38] <- 0uy; hdr.[39] <- 0uy
-        Crc32.computeAll hdr = storedCrc)
+        let storedCrc = BitConverter.ToUInt32(bytes, 36)
+        let forCrc = Array.copy bytes
+        forCrc.[36] <- 0uy; forCrc.[37] <- 0uy; forCrc.[38] <- 0uy; forCrc.[39] <- 0uy
+        Crc32.computeAll forCrc = storedCrc)
 ]
 
 // ─── Mapping & Integration Tests ─────────────────────────────────
@@ -996,6 +994,135 @@ let daemonRoundtripPropertyTests = testList "Daemon Roundtrip Properties" [
         | false -> ()
 ]
 
+// ─── Robustness Tests ────────────────────────────────────────────
+
+let robustnessTests = testList "Robustness" [
+  testCase "all Outcome values roundtrip through STC" <| fun _ ->
+    for o in [ Outcome.Pass; Outcome.Fail; Outcome.Skip; Outcome.Error ] do
+      let d: StcData = {
+        CoverageEntries = []; ImapGeneration = 0u; CreatedAtMs = 0L
+        ResultEntries = [{ TestId = "t1"; Outcome = o; DurationMs = 1u; Message = None }] }
+      let bytes = TestCacheWriter.write d
+      match TestCacheReader.read bytes with
+      | Result.Ok rt ->
+        rt.ResultEntries.[0].Outcome
+        |> Expect.equal (sprintf "outcome %A roundtrip" o) o
+      | Result.Error e -> failwith e
+
+  testCase "all InteractionKind values roundtrip through SFS" <| fun _ ->
+    for k in [ InteractionKind.Interaction; InteractionKind.Expression
+               InteractionKind.Directive; InteractionKind.ScriptLoad ] do
+      let d: SfsData = {
+        Meta = { SageFsVersion = "1"; FSharpVersion = "8"; DotNetVersion = "10"
+                 ProjectPath = "p"; WorkingDirectory = "/"; EvalCount = 1u
+                 FailedEvalCount = 0u; SessionId = "s" }
+        Interactions = [{ Code = "c"; Output = "o"; TimestampMs = 0L
+                          Kind = k; Flags = EntryFlags.None; DurationMicros = 1u }]
+        References = []; CreatedAtMs = 0L }
+      let bytes = SessionBinaryWriter.write d
+      match SessionBinaryReader.read bytes with
+      | Result.Ok rt ->
+        rt.Interactions.[0].Kind
+        |> Expect.equal (sprintf "kind %A roundtrip" k) k
+      | Result.Error e -> failwith e
+
+  testCase "all RefKind values roundtrip through SFS" <| fun _ ->
+    for rk in [ RefKind.IncludePath; RefKind.DllPath; RefKind.NuGet; RefKind.LoadedScript ] do
+      let d: SfsData = {
+        Meta = { SageFsVersion = "1"; FSharpVersion = "8"; DotNetVersion = "10"
+                 ProjectPath = "p"; WorkingDirectory = "/"; EvalCount = 0u
+                 FailedEvalCount = 0u; SessionId = "s" }
+        Interactions = []; CreatedAtMs = 0L
+        References = [{ Kind = rk; Path = "/some/path" }] }
+      let bytes = SessionBinaryWriter.write d
+      match SessionBinaryReader.read bytes with
+      | Result.Ok rt ->
+        rt.References.[0].Kind
+        |> Expect.equal (sprintf "refkind %A roundtrip" rk) rk
+      | Result.Error e -> failwith e
+
+  testCase "atomic overwrite: STC file replaced correctly" <| fun _ ->
+    let dir = IO.Path.Combine(IO.Path.GetTempPath(), sprintf "stc_ow_%s" (Guid.NewGuid().ToString("N")))
+    try
+      let state1 = { LiveTesting.LiveTestState.empty with LastGeneration = LiveTesting.RunGeneration 1 }
+      let state2 = { LiveTesting.LiveTestState.empty with LastGeneration = LiveTesting.RunGeneration 42 }
+      DaemonPersistence.saveTestCache dir ["p.fsproj"] state1 |> ignore
+      DaemonPersistence.saveTestCache dir ["p.fsproj"] state2 |> ignore
+      match DaemonPersistence.loadTestCache dir ["p.fsproj"] with
+      | Result.Ok loaded ->
+        loaded.LastGeneration
+        |> Expect.equal "overwrite kept second write" (LiveTesting.RunGeneration 42)
+      | Result.Error e -> failwith e
+    finally
+      match IO.Directory.Exists(dir) with
+      | true -> IO.Directory.Delete(dir, true) | false -> ()
+
+  testPropertyWithConfig { FsCheckConfig.defaultConfig with maxTest = 200 }
+    "STC CRC catches any single-bit flip"
+    (fun (idx: PositiveInt) ->
+      let d: StcData = {
+        CoverageEntries = []
+        ResultEntries = [{ TestId = "x"; Outcome = Outcome.Pass; DurationMs = 1u; Message = None }]
+        ImapGeneration = 1u; CreatedAtMs = 0L }
+      let bytes = TestCacheWriter.write d
+      let i = idx.Get % bytes.Length
+      match i >= 36 && i <= 39 with
+      | true -> true
+      | false ->
+        let c = Array.copy bytes
+        c.[i] <- c.[i] ^^^ 0x01uy
+        TestCacheReader.read c |> Result.isError)
+
+  testPropertyWithConfig { FsCheckConfig.defaultConfig with maxTest = 200 }
+    "SFS CRC catches any single-bit flip"
+    (fun (idx: PositiveInt) ->
+      let d: SfsData = {
+        Meta = { SageFsVersion = "1.0"; FSharpVersion = "8.0"; DotNetVersion = "10.0"
+                 ProjectPath = "test.fsproj"; WorkingDirectory = "/tmp"
+                 EvalCount = 1u; FailedEvalCount = 0u; SessionId = "abc" }
+        Interactions = [{ Code = "1+1"; Output = "2"; TimestampMs = 0L
+                          Kind = InteractionKind.Interaction
+                          Flags = EntryFlags.None; DurationMicros = 100u }]
+        References = []; CreatedAtMs = 0L }
+      let bytes = SessionBinaryWriter.write d
+      let i = idx.Get % bytes.Length
+      match i >= 36 && i <= 39 with
+      | true -> true
+      | false ->
+        let c = Array.copy bytes
+        c.[i] <- c.[i] ^^^ 0x01uy
+        SessionBinaryReader.read c |> Result.isError)
+
+  testPropertyWithConfig { FsCheckConfig.defaultConfig with maxTest = 100 }
+    "STC roundtrip with N results"
+    (fun (n: NonNegativeInt) ->
+      let n = n.Get % 50
+      let entries = [ for i in 0..n-1 -> { TestId = sprintf "t%d" i; Outcome = Outcome.Pass; DurationMs = uint32 i; Message = None } ]
+      let d: StcData = { CoverageEntries = []; ResultEntries = entries; ImapGeneration = 1u; CreatedAtMs = 0L }
+      let bytes = TestCacheWriter.write d
+      match TestCacheReader.read bytes with
+      | Result.Ok rt -> rt.ResultEntries.Length = entries.Length
+      | Result.Error _ -> false)
+
+  testPropertyWithConfig { FsCheckConfig.defaultConfig with maxTest = 100 }
+    "SFS roundtrip with N interactions"
+    (fun (n: NonNegativeInt) ->
+      let n = n.Get % 50
+      let ixs = [
+        for i in 0..n-1 ->
+          { Code = sprintf "code%d" i; Output = sprintf "out%d" i; TimestampMs = int64 i
+            Kind = InteractionKind.Interaction; Flags = EntryFlags.None; DurationMicros = uint32 i } ]
+      let d: SfsData = {
+        Meta = { SageFsVersion = "1"; FSharpVersion = "8"; DotNetVersion = "10"
+                 ProjectPath = "p"; WorkingDirectory = "/"; EvalCount = uint32 n
+                 FailedEvalCount = 0u; SessionId = "s" }
+        Interactions = ixs; References = []; CreatedAtMs = 0L }
+      let bytes = SessionBinaryWriter.write d
+      match SessionBinaryReader.read bytes with
+      | Result.Ok rt -> rt.Interactions.Length = ixs.Length
+      | Result.Error _ -> false)
+]
+
 // ─── Combined ────────────────────────────────────────────────────
 
 [<Tests>]
@@ -1009,4 +1136,5 @@ let allBinaryFormatTests = testList "Binary Format" [
   daemonPersistenceTests
   restoreTestCacheTests
   daemonRoundtripPropertyTests
+  robustnessTests
 ]

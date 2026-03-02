@@ -1005,6 +1005,17 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
   log.LogInformation("SSE events: http://localhost:{Port}/events", mcpPort)
   log.LogInformation("Health: http://localhost:{Port}/health", mcpPort)
 
+  // Eagerly load cached test state for initial projects — shows results before FSI warmup
+  match initialProjects with
+  | [] -> ()
+  | projects ->
+    match Features.DaemonPersistence.loadTestCache DaemonState.SageFsDir projects with
+    | Ok cachedState ->
+      log.LogInformation("Restored cached test state ({CoverageCount} coverage, {ResultCount} results) in <100ms",
+        cachedState.TestCoverageBitmaps.Count, cachedState.LastResults.Count)
+      elmRuntime.Dispatch(SageFsMsg.RestoreTestCache cachedState)
+    | Error msg -> log.LogDebug("No pre-warmup test cache: {Reason}", msg)
+
   // Resume sessions in background — don't block the daemon main task.
   // Each resumed session dispatches ListSessions so dashboard sees them incrementally.
   let _resumeTask =
@@ -1031,7 +1042,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
                 log.LogInformation("Restored test cache ({CoverageCount} coverage, {ResultCount} results)",
                   cachedState.TestCoverageBitmaps.Count, cachedState.LastResults.Count)
                 elmRuntime.Dispatch(SageFsMsg.RestoreTestCache cachedState)
-              | Error _ -> () // No cache — start fresh
+              | Error msg -> log.LogDebug("No test cache available: {Reason}", msg)
           with ex ->
             log.LogWarning("Session resume failed: {Error}", ex.Message)
         } :> System.Threading.Tasks.Task)
