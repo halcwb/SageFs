@@ -629,7 +629,9 @@ module SessionManager =
                 | WorkerResponse.InitialTestDiscovery(tests, providers) ->
                   inbox.Post(SessionCommand.WorkerTestDiscovery(id, tests, providers))
                 | _ -> ()
-              with _ -> ()
+              with ex ->
+                Instrumentation.elmloopErrors.Add(1L, System.Collections.Generic.KeyValuePair("phase", "test_discovery" :> obj))
+                eprintfn "[SessionManager] Test discovery failed for %s: %s" id ex.Message
             }, ct)
             // Fetch instrumentation maps from the worker
             Async.Start(async {
@@ -640,7 +642,9 @@ module SessionManager =
                 | WorkerResponse.InstrumentationMapsResult(_, maps) when not (Array.isEmpty maps) ->
                   onInstrumentationMaps id maps
                 | _ -> ()
-              with _ -> ()
+              with ex ->
+                Instrumentation.elmloopErrors.Add(1L, System.Collections.Generic.KeyValuePair("phase", "instrumentation_maps" :> obj))
+                eprintfn "[SessionManager] Instrumentation maps fetch failed for %s: %s" id ex.Message
             }, ct)
             return! loop newState
           | None ->

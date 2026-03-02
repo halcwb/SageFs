@@ -47,6 +47,7 @@ module ElmLoop =
             model <- m
             m, effs
           with ex ->
+            Instrumentation.elmloopErrors.Add(1L, System.Collections.Generic.KeyValuePair("phase", "update" :> obj))
             eprintfn "[ElmLoop] Update threw: %s" ex.Message
             model, [])
       sw.Stop()
@@ -57,6 +58,7 @@ module ElmLoop =
       let regions =
         try program.Render snapshot
         with ex ->
+          Instrumentation.elmloopErrors.Add(1L, System.Collections.Generic.KeyValuePair("phase", "render" :> obj))
           eprintfn "[ElmLoop] Render threw: %s" ex.Message
           lock lockObj (fun () -> latestRegions)
       sw.Stop()
@@ -66,7 +68,9 @@ module ElmLoop =
 
       sw.Restart()
       try program.OnModelChanged snapshot regions
-      with ex -> eprintfn "[ElmLoop] OnModelChanged threw: %s" ex.Message
+      with ex ->
+        Instrumentation.elmloopErrors.Add(1L, System.Collections.Generic.KeyValuePair("phase", "callback" :> obj))
+        eprintfn "[ElmLoop] OnModelChanged threw: %s" ex.Message
       sw.Stop()
       Instrumentation.elmloopCallbackMs.Record(sw.Elapsed.TotalMilliseconds)
 
@@ -76,17 +80,22 @@ module ElmLoop =
       for effect in effects do
         Async.Start (async {
           try do! program.ExecuteEffect dispatch effect
-          with ex -> eprintfn "[ElmLoop] Effect threw: %s" ex.Message
+          with ex ->
+            Instrumentation.elmloopErrors.Add(1L, System.Collections.Generic.KeyValuePair("phase", "effect" :> obj))
+            eprintfn "[ElmLoop] Effect threw: %s" ex.Message
         })
 
     let regions =
       try program.Render initialModel
       with ex ->
+        Instrumentation.elmloopErrors.Add(1L, System.Collections.Generic.KeyValuePair("phase", "initial_render" :> obj))
         eprintfn "[ElmLoop] Initial Render threw: %s" ex.Message
         []
     latestRegions <- regions
     try program.OnModelChanged initialModel regions
-    with ex -> eprintfn "[ElmLoop] Initial OnModelChanged threw: %s" ex.Message
+    with ex ->
+      Instrumentation.elmloopErrors.Add(1L, System.Collections.Generic.KeyValuePair("phase", "initial_callback" :> obj))
+      eprintfn "[ElmLoop] Initial OnModelChanged threw: %s" ex.Message
 
     { Dispatch = dispatch
       GetModel = fun () -> lock lockObj (fun () -> model)
