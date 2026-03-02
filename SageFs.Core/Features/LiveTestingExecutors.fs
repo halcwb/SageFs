@@ -432,6 +432,13 @@ module TestOrchestrator =
     (testCase: TestCase)
     : Async<TestRunResult> =
     async {
+      let activity = LiveTestingInstrumentation.activitySource.StartActivity("live_testing.test.execute")
+      match isNull activity with
+      | false ->
+        activity.SetTag("test.id", testCase.Id) |> ignore
+        activity.SetTag("test.name", testCase.DisplayName) |> ignore
+        activity.SetTag("test.framework", testCase.Framework) |> ignore
+      | true -> ()
       let sw = Stopwatch.StartNew()
       let perTestTimeout = TimeSpan.FromSeconds 5.0
       let stdoutCapture = new IO.StringWriter()
@@ -465,6 +472,36 @@ module TestOrchestrator =
               sw.Elapsed)
         }
       Console.SetOut(originalOut)
+      sw.Stop()
+      let durationMs = sw.Elapsed.TotalMilliseconds
+      LiveTestingInstrumentation.perTestDurationMs.Record(durationMs)
+      LiveTestingInstrumentation.testsCompleted.Add(1L)
+      let resultKind =
+        match result with
+        | TestResult.Passed _ ->
+          LiveTestingInstrumentation.testsPassed.Add(1L)
+          "passed"
+        | TestResult.Failed _ ->
+          LiveTestingInstrumentation.testsFailed.Add(1L)
+          "failed"
+        | TestResult.Skipped msg when msg.StartsWith("Timed out") ->
+          LiveTestingInstrumentation.testsTimedOut.Add(1L)
+          "timed_out"
+        | TestResult.Skipped _ -> "skipped"
+        | TestResult.NotRun -> "not_run"
+      match isNull activity with
+      | false ->
+        activity.SetTag("test.result", resultKind) |> ignore
+        activity.SetTag("test.duration_ms", durationMs) |> ignore
+        match result with
+        | TestResult.Failed (failure, _) ->
+          activity.SetTag("error", true) |> ignore
+          activity.SetTag("error.message", sprintf "%A" failure) |> ignore
+          activity.SetStatus(ActivityStatusCode.Error, sprintf "%A" failure) |> ignore
+        | _ -> ()
+        activity.Stop()
+        activity.Dispose()
+      | true -> ()
       let captured = stdoutCapture.ToString()
       let output =
         match String.IsNullOrWhiteSpace captured with
@@ -487,12 +524,23 @@ module TestOrchestrator =
     (ct: Threading.CancellationToken)
     : Async<unit> =
     async {
+      let totalSw = Stopwatch.StartNew()
+      let totalChunks = (tests.Length + maxParallelism - 1) / maxParallelism
+      let mutable chunkIndex = 0
       // Process in chunks to avoid scheduling all tests to ThreadPool at once
       let chunkSize = maxParallelism
       for chunkStart in 0 .. chunkSize .. tests.Length - 1 do
         ct.ThrowIfCancellationRequested()
         let chunkEnd = min (chunkStart + chunkSize) tests.Length
         let chunk = tests.[chunkStart .. chunkEnd - 1]
+        let chunkActivity = LiveTestingInstrumentation.activitySource.StartActivity("live_testing.chunk")
+        match isNull chunkActivity with
+        | false ->
+          chunkActivity.SetTag("chunk.index", chunkIndex) |> ignore
+          chunkActivity.SetTag("chunk.size", chunk.Length) |> ignore
+          chunkActivity.SetTag("chunk.total", totalChunks) |> ignore
+        | true -> ()
+        let chunkSw = Stopwatch.StartNew()
         let! _ =
           chunk
           |> Array.map (fun tc ->
@@ -501,7 +549,18 @@ module TestOrchestrator =
               onResult result
             })
           |> Async.Parallel
-        ()
+        chunkSw.Stop()
+        LiveTestingInstrumentation.chunkDurationMs.Record(chunkSw.Elapsed.TotalMilliseconds)
+        LiveTestingInstrumentation.chunksCompleted.Add(1L)
+        match isNull chunkActivity with
+        | false ->
+          chunkActivity.SetTag("chunk.duration_ms", chunkSw.Elapsed.TotalMilliseconds) |> ignore
+          chunkActivity.Stop()
+          chunkActivity.Dispose()
+        | true -> ()
+        chunkIndex <- chunkIndex + 1
+      totalSw.Stop()
+      LiveTestingInstrumentation.executionHistogram.Record(totalSw.Elapsed.TotalMilliseconds)
     }
 
 // --- Hot-reload integration hook ---
