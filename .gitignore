@@ -27,3 +27,5 @@ mcp-sdk-nupkg/
 mcp-sdk/
 *.log
 aspire-traces.png
+otel-*.png
+**/TestResults.junit.xml

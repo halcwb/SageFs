@@ -111,7 +111,9 @@ let instrumentationTests = testSequenced (testList "Instrumentation" [
 
   // Span helper tests
   test "startSpan returns null when no listener" {
-    let span = Instrumentation.startSpan Instrumentation.sessionSource "test.op" []
+    // Use a fresh source guaranteed to have no listeners attached
+    use freshSource = new ActivitySource("SageFs.Tests.NoListener")
+    let span = Instrumentation.startSpan freshSource "test.op" []
     span |> Expect.isNull "should be null with no listener"
   }
 

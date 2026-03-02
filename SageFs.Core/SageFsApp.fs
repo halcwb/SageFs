@@ -1266,11 +1266,14 @@ module SageFsEffectHandler =
                 | Ok resolution ->
                   let sid = SessionOperations.sessionId resolution
                   // Retry proxy lookup — worker URL may not be registered yet at startup
+                  // Short backoff: 50, 100, 200, 400ms (750ms total vs old 10s)
                   let mutable proxy = deps.GetStreamingTestProxy sid
                   let mutable retries = 0
-                  while proxy.IsNone && retries < 20 do
+                  let mutable delay = 50
+                  while proxy.IsNone && retries < 4 do
                     retries <- retries + 1
-                    do! Async.Sleep 500
+                    do! Async.Sleep delay
+                    delay <- delay * 2
                     proxy <- deps.GetStreamingTestProxy sid
                   match proxy with
                   | Some streamProxy ->
@@ -1306,7 +1309,8 @@ module SageFsEffectHandler =
                           activity.SetTag("coverage.tests_in_batch", testIds.Length) |> ignore
                         | false -> ()
                       | false -> ()
-                    do! streamProxy tests 4 onResult onCoverage
+                    let parallelism = max 4 (Environment.ProcessorCount / 2)
+                    do! streamProxy tests parallelism onResult onCoverage
                     flushBuffer () // flush any remaining results
                   | None ->
                     let notRunResults =

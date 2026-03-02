@@ -427,6 +427,38 @@ module TestOrchestrator =
         | Some runTest -> runTest testCase
         | None -> async { return TestResult.NotRun } }
 
+  /// Thread-safe stdout capture: a single TextWriter installed on Console.Out
+  /// that routes writes to the current thread's capture StringWriter (if any).
+  /// Falls through to the original writer when no capture is active.
+  [<Sealed>]
+  type private ThreadLocalCapture(original: IO.TextWriter) =
+    inherit IO.TextWriter()
+    let captures = new Threading.ThreadLocal<IO.StringWriter option>(fun () -> None)
+    member _.SetCapture(sw: IO.StringWriter) = captures.Value <- Some sw
+    member _.ClearCapture() =
+      let sw = captures.Value
+      captures.Value <- None
+      sw
+    override _.Encoding = original.Encoding
+    override _.Write(c: char) =
+      match captures.Value with
+      | Some sw -> sw.Write(c)
+      | None -> original.Write(c)
+    override _.Write(s: string) =
+      match captures.Value with
+      | Some sw -> sw.Write(s)
+      | None -> original.Write(s)
+    override _.WriteLine(s: string) =
+      match captures.Value with
+      | Some sw -> sw.WriteLine(s)
+      | None -> original.WriteLine(s)
+    override _.Flush() = original.Flush()
+
+  let private threadCapture =
+    let tc = new ThreadLocalCapture(Console.Out)
+    Console.SetOut(tc)
+    tc
+
   let executeOne
     (runTest: TestCase -> Async<TestResult>)
     (testCase: TestCase)
@@ -442,8 +474,8 @@ module TestOrchestrator =
       let sw = Stopwatch.StartNew()
       let perTestTimeout = TimeSpan.FromSeconds 5.0
       let stdoutCapture = new IO.StringWriter()
-      let originalOut = Console.Out
-      Console.SetOut(stdoutCapture)
+      // Install per-thread capture — no global SetOut calls needed
+      threadCapture.SetCapture(stdoutCapture)
       let! result =
         async {
           try
@@ -473,7 +505,7 @@ module TestOrchestrator =
                 ex.StackTrace |> Option.ofObj |> Option.defaultValue ""),
               sw.Elapsed)
         }
-      Console.SetOut(originalOut)
+      threadCapture.ClearCapture() |> ignore
       sw.Stop()
       let durationMs = sw.Elapsed.TotalMilliseconds
       LiveTestingInstrumentation.perTestDurationMs.Record(durationMs)
