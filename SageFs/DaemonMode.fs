@@ -1018,6 +1018,20 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
           try
             do! resumeSessions (fun () ->
               elmRuntime.Dispatch(SageFsMsg.Editor EditorAction.ListSessions))
+            // Load cached test state after sessions are restored
+            let activeSessions = SessionManager.QuerySnapshot.allSessions (readSnapshot())
+            let uniqueProjectSets =
+              activeSessions
+              |> List.map (fun s -> s.Projects)
+              |> List.distinctBy (fun ps ->
+                ps |> List.sort |> List.map (fun p -> p.Replace("\\", "/").ToLowerInvariant()) |> String.concat "|")
+            for projects in uniqueProjectSets do
+              match Features.DaemonPersistence.loadTestCache DaemonState.SageFsDir projects with
+              | Ok cachedState ->
+                log.LogInformation("Restored test cache ({CoverageCount} coverage, {ResultCount} results)",
+                  cachedState.TestCoverageBitmaps.Count, cachedState.LastResults.Count)
+                elmRuntime.Dispatch(SageFsMsg.RestoreTestCache cachedState)
+              | Error _ -> () // No cache — start fresh
           with ex ->
             log.LogWarning("Session resume failed: {Error}", ex.Message)
         } :> System.Threading.Tasks.Task)
@@ -1050,6 +1064,20 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
   try
     // CQRS: read from snapshot (non-blocking), then command to stop
     let activeSessions = SessionManager.QuerySnapshot.allSessions (readSnapshot())
+
+    // Persist test cache for each unique project set before stopping workers
+    let model = elmRuntime.GetModel()
+    let testState = model.LiveTesting.TestState
+    let uniqueProjectSets =
+      activeSessions
+      |> List.map (fun s -> s.Projects)
+      |> List.distinctBy (fun ps ->
+        ps |> List.sort |> List.map (fun p -> p.Replace("\\", "/").ToLowerInvariant()) |> String.concat "|")
+    for projects in uniqueProjectSets do
+      match Features.DaemonPersistence.saveTestCache DaemonState.SageFsDir projects testState with
+      | Ok path -> log.LogInformation("Saved test cache to {Path}", path)
+      | Error err -> log.LogWarning("Failed to save test cache: {Error}", err)
+
     for info in activeSessions do
       let! _ = persistence.AppendEvents daemonStreamId [
         Features.Events.SageFsEvent.DaemonSessionStopped

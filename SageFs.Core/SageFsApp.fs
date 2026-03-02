@@ -141,6 +141,7 @@ type SageFsMsg =
   | PipelineTick of now: DateTimeOffset
   | FileContentChanged of filePath: string * content: string
   | FcsTypeCheckCompleted of Features.LiveTesting.FcsTypeCheckResult
+  | RestoreTestCache of Features.LiveTesting.LiveTestState
 
 /// Side effects the Elm loop can request.
 /// Wraps EditorEffect and PipelineEffect for async execution.
@@ -783,6 +784,14 @@ module SageFsUpdate =
         |> Features.LiveTesting.LiveTestPipelineState.handleFcsResult result
       let mappedEffects = effects |> List.map SageFsEffect.Pipeline
       { model with LiveTesting = pipeline' }, mappedEffects
+
+    | SageFsMsg.RestoreTestCache cachedState ->
+      let lt = recomputeStatuses model.LiveTesting (fun s ->
+        { s with
+            TestCoverageBitmaps = cachedState.TestCoverageBitmaps
+            LastResults = cachedState.LastResults
+            LastGeneration = cachedState.LastGeneration })
+      { model with LiveTesting = lt }, []
 
   let updateWithInvariant (msg: SageFsMsg) (model: SageFsModel) : SageFsModel * SageFsEffect list =
     let model', effects = update msg model

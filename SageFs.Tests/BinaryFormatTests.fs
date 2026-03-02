@@ -723,6 +723,279 @@ let sfsMappingTests = testList "SFS Mapping" [
       | Error e -> failwith (sprintf "Read failed: %s" e))
 ]
 
+// ─── Daemon Persistence Integration ──────────────────────────────
+
+let daemonPersistenceTests = testList "Daemon Persistence" [
+  test "projectHash is deterministic" {
+    let hash1 = DaemonPersistence.projectHash ["A.fsproj"; "B.fsproj"]
+    let hash2 = DaemonPersistence.projectHash ["A.fsproj"; "B.fsproj"]
+    hash1 |> Expect.equal "same hash for same input" hash2
+  }
+
+  test "projectHash is order-independent" {
+    let hash1 = DaemonPersistence.projectHash ["A.fsproj"; "B.fsproj"]
+    let hash2 = DaemonPersistence.projectHash ["B.fsproj"; "A.fsproj"]
+    hash1 |> Expect.equal "order doesn't matter" hash2
+  }
+
+  test "projectHash is case-insensitive" {
+    let hash1 = DaemonPersistence.projectHash ["MyProject.fsproj"]
+    let hash2 = DaemonPersistence.projectHash ["myproject.fsproj"]
+    hash1 |> Expect.equal "case doesn't matter" hash2
+  }
+
+  test "projectHash normalizes path separators" {
+    let hash1 = DaemonPersistence.projectHash [@"src\MyProject.fsproj"]
+    let hash2 = DaemonPersistence.projectHash ["src/MyProject.fsproj"]
+    hash1 |> Expect.equal "separators normalized" hash2
+  }
+
+  test "projectHash differs for different projects" {
+    let hash1 = DaemonPersistence.projectHash ["A.fsproj"]
+    let hash2 = DaemonPersistence.projectHash ["B.fsproj"]
+    hash1 |> Expect.notEqual "different projects → different hash" hash2
+  }
+
+  test "saveTestCache/loadTestCache roundtrip with empty state" {
+    let tmpDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "sagefs-dp-" + System.Guid.NewGuid().ToString("N"))
+    let projects = ["Test.fsproj"]
+    let state = LiveTesting.LiveTestState.empty
+    match DaemonPersistence.saveTestCache tmpDir projects state with
+    | Ok _ ->
+      match DaemonPersistence.loadTestCache tmpDir projects with
+      | Ok restored ->
+        restored.TestCoverageBitmaps |> Map.count |> Expect.equal "empty coverage" 0
+        restored.LastResults |> Map.count |> Expect.equal "empty results" 0
+      | Error e -> failwith e
+    | Error e -> failwith e
+    try System.IO.Directory.Delete(tmpDir, true) with _ -> ()
+  }
+
+  test "saveSession/loadSession roundtrip with empty state" {
+    let tmpDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "sagefs-dp-" + System.Guid.NewGuid().ToString("N"))
+    let state = Replay.SessionReplayState.empty
+    match DaemonPersistence.saveSession tmpDir "test-session" "Test.fsproj" "C:\\test" [] state with
+    | Ok _ ->
+      match DaemonPersistence.loadSession tmpDir "test-session" with
+      | Ok restored ->
+        restored.EvalCount |> Expect.equal "zero evals" 0
+      | Error e -> failwith e
+    | Error e -> failwith e
+    try System.IO.Directory.Delete(tmpDir, true) with _ -> ()
+  }
+
+  test "loadTestCache returns Error for missing cache" {
+    let tmpDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "sagefs-dp-" + System.Guid.NewGuid().ToString("N"))
+    match DaemonPersistence.loadTestCache tmpDir ["NonExistent.fsproj"] with
+    | Error _ -> ()
+    | Ok _ -> failwith "should have returned error for missing cache"
+  }
+
+  test "loadSession returns Error for missing session" {
+    let tmpDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "sagefs-dp-" + System.Guid.NewGuid().ToString("N"))
+    match DaemonPersistence.loadSession tmpDir "nonexistent" with
+    | Error _ -> ()
+    | Ok _ -> failwith "should have returned error for missing session"
+  }
+
+  testPropertyWithConfig { fsCheckConfig with maxTest = 50 } "test cache roundtrip preserves coverage count" <|
+    Prop.forAll (Arb.fromGen genLiveTestState) (fun state ->
+      let tmpDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "sagefs-dp-" + System.Guid.NewGuid().ToString("N"))
+      match DaemonPersistence.saveTestCache tmpDir ["Test.fsproj"] state with
+      | Ok _ ->
+        match DaemonPersistence.loadTestCache tmpDir ["Test.fsproj"] with
+        | Ok restored ->
+          restored.TestCoverageBitmaps |> Map.count
+          |> Expect.equal "same coverage count" (state.TestCoverageBitmaps |> Map.count)
+          try System.IO.Directory.Delete(tmpDir, true) with _ -> ()
+        | Error e -> failwith e
+      | Error e -> failwith e)
+
+  testPropertyWithConfig { fsCheckConfig with maxTest = 50 } "test cache roundtrip preserves result count" <|
+    Prop.forAll (Arb.fromGen genLiveTestState) (fun state ->
+      let tmpDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "sagefs-dp-" + System.Guid.NewGuid().ToString("N"))
+      match DaemonPersistence.saveTestCache tmpDir ["Test.fsproj"] state with
+      | Ok _ ->
+        match DaemonPersistence.loadTestCache tmpDir ["Test.fsproj"] with
+        | Ok restored ->
+          restored.LastResults |> Map.count
+          |> Expect.equal "same result count" (state.LastResults |> Map.count)
+          try System.IO.Directory.Delete(tmpDir, true) with _ -> ()
+        | Error e -> failwith e
+      | Error e -> failwith e)
+
+  testPropertyWithConfig { fsCheckConfig with maxTest = 50 } "session roundtrip preserves eval count" <|
+    Prop.forAll (Arb.fromGen genSessionReplayState) (fun state ->
+      let tmpDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "sagefs-dp-" + System.Guid.NewGuid().ToString("N"))
+      match DaemonPersistence.saveSession tmpDir "prop-test" "Test.fsproj" "C:\\test" [] state with
+      | Ok _ ->
+        match DaemonPersistence.loadSession tmpDir "prop-test" with
+        | Ok restored ->
+          restored.EvalCount |> Expect.equal "same eval count" state.EvalCount
+          try System.IO.Directory.Delete(tmpDir, true) with _ -> ()
+        | Error e -> failwith e
+      | Error e -> failwith e)
+
+  testPropertyWithConfig { fsCheckConfig with maxTest = 50 } "session roundtrip preserves history length" <|
+    Prop.forAll (Arb.fromGen genSessionReplayState) (fun state ->
+      let tmpDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "sagefs-dp-" + System.Guid.NewGuid().ToString("N"))
+      match DaemonPersistence.saveSession tmpDir "prop-test" "Test.fsproj" "C:\\test" [] state with
+      | Ok _ ->
+        match DaemonPersistence.loadSession tmpDir "prop-test" with
+        | Ok restored ->
+          restored.EvalHistory.Length |> Expect.equal "same length" state.EvalHistory.Length
+          try System.IO.Directory.Delete(tmpDir, true) with _ -> ()
+        | Error e -> failwith e
+      | Error e -> failwith e)
+]
+
+// ─── RestoreTestCache Elm Message ───────────────────────────────
+
+let restoreTestCacheTests = testList "RestoreTestCache" [
+
+  test "RestoreTestCache injects coverage bitmaps into model" {
+    let tid = LiveTesting.TestId.TestId "test1"
+    let bm : LiveTesting.CoverageBitmap = { Bits = [| 0xFFUL |]; Count = 64 }
+    let cachedState =
+      { LiveTesting.LiveTestState.empty with
+          TestCoverageBitmaps = Map.ofList [ tid, bm ] }
+
+    let model = SageFsModel.initial
+    let updated, effects = SageFsUpdate.update (SageFsMsg.RestoreTestCache cachedState) model
+
+    updated.LiveTesting.TestState.TestCoverageBitmaps.Count
+    |> Expect.equal "should have 1 coverage entry" 1
+
+    effects |> Expect.isEmpty "should produce no effects"
+  }
+
+  test "RestoreTestCache injects last results into model" {
+    let tid = LiveTesting.TestId.TestId "test1"
+    let result : LiveTesting.TestRunResult = {
+      TestId = tid
+      TestName = "test1"
+      Result = LiveTesting.TestResult.Passed (TimeSpan.FromMilliseconds 42.0)
+      Timestamp = DateTimeOffset.UtcNow
+      Output = None
+    }
+    let cachedState =
+      { LiveTesting.LiveTestState.empty with
+          LastResults = Map.ofList [ tid, result ] }
+
+    let model = SageFsModel.initial
+    let updated, _ = SageFsUpdate.update (SageFsMsg.RestoreTestCache cachedState) model
+
+    updated.LiveTesting.TestState.LastResults.Count
+    |> Expect.equal "should have 1 result entry" 1
+  }
+
+  test "RestoreTestCache injects generation into model" {
+    let gen = LiveTesting.RunGeneration 42
+    let cachedState =
+      { LiveTesting.LiveTestState.empty with LastGeneration = gen }
+
+    let model = SageFsModel.initial
+    let updated, _ = SageFsUpdate.update (SageFsMsg.RestoreTestCache cachedState) model
+
+    updated.LiveTesting.TestState.LastGeneration
+    |> Expect.equal "should restore generation" gen
+  }
+
+  test "RestoreTestCache preserves existing model fields" {
+    let cachedState =
+      { LiveTesting.LiveTestState.empty with
+          TestCoverageBitmaps = Map.ofList [ LiveTesting.TestId.TestId "t1", { Bits = [| 1UL |]; Count = 64 } ] }
+
+    let model =
+      { SageFsModel.initial with ThemeName = "Custom" }
+    let updated, _ = SageFsUpdate.update (SageFsMsg.RestoreTestCache cachedState) model
+
+    updated.ThemeName |> Expect.equal "should preserve theme" "Custom"
+  }
+
+  test "RestoreTestCache with empty state is a no-op" {
+    let model = SageFsModel.initial
+    let updated, effects = SageFsUpdate.update (SageFsMsg.RestoreTestCache LiveTesting.LiveTestState.empty) model
+
+    updated.LiveTesting.TestState.TestCoverageBitmaps.Count
+    |> Expect.equal "should remain empty" 0
+    effects |> Expect.isEmpty "should produce no effects"
+  }
+]
+
+// ─── Daemon Roundtrip Properties ────────────────────────────────
+
+let daemonRoundtripPropertyTests = testList "Daemon Roundtrip Properties" [
+
+  testPropertyWithConfig fsCheckConfig "coverage bitmap count survives save→load roundtrip" <|
+    fun (count: PositiveInt) ->
+      let n = min count.Get 50
+      let coverages =
+        [ for i in 1..n ->
+            let tid = LiveTesting.TestId.TestId (sprintf "test_%d" i)
+            let bm : LiveTesting.CoverageBitmap = { Bits = [| uint64 i |]; Count = 64 }
+            tid, bm ]
+        |> Map.ofList
+      let state = { LiveTesting.LiveTestState.empty with TestCoverageBitmaps = coverages }
+      let dir = IO.Path.Combine(IO.Path.GetTempPath(), sprintf "dp_rt_%s" (Guid.NewGuid().ToString("N")))
+      try
+        match DaemonPersistence.saveTestCache dir ["test.fsproj"] state with
+        | Result.Ok _ ->
+          match DaemonPersistence.loadTestCache dir ["test.fsproj"] with
+          | Result.Ok loaded -> loaded.TestCoverageBitmaps.Count = n
+          | Result.Error e -> failwith e
+        | Result.Error e -> failwith e
+      finally
+        match IO.Directory.Exists(dir) with
+        | true -> IO.Directory.Delete(dir, true)
+        | false -> ()
+
+  testPropertyWithConfig fsCheckConfig "result count survives save→load roundtrip" <|
+    fun (count: PositiveInt) ->
+      let n = min count.Get 50
+      let results =
+        [ for i in 1..n ->
+            let tid = LiveTesting.TestId.TestId (sprintf "test_%d" i)
+            let rr : LiveTesting.TestRunResult = {
+              TestId = tid
+              TestName = sprintf "test_%d" i
+              Result = LiveTesting.TestResult.Passed (TimeSpan.FromMilliseconds(float i))
+              Timestamp = DateTimeOffset.UtcNow
+              Output = None
+            }
+            tid, rr ]
+        |> Map.ofList
+      let state = { LiveTesting.LiveTestState.empty with LastResults = results }
+      let dir = IO.Path.Combine(IO.Path.GetTempPath(), sprintf "dp_rt_%s" (Guid.NewGuid().ToString("N")))
+      try
+        match DaemonPersistence.saveTestCache dir ["test.fsproj"] state with
+        | Result.Ok _ ->
+          match DaemonPersistence.loadTestCache dir ["test.fsproj"] with
+          | Result.Ok loaded -> loaded.LastResults.Count = n
+          | Result.Error e -> failwith e
+        | Result.Error e -> failwith e
+      finally
+        match IO.Directory.Exists(dir) with
+        | true -> IO.Directory.Delete(dir, true)
+        | false -> ()
+
+  testPropertyWithConfig fsCheckConfig "generation survives save→load roundtrip" <|
+    fun (gen: PositiveInt) ->
+      let state = { LiveTesting.LiveTestState.empty with LastGeneration = LiveTesting.RunGeneration gen.Get }
+      let dir = IO.Path.Combine(IO.Path.GetTempPath(), sprintf "dp_rt_%s" (Guid.NewGuid().ToString("N")))
+      try
+        match DaemonPersistence.saveTestCache dir ["test.fsproj"] state with
+        | Result.Ok _ ->
+          match DaemonPersistence.loadTestCache dir ["test.fsproj"] with
+          | Result.Ok loaded -> loaded.LastGeneration = LiveTesting.RunGeneration gen.Get
+          | Result.Error e -> failwith e
+        | Result.Error e -> failwith e
+      finally
+        match IO.Directory.Exists(dir) with
+        | true -> IO.Directory.Delete(dir, true)
+        | false -> ()
+]
+
 // ─── Combined ────────────────────────────────────────────────────
 
 [<Tests>]
@@ -733,4 +1006,7 @@ let allBinaryFormatTests = testList "Binary Format" [
   stcMappingTests
   stcE2eTests
   sfsMappingTests
+  daemonPersistenceTests
+  restoreTestCacheTests
+  daemonRoundtripPropertyTests
 ]

@@ -1,0 +1,49 @@
+namespace SageFs.Features
+
+open SageFs.Features.LiveTesting
+
+/// Daemon-level coordination between domain types and binary file I/O.
+/// Pure functions that bridge LiveTestState/SessionReplayState ↔ .sagetc/.sagefs files.
+module DaemonPersistence =
+
+  /// Compute a stable hash key from project paths for cache lookup.
+  /// Order-independent, case-insensitive, path-separator-normalized.
+  let projectHash (projects: string list) =
+    let normalized =
+      projects
+      |> List.sort
+      |> List.map (fun p -> p.Replace("\\", "/").ToLowerInvariant())
+      |> String.concat "|"
+    // FNV-1a hash → 8-char hex string
+    let mutable h = 2166136261u
+    for c in normalized do
+      h <- h ^^^ (uint32 c)
+      h <- h * 16777619u
+    sprintf "%08x" h
+
+  /// Save LiveTestState to .sagetc binary cache.
+  let saveTestCache (sageFsDir: string) (projects: string list) (state: LiveTestState) : Result<string, string> =
+    let hash = projectHash projects
+    let stcData = TestCacheMapping.fromLiveTestState state
+    TestCacheFile.save sageFsDir hash stcData
+
+  /// Load LiveTestState from .sagetc binary cache.
+  let loadTestCache (sageFsDir: string) (projects: string list) : Result<LiveTestState, string> =
+    let hash = projectHash projects
+    match TestCacheFile.load sageFsDir hash with
+    | Ok stcData -> Ok (TestCacheMapping.toLiveTestState stcData)
+    | Error e -> Error e
+
+  /// Save session replay state to .sagefs binary.
+  let saveSession
+    (sageFsDir: string) (sessionId: string) (projectPath: string)
+    (workingDir: string) (refs: string list) (state: Replay.SessionReplayState)
+    : Result<string, string> =
+    let sfsData = SessionMapping.fromReplayState sessionId projectPath workingDir refs state
+    SessionFile.save sageFsDir sessionId sfsData
+
+  /// Load session replay state from .sagefs binary.
+  let loadSession (sageFsDir: string) (sessionId: string) : Result<Replay.SessionReplayState, string> =
+    match SessionFile.load sageFsDir sessionId with
+    | Ok sfsData -> Ok (SessionMapping.toReplayState sfsData)
+    | Error e -> Error e
