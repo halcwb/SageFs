@@ -8,8 +8,9 @@ open Vscode
 let inline tryOfObj (x: 'a) : 'a option =
   if isNull (box x) then None else Some x
 
-/// Null-safe field extraction from a JS object.
-/// Guards against both the object and the field being null/undefined.
+/// DEPRECATED: Use SafeInterop.fieldString/fieldInt/fieldBool/fieldFloat/fieldArray/fieldObj instead.
+/// This function uses unbox<'T> which Fable erases to a no-op — no runtime type checking.
+[<System.Obsolete("Use SafeInterop typed field accessors instead")>]
 let tryField<'T> (name: string) (obj: obj) : 'T option =
   match isNull (box obj) with
   | true -> None

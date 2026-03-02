@@ -4,6 +4,7 @@ open Fable.Core
 open Fable.Core.JsInterop
 open Vscode
 open SageFs.Vscode.JsHelpers
+open SageFs.Vscode.SafeInterop
 
 module Client = SageFs.Vscode.SageFsClient
 module Diag = SageFs.Vscode.DiagnosticsListener
@@ -417,7 +418,7 @@ let evalRange (args: obj) =
     | None -> ()
     | Some ed ->
       let! ok = ensureRunning ()
-      let range: Range = unbox args
+      let range: Range = unbox args // Range is a VS Code API type passed by the editor — safe
       let code = ed.document.getTextRange range
       match ok, code.Trim() with
       | false, _ | _, "" -> ()
@@ -734,7 +735,7 @@ let activate (context: ExtensionContext) =
           Window.showWarningMessage "Could not fetch dependency graph" [||] |> ignore
         | Some body ->
           let parsed = jsonParse body
-          let total = tryField<int> "TotalSymbols" parsed |> Option.defaultValue 0
+          let total = fieldInt "TotalSymbols" parsed |> Option.defaultValue 0
           match total with
           | 0 ->
             Window.showInformationMessage "No dependency graph available yet" [||] |> ignore
@@ -748,15 +749,15 @@ let activate (context: ExtensionContext) =
                 Window.showWarningMessage "Could not fetch graph" [||] |> ignore
               | Some detail ->
                 let parsed2 = jsonParse detail
-                let tests = tryField<obj array> "Tests" parsed2 |> Option.defaultValue [||]
+                let tests = fieldArray "Tests" parsed2 |> Option.defaultValue [||]
                 match tests with
                 | [||] ->
                   Window.showInformationMessage (sprintf "No tests cover '%s'" sym) [||] |> ignore
                 | _ ->
                   let items =
                     tests |> Array.map (fun t ->
-                      let name = tryField<string> "TestName" t |> Option.defaultValue "?"
-                      let status = tryField<string> "Status" t |> Option.defaultValue "unknown"
+                      let name = fieldString "TestName" t |> Option.defaultValue "?"
+                      let status = fieldString "Status" t |> Option.defaultValue "unknown"
                       let icon = match status with "passed" -> "✓" | "failed" -> "✗" | _ -> "●"
                       sprintf "%s %s [%s]" icon name status)
                   Window.showQuickPick items (sprintf "Tests covering '%s'" sym) |> promiseIgnore
@@ -769,9 +770,9 @@ let activate (context: ExtensionContext) =
     | Some bindings ->
       let items =
         bindings |> Array.choose (fun b ->
-          match tryField<string> "Name" b, tryField<string> "TypeSig" b with
+          match fieldString "Name" b, fieldString "TypeSig" b with
           | Some name, Some typeSig ->
-            let shadow = tryField<int> "ShadowCount" b |> Option.defaultValue 0
+            let shadow = fieldInt "ShadowCount" b |> Option.defaultValue 0
             let shadowLabel = match shadow with n when n > 1 -> sprintf " (×%d)" n | _ -> ""
             Some (sprintf "%s : %s%s" name typeSig shadowLabel)
           | _ -> None)
@@ -780,14 +781,14 @@ let activate (context: ExtensionContext) =
   reg "sagefs.showPipelineTrace" (fun _ ->
     match liveTestListener |> Option.bind (fun l -> l.PipelineTrace ()) with
     | Some trace ->
-      let get name = tryField<int> name trace |> Option.defaultValue 0
+      let get name = fieldInt name trace |> Option.defaultValue 0
       let items = [|
-        sprintf "Enabled: %b" (tryField<bool> "Enabled" trace |> Option.defaultValue false)
-        sprintf "Running: %b" (tryField<bool> "IsRunning" trace |> Option.defaultValue false)
+        sprintf "Enabled: %b" (fieldBool "Enabled" trace |> Option.defaultValue false)
+        sprintf "Running: %b" (fieldBool "IsRunning" trace |> Option.defaultValue false)
         sprintf "Total: %d | Passed: %d | Failed: %d"
-          (tryField "Summary" trace |> Option.bind (tryField<int> "Total") |> Option.defaultValue 0)
-          (tryField "Summary" trace |> Option.bind (tryField<int> "Passed") |> Option.defaultValue 0)
-          (tryField "Summary" trace |> Option.bind (tryField<int> "Failed") |> Option.defaultValue 0)
+          (fieldObj "Summary" trace |> Option.bind (fieldInt "Total") |> Option.defaultValue 0)
+          (fieldObj "Summary" trace |> Option.bind (fieldInt "Passed") |> Option.defaultValue 0)
+          (fieldObj "Summary" trace |> Option.bind (fieldInt "Failed") |> Option.defaultValue 0)
       |]
       Window.showQuickPick items "Pipeline Trace" |> promiseIgnore
     | None -> Window.showInformationMessage "No pipeline trace data yet" [||] |> ignore)

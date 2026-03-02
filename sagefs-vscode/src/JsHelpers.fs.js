@@ -2,15 +2,21 @@ import { some } from "./fable_modules/fable-library-js.4.29.0/Option.js";
 import { createSseSubscriber } from "./sse-helpers.js";
 
 /**
- * Null-safe field extraction from a JS object
+ * DEPRECATED: Use SafeInterop.fieldString/fieldInt/fieldBool/fieldFloat/fieldArray/fieldObj instead.
+ * This function uses unbox<'T> which Fable erases to a no-op — no runtime type checking.
  */
 export function tryField(name, obj) {
-    const v = obj[name];
-    if (v == null) {
+    if (obj == null) {
         return undefined;
     }
     else {
-        return some(v);
+        const v = obj[name];
+        if (v == null) {
+            return undefined;
+        }
+        else {
+            return some(v);
+        }
     }
 }
 

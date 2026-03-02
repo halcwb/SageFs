@@ -2,7 +2,7 @@ import { toString, Record, Union } from "./fable_modules/fable-library-js.4.29.0
 import { array_type, int32_type, record_type, bool_type, union_type, option_type, string_type } from "./fable_modules/fable-library-js.4.29.0/Reflection.js";
 import { printf, toText } from "./fable_modules/fable-library-js.4.29.0/String.js";
 import { map as map_1, some, orElse, defaultArg } from "./fable_modules/fable-library-js.4.29.0/Option.js";
-import { tryField } from "./JsHelpers.fs.js";
+import { tryCastStringArray, fieldArray, fieldInt, fieldStringArray, fieldString, fieldBool } from "./SafeInterop.fs.js";
 import { PromiseBuilder__Delay_62FBFDE1, PromiseBuilder__Run_212F1D4B } from "./fable_modules/Fable.Promise.3.2.0/Promise.fs.js";
 import { promise } from "./fable_modules/Fable.Promise.3.2.0/PromiseImpl.fs.js";
 import { choose, map } from "./fable_modules/fable-library-js.4.29.0/Array.js";
@@ -222,11 +222,11 @@ export function dashHttpPost(c, path, body, timeout) {
 }
 
 export function parseOutcome(parsed) {
-    if (defaultArg(tryField("success", parsed), false)) {
-        return new ApiOutcome(0, [orElse(tryField("message", parsed), tryField("result", parsed))]);
+    if (defaultArg(fieldBool("success", parsed), false)) {
+        return new ApiOutcome(0, [orElse(fieldString("message", parsed), fieldString("result", parsed))]);
     }
     else {
-        return new ApiOutcome(1, [defaultArg(tryField("error", parsed), "Unknown error")]);
+        return new ApiOutcome(1, [defaultArg(fieldString("error", parsed), "Unknown error")]);
     }
 }
 
@@ -299,7 +299,7 @@ export function getStatus(c) {
         const resp = _arg;
         if (resp.statusCode === 200) {
             const parsed = JSON.parse(resp.body);
-            return Promise.resolve(new SageFsStatus(true, orElse(tryField("healthy", parsed), false), tryField("status", parsed)));
+            return Promise.resolve(new SageFsStatus(true, orElse(fieldBool("healthy", parsed), false), fieldString("status", parsed)));
         }
         else {
             return Promise.resolve(new SageFsStatus(true, false, "no session"));
@@ -326,7 +326,7 @@ export function hardReset(rebuild, c) {
 }
 
 export function parseSessions(parsed) {
-    return map((s) => (new SessionInfo(defaultArg(tryField("id", s), ""), undefined, defaultArg(tryField("workingDirectory", s), ""), defaultArg(tryField("status", s), "unknown"), defaultArg(tryField("projects", s), []), defaultArg(tryField("evalCount", s), 0))), defaultArg(tryField("sessions", parsed), []));
+    return map((s) => (new SessionInfo(defaultArg(fieldString("id", s), ""), undefined, defaultArg(fieldString("workingDirectory", s), ""), defaultArg(fieldString("status", s), "unknown"), defaultArg(fieldStringArray("projects", s), []), defaultArg(fieldInt("evalCount", s), 0))), defaultArg(fieldArray("sessions", parsed), []));
 }
 
 export function listSessions(c) {
@@ -353,7 +353,7 @@ export function stopSession(sessionId, c) {
 }
 
 export function parseSystemStatus(parsed) {
-    return new SystemStatus(defaultArg(tryField("supervised", parsed), false), defaultArg(tryField("restartCount", parsed), 0), defaultArg(tryField("version", parsed), "?"));
+    return new SystemStatus(defaultArg(fieldBool("supervised", parsed), false), defaultArg(fieldInt("restartCount", parsed), 0), defaultArg(fieldString("version", parsed), "?"));
 }
 
 export function getSystemStatus(c) {
@@ -361,8 +361,7 @@ export function getSystemStatus(c) {
 }
 
 export function parseHotReloadState(parsed) {
-    let x;
-    return new HotReloadState(defaultArg(map_1((rawFiles) => choose((f) => map_1((p) => (new HotReloadFile(p, defaultArg(tryField("watched", f), false))), tryField("path", f)), rawFiles), (x = parsed.files, (x == null) ? undefined : some(x))), []), defaultArg(tryField("watchedCount", parsed), 0));
+    return new HotReloadState(defaultArg(map_1((rawFiles) => choose((f) => map_1((p) => (new HotReloadFile(p, defaultArg(fieldBool("watched", f), false))), fieldString("path", f)), rawFiles), fieldArray("files", parsed)), []), defaultArg(fieldInt("watchedCount", parsed), 0));
 }
 
 export function getHotReloadState(sessionId, c) {
@@ -396,13 +395,10 @@ export function unwatchDirectoryHotReload(sessionId, directory, c) {
 }
 
 export function parseWarmupContext(parsed) {
-    const assemblies = map((a) => (new LoadedAssemblyInfo(defaultArg(tryField("Name", a), ""), defaultArg(tryField("Path", a), ""), defaultArg(tryField("NamespaceCount", a), 0), defaultArg(tryField("ModuleCount", a), 0))), defaultArg(tryField("AssembliesLoaded", parsed), []));
-    const opened = map((b) => (new OpenedBindingInfo(defaultArg(tryField("Name", b), ""), defaultArg(tryField("IsModule", b), false), defaultArg(tryField("Source", b), ""))), defaultArg(tryField("NamespacesOpened", parsed), []));
-    const failed = map((f) => {
-        let x;
-        return defaultArg(map_1((value_10) => value_10, (x = f, (x == null) ? undefined : some(x))), []);
-    }, defaultArg(tryField("FailedOpens", parsed), []));
-    return new WarmupContextInfo(defaultArg(tryField("SourceFilesScanned", parsed), 0), assemblies, opened, failed, defaultArg(tryField("WarmupDurationMs", parsed), 0));
+    const assemblies = map((a) => (new LoadedAssemblyInfo(defaultArg(fieldString("Name", a), ""), defaultArg(fieldString("Path", a), ""), defaultArg(fieldInt("NamespaceCount", a), 0), defaultArg(fieldInt("ModuleCount", a), 0))), defaultArg(fieldArray("AssembliesLoaded", parsed), []));
+    const opened = map((b) => (new OpenedBindingInfo(defaultArg(fieldString("Name", b), ""), defaultArg(fieldBool("IsModule", b), false), defaultArg(fieldString("Source", b), ""))), defaultArg(fieldArray("NamespacesOpened", parsed), []));
+    const failed = map((f) => defaultArg(tryCastStringArray(f), []), defaultArg(fieldArray("FailedOpens", parsed), []));
+    return new WarmupContextInfo(defaultArg(fieldInt("SourceFilesScanned", parsed), 0), assemblies, opened, failed, defaultArg(fieldInt("WarmupDurationMs", parsed), 0));
 }
 
 export function getWarmupContext(sessionId, c) {
@@ -432,8 +428,8 @@ export function getCompletions(code, cursorPosition, workingDirectory, c) {
         return dashHttpPost(c, "/dashboard/completions", JSON.stringify(payload), 10000).then((_arg) => {
             const resp = _arg;
             if (resp.statusCode === 200) {
-                const items = defaultArg(tryField("completions", JSON.parse(resp.body)), []);
-                return Promise.resolve(map((item) => (new CompletionResult(defaultArg(tryField("label", item), ""), defaultArg(tryField("kind", item), ""), defaultArg(tryField("insertText", item), ""))), items));
+                const items = defaultArg(fieldArray("completions", JSON.parse(resp.body)), []);
+                return Promise.resolve(map((item) => (new CompletionResult(defaultArg(fieldString("label", item), ""), defaultArg(fieldString("kind", item), ""), defaultArg(fieldString("insertText", item), ""))), items));
             }
             else {
                 return Promise.resolve([]);

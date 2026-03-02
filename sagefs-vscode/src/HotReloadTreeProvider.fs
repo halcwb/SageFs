@@ -4,6 +4,7 @@ open Fable.Core
 open Fable.Core.JsInterop
 open Vscode
 open SageFs.Vscode.JsHelpers
+open SageFs.Vscode.SafeInterop
 
 module Client = SageFs.Vscode.SageFsClient
 
@@ -106,10 +107,10 @@ let getChildren (element: obj option) : JS.Promise<obj array> =
             let watchedCount = files |> Array.filter (fun f -> f.watched) |> Array.length
             createDirItem dir files.Length watchedCount :> obj)
     | Some el ->
-      let ctx = tryField<string> "contextValue" el |> Option.defaultValue ""
+      let ctx = fieldString "contextValue" el |> Option.defaultValue ""
       match ctx with
       | "directory" ->
-        let label = tryField<string> "label" el |> Option.defaultValue ""
+        let label = fieldString "label" el |> Option.defaultValue ""
         let dir = match label with "(root)" -> "" | d -> d
         let files =
           cachedFiles
@@ -178,7 +179,7 @@ let register (ctx: ExtensionContext) =
     Commands.registerCommand "sagefs.hotReloadToggle" (fun arg ->
       match currentClient, currentSessionId with
       | Some c, Some sid ->
-        let path = tryOfObj (unbox<string> arg) |> Option.defaultValue ""
+        let path = tryCastString arg |> Option.defaultValue ""
         promise {
           let! _ = Client.toggleHotReload sid path c
           refresh ()
@@ -223,7 +224,7 @@ let register (ctx: ExtensionContext) =
     Commands.registerCommand "sagefs.hotReloadToggleDirectory" (fun arg ->
       match currentClient, currentSessionId with
       | Some c, Some sid ->
-        let dir = tryOfObj (unbox<string> arg) |> Option.defaultValue ""
+        let dir = tryCastString arg |> Option.defaultValue ""
         let allWatched: bool =
           cachedFiles
           |> Array.filter (fun f -> getDirectory f.path = dir)

@@ -3,6 +3,7 @@ module SageFs.Vscode.SageFsClient
 open Fable.Core
 open Fable.Core.JsInterop
 open SageFs.Vscode.JsHelpers
+open SageFs.Vscode.SafeInterop
 
 [<Emit("console.warn('[SageFs]', $0, $1)")>]
 let logWarn (context: string) (err: obj) : unit = jsNative
@@ -98,14 +99,14 @@ let dashHttpPost (c: Client) (path: string) (body: string) (timeout: int) =
 // ── JSON field helpers (null-safe boundary parsing) ──────────────────────
 
 let parseOutcome (parsed: obj) : ApiOutcome =
-  let success = tryField<bool> "success" parsed |> Option.defaultValue false
+  let success = fieldBool "success" parsed |> Option.defaultValue false
   match success with
   | true ->
-    tryField<string> "message" parsed
-    |> Option.orElse (tryField<string> "result" parsed)
+    fieldString "message" parsed
+    |> Option.orElse (fieldString "result" parsed)
     |> Succeeded
   | false ->
-    tryField<string> "error" parsed
+    fieldString "error" parsed
     |> Option.defaultValue "Unknown error"
     |> Failed
 
@@ -190,8 +191,8 @@ let getStatus (c: Client) =
         let parsed = jsonParse resp.body
         return
           { connected = true
-            healthy = tryField<bool> "healthy" parsed |> Option.orElse (Some false)
-            status = tryField<string> "status" parsed }
+            healthy = fieldBool "healthy" parsed |> Option.orElse (Some false)
+            status = fieldString "status" parsed }
       | _ ->
         return { connected = true; healthy = Some false; status = Some "no session" }
     with _ ->
@@ -209,15 +210,15 @@ let hardReset (rebuild: bool) (c: Client) =
   postCommand c "/hard-reset" (jsonStringify {| rebuild = rebuild |}) 60000
 
 let parseSessions (parsed: obj) =
-  tryField<obj array> "sessions" parsed
+  fieldArray "sessions" parsed
   |> Option.defaultValue [||]
   |> Array.map (fun s ->
-    { id = tryField<string> "id" s |> Option.defaultValue ""
+    { id = fieldString "id" s |> Option.defaultValue ""
       name = None
-      workingDirectory = tryField<string> "workingDirectory" s |> Option.defaultValue ""
-      status = tryField<string> "status" s |> Option.defaultValue "unknown"
-      projects = tryField<string array> "projects" s |> Option.defaultValue [||]
-      evalCount = tryField<int> "evalCount" s |> Option.defaultValue 0 })
+      workingDirectory = fieldString "workingDirectory" s |> Option.defaultValue ""
+      status = fieldString "status" s |> Option.defaultValue "unknown"
+      projects = fieldStringArray "projects" s |> Option.defaultValue [||]
+      evalCount = fieldInt "evalCount" s |> Option.defaultValue 0 })
 
 let listSessions (c: Client) =
   promise {
@@ -235,25 +236,25 @@ let stopSession (sessionId: string) (c: Client) =
   postCommand c "/api/sessions/stop" (jsonStringify {| sessionId = sessionId |}) 10000
 
 let parseSystemStatus (parsed: obj) =
-  { supervised = tryField<bool> "supervised" parsed |> Option.defaultValue false
-    restartCount = tryField<int> "restartCount" parsed |> Option.defaultValue 0
-    version = tryField<string> "version" parsed |> Option.defaultValue "?" }
+  { supervised = fieldBool "supervised" parsed |> Option.defaultValue false
+    restartCount = fieldInt "restartCount" parsed |> Option.defaultValue 0
+    version = fieldString "version" parsed |> Option.defaultValue "?" }
 
 let getSystemStatus (c: Client) =
   getJson "getSystemStatus" "/api/system/status" 3000 parseSystemStatus c
 
 let parseHotReloadState (parsed: obj) =
   let files =
-    tryField<obj array> "files" parsed
+    fieldArray "files" parsed
     |> Option.map (fun rawFiles ->
       rawFiles
       |> Array.choose (fun f ->
-        tryField<string> "path" f
+        fieldString "path" f
         |> Option.map (fun p ->
           { path = p
-            watched = tryField<bool> "watched" f |> Option.defaultValue false })))
+            watched = fieldBool "watched" f |> Option.defaultValue false })))
     |> Option.defaultValue [||]
-  let wc = tryField<int> "watchedCount" parsed |> Option.defaultValue 0
+  let wc = fieldInt "watchedCount" parsed |> Option.defaultValue 0
   { files = files; watchedCount = wc }
 
 let getHotReloadState (sessionId: string) (c: Client) =
@@ -276,29 +277,29 @@ let unwatchDirectoryHotReload (sessionId: string) (directory: string) (c: Client
 
 let parseWarmupContext (parsed: obj) =
   let assemblies =
-    tryField<obj array> "AssembliesLoaded" parsed
+    fieldArray "AssembliesLoaded" parsed
     |> Option.defaultValue [||]
     |> Array.map (fun a ->
-      { Name = tryField<string> "Name" a |> Option.defaultValue ""
-        Path = tryField<string> "Path" a |> Option.defaultValue ""
-        NamespaceCount = tryField<int> "NamespaceCount" a |> Option.defaultValue 0
-        ModuleCount = tryField<int> "ModuleCount" a |> Option.defaultValue 0 })
+      { Name = fieldString "Name" a |> Option.defaultValue ""
+        Path = fieldString "Path" a |> Option.defaultValue ""
+        NamespaceCount = fieldInt "NamespaceCount" a |> Option.defaultValue 0
+        ModuleCount = fieldInt "ModuleCount" a |> Option.defaultValue 0 })
   let opened =
-    tryField<obj array> "NamespacesOpened" parsed
+    fieldArray "NamespacesOpened" parsed
     |> Option.defaultValue [||]
     |> Array.map (fun b ->
-      { Name = tryField<string> "Name" b |> Option.defaultValue ""
-        IsModule = tryField<bool> "IsModule" b |> Option.defaultValue false
-        Source = tryField<string> "Source" b |> Option.defaultValue "" })
+      { Name = fieldString "Name" b |> Option.defaultValue ""
+        IsModule = fieldBool "IsModule" b |> Option.defaultValue false
+        Source = fieldString "Source" b |> Option.defaultValue "" })
   let failed =
-    tryField<obj array> "FailedOpens" parsed
+    fieldArray "FailedOpens" parsed
     |> Option.defaultValue [||]
-    |> Array.map (fun f -> tryOfObj f |> Option.map unbox<string array> |> Option.defaultValue [||])
-  { SourceFilesScanned = tryField<int> "SourceFilesScanned" parsed |> Option.defaultValue 0
+    |> Array.map (fun f -> tryCastStringArray f |> Option.defaultValue [||])
+  { SourceFilesScanned = fieldInt "SourceFilesScanned" parsed |> Option.defaultValue 0
     AssembliesLoaded = assemblies
     NamespacesOpened = opened
     FailedOpens = failed
-    WarmupDurationMs = tryField<int> "WarmupDurationMs" parsed |> Option.defaultValue 0 }
+    WarmupDurationMs = fieldInt "WarmupDurationMs" parsed |> Option.defaultValue 0 }
 
 let getWarmupContext (sessionId: string) (c: Client) =
   dashGetJson "getWarmupContext" (sprintf "/api/sessions/%s/warmup-context" sessionId) 5000 parseWarmupContext c
@@ -319,13 +320,13 @@ let getCompletions (code: string) (cursorPosition: int) (workingDirectory: strin
       match resp.statusCode with
       | 200 ->
         let parsed = jsonParse resp.body
-        let items = tryField<obj array> "completions" parsed |> Option.defaultValue [||]
+        let items = fieldArray "completions" parsed |> Option.defaultValue [||]
         return
           items
           |> Array.map (fun item ->
-            { label = tryField<string> "label" item |> Option.defaultValue ""
-              kind = tryField<string> "kind" item |> Option.defaultValue ""
-              insertText = tryField<string> "insertText" item |> Option.defaultValue "" })
+            { label = fieldString "label" item |> Option.defaultValue ""
+              kind = fieldString "kind" item |> Option.defaultValue ""
+              insertText = fieldString "insertText" item |> Option.defaultValue "" })
       | _ ->
         return [||]
     with ex ->

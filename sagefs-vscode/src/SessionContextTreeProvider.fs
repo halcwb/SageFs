@@ -4,6 +4,7 @@ open Fable.Core
 open Fable.Core.JsInterop
 open Vscode
 open SageFs.Vscode.JsHelpers
+open SageFs.Vscode.SafeInterop
 
 module Client = SageFs.Vscode.SageFsClient
 
@@ -59,7 +60,7 @@ let getChildren (element: obj option) : JS.Promise<obj array> =
       | Some ctx ->
         return [| summaryItem ctx :> obj |]
     | Some el ->
-      let ctx = tryField<string> "contextValue" el |> Option.defaultValue ""
+      let ctx = fieldString "contextValue" el |> Option.defaultValue ""
       match ctx with
       | "summary" ->
         match cachedContext with
@@ -92,7 +93,7 @@ let getChildren (element: obj option) : JS.Promise<obj array> =
                 "error" :> obj)
           return sections.ToArray()
       | "section" ->
-        let label = tryField<string> "label" el |> Option.defaultValue ""
+        let label = fieldString "label" el |> Option.defaultValue ""
         match cachedContext with
         | None -> return [||]
         | Some wc ->

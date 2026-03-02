@@ -7,8 +7,9 @@ import { item as item_1, equalsWith, map, sortBy } from "./fable_modules/fable-l
 import { Array_groupBy } from "./fable_modules/fable-library-js.4.29.0/Seq2.js";
 import { PromiseBuilder__Delay_62FBFDE1, PromiseBuilder__Run_212F1D4B } from "./fable_modules/Fable.Promise.3.2.0/Promise.fs.js";
 import { some, defaultArg, value as value_2 } from "./fable_modules/fable-library-js.4.29.0/Option.js";
-import { promiseIgnore, tryField } from "./JsHelpers.fs.js";
+import { tryCastString, fieldString } from "./SafeInterop.fs.js";
 import { promise } from "./fable_modules/Fable.Promise.3.2.0/PromiseImpl.fs.js";
+import { promiseIgnore } from "./JsHelpers.fs.js";
 import { watchDirectoryHotReload, unwatchDirectoryHotReload, unwatchAllHotReload, watchAllHotReload, toggleHotReload, getHotReloadState } from "./SageFsClient.fs.js";
 
 export class HotReloadItem extends Record {
@@ -110,8 +111,8 @@ export function getChildren(element) {
     return PromiseBuilder__Run_212F1D4B(promise, PromiseBuilder__Delay_62FBFDE1(promise, () => {
         if (element != null) {
             const el = value_2(element);
-            if (defaultArg(tryField("contextValue", el), "") === "directory") {
-                const label = defaultArg(tryField("label", el), "");
+            if (defaultArg(fieldString("contextValue", el), "") === "directory") {
+                const label = defaultArg(fieldString("label", el), "");
                 const dir_1 = (label === "(root)") ? "" : label;
                 let files_2;
                 const array_4 = cachedFiles();
@@ -239,7 +240,6 @@ export function register(ctx) {
     treeView(tv);
     void (ctx.subscriptions.push(tv));
     const toggleCmd = Commands_registerCommand("sagefs.hotReloadToggle", (arg) => {
-        let x;
         const matchValue = currentClient();
         const matchValue_1 = currentSessionId();
         let matchResult, c, sid;
@@ -258,7 +258,7 @@ export function register(ctx) {
         }
         switch (matchResult) {
             case 0: {
-                const path = defaultArg((x = arg, (x == null) ? undefined : x), "");
+                const path = defaultArg(tryCastString(arg), "");
                 promiseIgnore(PromiseBuilder__Run_212F1D4B(promise, PromiseBuilder__Delay_62FBFDE1(promise, () => (toggleHotReload(sid, path, c).then((_arg) => {
                     refresh();
                     return Promise.resolve();
@@ -338,7 +338,6 @@ export function register(ctx) {
     });
     void (ctx.subscriptions.push(refreshCmd));
     const toggleDirCmd = Commands_registerCommand("sagefs.hotReloadToggleDirectory", (arg_1) => {
-        let x_1;
         const matchValue_9 = currentClient();
         const matchValue_10 = currentSessionId();
         let matchResult_3, c_3, sid_3;
@@ -357,7 +356,7 @@ export function register(ctx) {
         }
         switch (matchResult_3) {
             case 0: {
-                const dir = defaultArg((x_1 = arg_1, (x_1 == null) ? undefined : x_1), "");
+                const dir = defaultArg(tryCastString(arg_1), "");
                 let allWatched;
                 let array_1;
                 const array = cachedFiles();

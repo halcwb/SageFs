@@ -5,7 +5,7 @@ import { PromiseBuilder__While_2044D34, PromiseBuilder__For_1565554B, PromiseBui
 import { promise } from "./fable_modules/Fable.Promise.3.2.0/PromiseImpl.fs.js";
 import { substring, split, join, printf, toText, trimEnd } from "./fable_modules/fable-library-js.4.29.0/String.js";
 import { value as value_29, bind, map as map_1, toArray, defaultArg, some } from "./fable_modules/fable-library-js.4.29.0/Option.js";
-import { tryField, promiseIgnore } from "./JsHelpers.fs.js";
+import { promiseIgnore } from "./JsHelpers.fs.js";
 import { updatePorts, exportSessionAsFsx, getDependencyGraph, getRecentEvents, ApiOutcomeModule_message, setRunPolicy, runTests, disableLiveTesting, enableLiveTesting, create, loadScript, cancelEval, dashboardUrl, stopSession, switchSession, createSession, hardReset, resetSession, evalCode, ApiOutcomeModule_messageOrDefault, listSessions, getSystemStatus, getStatus, isRunning } from "./SageFsClient.fs.js";
 import { register, setSession } from "./HotReloadTreeProvider.fs.js";
 import { register as register_1, setSession as setSession_1 } from "./SessionContextTreeProvider.fs.js";
@@ -16,6 +16,7 @@ import { union_type, float64_type, string_type } from "./fable_modules/fable-lib
 import { clearAllDecorations, markDecorationsStale, blockDecorations, showInlineDiagnostic, showInlineResult, formatDuration } from "./InlineDecorations.fs.js";
 import { isEmpty } from "./fable_modules/fable-library-js.4.29.0/Map.js";
 import { create as create_1 } from "./TypeExplorerProvider.fs.js";
+import { fieldObj, fieldBool, fieldString, fieldArray, fieldInt } from "./SafeInterop.fs.js";
 import { create as create_2 } from "./CodeLensProvider.fs.js";
 import { updateState, create as create_3 } from "./TestCodeLensProvider.fs.js";
 import { create as create_4 } from "./CompletionProvider.fs.js";
@@ -1096,7 +1097,7 @@ export function activate(context) {
             const overviewOpt = _arg_25;
             if (overviewOpt != null) {
                 const body_1 = overviewOpt;
-                const total = defaultArg(tryField("TotalSymbols", JSON.parse(body_1)), 0) | 0;
+                const total = defaultArg(fieldInt("TotalSymbols", JSON.parse(body_1)), 0) | 0;
                 if (total === 0) {
                     Window_showInformationMessage("No dependency graph available yet", []);
                     return Promise.resolve();
@@ -1124,15 +1125,15 @@ export function activate(context) {
                                     const detailOpt = _arg_27;
                                     if (detailOpt != null) {
                                         const detail = detailOpt;
-                                        const tests = defaultArg(tryField("Tests", JSON.parse(detail)), []);
+                                        const tests = defaultArg(fieldArray("Tests", JSON.parse(detail)), []);
                                         if (!equalsWith(equals, tests, defaultOf()) && (tests.length === 0)) {
                                             Window_showInformationMessage(toText(printf("No tests cover \'%s\'"))(sym_1), []);
                                             return Promise.resolve();
                                         }
                                         else {
                                             promiseIgnore(Window_showQuickPick(map((t) => {
-                                                const name = defaultArg(tryField("TestName", t), "?");
-                                                const status = defaultArg(tryField("Status", t), "unknown");
+                                                const name = defaultArg(fieldString("TestName", t), "?");
+                                                const status = defaultArg(fieldString("Status", t), "unknown");
                                                 const icon = (status === "passed") ? "✓" : ((status === "failed") ? "✗" : "●");
                                                 return toText(printf("%s %s [%s]"))(icon)(name)(status);
                                             }, tests), toText(printf("Tests covering \'%s\'"))(sym_1)));
@@ -1178,8 +1179,8 @@ export function activate(context) {
             }
             case 1: {
                 promiseIgnore(Window_showQuickPick(choose((b) => {
-                    const matchValue_2 = tryField("Name", b);
-                    const matchValue_3 = tryField("TypeSig", b);
+                    const matchValue_2 = fieldString("Name", b);
+                    const matchValue_3 = fieldString("TypeSig", b);
                     let matchResult_3, name_1, typeSig;
                     if (matchValue_2 != null) {
                         if (matchValue_3 != null) {
@@ -1196,7 +1197,7 @@ export function activate(context) {
                     }
                     switch (matchResult_3) {
                         case 0: {
-                            const shadow = defaultArg(tryField("ShadowCount", b), 0) | 0;
+                            const shadow = defaultArg(fieldInt("ShadowCount", b), 0) | 0;
                             const shadowLabel = (shadow > 1) ? toText(printf(" (×%d)"))(shadow) : "";
                             return toText(printf("%s : %s%s"))(name_1)(typeSig)(shadowLabel);
                         }
@@ -1216,7 +1217,7 @@ export function activate(context) {
         }
         else {
             const trace = value_29(matchValue_5);
-            promiseIgnore(Window_showQuickPick([(arg_11 = defaultArg(tryField("Enabled", trace), false), toText(printf("Enabled: %b"))(arg_11)), (arg_12 = defaultArg(tryField("IsRunning", trace), false), toText(printf("Running: %b"))(arg_12)), (arg_13 = (defaultArg(bind((obj) => tryField("Total", obj), tryField("Summary", trace)), 0) | 0), (arg_14 = (defaultArg(bind((obj_1) => tryField("Passed", obj_1), tryField("Summary", trace)), 0) | 0), (arg_15 = (defaultArg(bind((obj_2) => tryField("Failed", obj_2), tryField("Summary", trace)), 0) | 0), toText(printf("Total: %d | Passed: %d | Failed: %d"))(arg_13)(arg_14)(arg_15))))], "Pipeline Trace"));
+            promiseIgnore(Window_showQuickPick([(arg_11 = defaultArg(fieldBool("Enabled", trace), false), toText(printf("Enabled: %b"))(arg_11)), (arg_12 = defaultArg(fieldBool("IsRunning", trace), false), toText(printf("Running: %b"))(arg_12)), (arg_13 = (defaultArg(bind((obj) => fieldInt("Total", obj), fieldObj("Summary")(trace)), 0) | 0), (arg_14 = (defaultArg(bind((obj_1) => fieldInt("Passed", obj_1), fieldObj("Summary")(trace)), 0) | 0), (arg_15 = (defaultArg(bind((obj_2) => fieldInt("Failed", obj_2), fieldObj("Summary")(trace)), 0) | 0), toText(printf("Total: %d | Passed: %d | Failed: %d"))(arg_13)(arg_14)(arg_15))))], "Pipeline Trace"));
         }
     });
     reg("sagefs.exportSession", (_arg_30) => {

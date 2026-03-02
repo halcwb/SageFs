@@ -3,9 +3,10 @@ import { Commands_registerCommand, Window_createTreeView, newEventEmitter, newTh
 import { printf, toText } from "./fable_modules/fable-library-js.4.29.0/String.js";
 import { PromiseBuilder__Delay_62FBFDE1, PromiseBuilder__Run_212F1D4B } from "./fable_modules/Fable.Promise.3.2.0/Promise.fs.js";
 import { some, defaultArg, value as value_2 } from "./fable_modules/fable-library-js.4.29.0/Option.js";
-import { promiseIgnore, tryField } from "./JsHelpers.fs.js";
+import { fieldString } from "./SafeInterop.fs.js";
 import { promise } from "./fable_modules/Fable.Promise.3.2.0/PromiseImpl.fs.js";
 import { item as item_1, map, equalsWith } from "./fable_modules/fable-library-js.4.29.0/Array.js";
+import { promiseIgnore } from "./JsHelpers.fs.js";
 import { getWarmupContext } from "./SageFsClient.fs.js";
 
 export let currentClient = createAtom(undefined);
@@ -56,7 +57,7 @@ export function getChildren(element) {
         let matchValue, arg;
         if (element != null) {
             const el = value_2(element);
-            const ctx_1 = defaultArg(tryField("contextValue", el), "");
+            const ctx_1 = defaultArg(fieldString("contextValue", el), "");
             switch (ctx_1) {
                 case "summary":
                     if (cachedContext() != null) {
@@ -74,7 +75,7 @@ export function getChildren(element) {
                         return Promise.resolve([]);
                     }
                 case "section": {
-                    const label = defaultArg(tryField("label", el), "");
+                    const label = defaultArg(fieldString("label", el), "");
                     if (cachedContext() != null) {
                         const wc_1 = cachedContext();
                         return (label === "Assemblies") ? (Promise.resolve(map((a) => leafItem(a.Name, toText(printf("%d ns, %d mod"))(a.NamespaceCount)(a.ModuleCount), "library"), wc_1.AssembliesLoaded))) : ((label === "Namespaces") ? (Promise.resolve(map((b) => {

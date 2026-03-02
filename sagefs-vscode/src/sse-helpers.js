@@ -50,10 +50,19 @@ function createSseSubscriber(url, onMessage) {
           if (line.startsWith('event: ')) {
             currentEvent = line.slice(7).trim();
           } else if (line.startsWith('data: ')) {
+            let data;
             try {
-              const data = JSON.parse(line.slice(6));
+              data = JSON.parse(line.slice(6));
+            } catch (e) {
+              console.warn('[SageFs SSE] JSON parse error:', e.message, 'raw:', line.slice(6, 200));
+              currentEvent = 'message';
+              continue;
+            }
+            try {
               onMessage(currentEvent, data);
-            } catch (e) { console.warn('[SageFs SSE] JSON parse error:', e.message); }
+            } catch (appErr) {
+              console.error('[SageFs SSE] Event handler error for', currentEvent + ':', appErr.message, '\n', appErr.stack);
+            }
             currentEvent = 'message';
           } else if (line.trim() === '') {
             currentEvent = 'message';

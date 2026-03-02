@@ -1,6 +1,7 @@
 module SageFs.Vscode.FeatureTypes
 
 open SageFs.Vscode.JsHelpers
+open SageFs.Vscode.SafeInterop
 
 // ── Feature 1: Eval Diff ────────────────────────────────────────────────
 
@@ -94,116 +95,116 @@ type FeatureCallbacks =
 
 // ── JSON Parsers ────────────────────────────────────────────────────────
 
-// CRITICAL: tryField arg order is (name: string) (obj: obj) — name FIRST, then obj.
-// This matches JsHelpers.tryField<'T> (name: string) (obj: obj)
+// CRITICAL: SafeInterop field accessors use (name: string) (obj: obj) — name FIRST, then obj.
 
 let parseDiffLine (data: obj) : VscDiffLine =
-  let kindStr = tryField<string> "kind" data |> Option.defaultValue "unchanged"
+  let kindStr = fieldString "kind" data |> Option.defaultValue "unchanged"
   let kind =
     match kindStr with
     | "added" -> Added | "removed" -> Removed
     | "modified" -> Modified | _ -> Unchanged
   { Kind = kind
-    Text = tryField<string> "text" data |> Option.defaultValue ""
-    OldText = tryField<string> "oldText" data }
+    Text = fieldString "text" data |> Option.defaultValue ""
+    OldText = fieldString "oldText" data }
 
 let parseDiffSummary (data: obj) : VscDiffSummary =
-  { Added = tryField<int> "added" data |> Option.defaultValue 0
-    Removed = tryField<int> "removed" data |> Option.defaultValue 0
-    Modified = tryField<int> "modified" data |> Option.defaultValue 0
-    Unchanged = tryField<int> "unchanged" data |> Option.defaultValue 0 }
+  { Added = fieldInt "added" data |> Option.defaultValue 0
+    Removed = fieldInt "removed" data |> Option.defaultValue 0
+    Modified = fieldInt "modified" data |> Option.defaultValue 0
+    Unchanged = fieldInt "unchanged" data |> Option.defaultValue 0 }
 
 let parseEvalDiff (data: obj) : VscEvalDiff =
   let lines =
-    tryField<obj array> "lines" data
+    fieldArray "lines" data
     |> Option.map (Array.map parseDiffLine >> Array.toList)
     |> Option.defaultValue []
   let summary =
-    tryField<obj> "summary" data
+    fieldObj "summary" data
     |> Option.map parseDiffSummary
     |> Option.defaultValue { Added = 0; Removed = 0; Modified = 0; Unchanged = 0 }
   { Lines = lines; Summary = summary
-    HasDiff = tryField<bool> "hasDiff" data |> Option.defaultValue false }
+    HasDiff = fieldBool "hasDiff" data |> Option.defaultValue false }
 
 let parseCellNode (data: obj) : VscCellNode =
-  { CellId = tryField<int> "cellId" data |> Option.defaultValue 0
-    Source = tryField<string> "source" data |> Option.defaultValue ""
+  { CellId = fieldInt "cellId" data |> Option.defaultValue 0
+    Source = fieldString "source" data |> Option.defaultValue ""
     Produces =
-      tryField<obj array> "produces" data
-      |> Option.map (Array.choose (tryOfObj >> Option.map unbox<string>) >> Array.toList)
+      fieldArray "produces" data
+      |> Option.map (Array.choose tryCastString >> Array.toList)
       |> Option.defaultValue []
     Consumes =
-      tryField<obj array> "consumes" data
-      |> Option.map (Array.choose (tryOfObj >> Option.map unbox<string>) >> Array.toList)
+      fieldArray "consumes" data
+      |> Option.map (Array.choose tryCastString >> Array.toList)
       |> Option.defaultValue []
-    IsStale = tryField<bool> "isStale" data |> Option.defaultValue false }
+    IsStale = fieldBool "isStale" data |> Option.defaultValue false }
 
 let parseCellGraph (data: obj) : VscCellGraph =
   let cells =
-    tryField<obj array> "cells" data
+    fieldArray "cells" data
     |> Option.map (Array.map parseCellNode >> Array.toList)
     |> Option.defaultValue []
   let edges =
-    tryField<obj array> "edges" data
+    fieldArray "edges" data
     |> Option.map (Array.map (fun e ->
-      { From = tryField<int> "from" e |> Option.defaultValue 0
-        To = tryField<int> "to" e |> Option.defaultValue 0 }
+      { From = fieldInt "from" e |> Option.defaultValue 0
+        To = fieldInt "to" e |> Option.defaultValue 0 }
     ) >> Array.toList)
     |> Option.defaultValue []
   { Cells = cells; Edges = edges }
 
 let parseBindingInfo (data: obj) : VscBindingInfo =
-  { Name = tryField<string> "name" data |> Option.defaultValue ""
-    TypeSig = tryField<string> "typeSig" data |> Option.defaultValue ""
-    CellIndex = tryField<int> "cellIndex" data |> Option.defaultValue 0
-    IsShadowed = tryField<bool> "isShadowed" data |> Option.defaultValue false
+  { Name = fieldString "name" data |> Option.defaultValue ""
+    TypeSig = fieldString "typeSig" data |> Option.defaultValue ""
+    CellIndex = fieldInt "cellIndex" data |> Option.defaultValue 0
+    IsShadowed = fieldBool "isShadowed" data |> Option.defaultValue false
     ShadowedBy =
-      tryField<obj array> "shadowedBy" data
-      |> Option.map (Array.choose (tryOfObj >> Option.map unbox<int>) >> Array.toList)
+      fieldArray "shadowedBy" data
+      |> Option.map (Array.choose tryCastInt >> Array.toList)
       |> Option.defaultValue []
     ReferencedIn =
-      tryField<obj array> "referencedIn" data
-      |> Option.map (Array.choose (tryOfObj >> Option.map unbox<int>) >> Array.toList)
+      fieldArray "referencedIn" data
+      |> Option.map (Array.choose tryCastInt >> Array.toList)
       |> Option.defaultValue [] }
 
 let parseBindingScopeSnapshot (data: obj) : VscBindingScopeSnapshot =
   let bindings =
-    tryField<obj array> "bindings" data
+    fieldArray "bindings" data
     |> Option.map (Array.map parseBindingInfo >> Array.toList)
     |> Option.defaultValue []
   { Bindings = bindings
-    ActiveCount = tryField<int> "activeCount" data |> Option.defaultValue 0
-    ShadowedCount = tryField<int> "shadowedCount" data |> Option.defaultValue 0 }
+    ActiveCount = fieldInt "activeCount" data |> Option.defaultValue 0
+    ShadowedCount = fieldInt "shadowedCount" data |> Option.defaultValue 0 }
 
 let parseTimelineStats (data: obj) : VscTimelineStats =
-  { Count = tryField<int> "count" data |> Option.defaultValue 0
-    P50Ms = tryField<float> "p50Ms" data
-    P95Ms = tryField<float> "p95Ms" data
-    P99Ms = tryField<float> "p99Ms" data
-    MeanMs = tryField<float> "meanMs" data
-    Sparkline = tryField<string> "sparkline" data |> Option.defaultValue "" }
+  { Count = fieldInt "count" data |> Option.defaultValue 0
+    P50Ms = fieldFloat "p50Ms" data
+    P95Ms = fieldFloat "p95Ms" data
+    P99Ms = fieldFloat "p99Ms" data
+    MeanMs = fieldFloat "meanMs" data
+    Sparkline = fieldString "sparkline" data |> Option.defaultValue "" }
 
 let parseNotebookCell (data: obj) : VscNotebookCell =
-  { Index = tryField<int> "index" data |> Option.defaultValue 0
-    Label = tryField<string> "label" data
-    Code = tryField<string> "code" data |> Option.defaultValue ""
-    Output = tryField<string> "output" data
+  { Index = fieldInt "index" data |> Option.defaultValue 0
+    Label = fieldString "label" data
+    Code = fieldString "code" data |> Option.defaultValue ""
+    Output = fieldString "output" data
     Deps =
-      tryField<obj array> "deps" data
-      |> Option.map (Array.choose (tryOfObj >> Option.map unbox<int>) >> Array.toList)
+      fieldArray "deps" data
+      |> Option.map (Array.choose tryCastInt >> Array.toList)
       |> Option.defaultValue []
     Bindings =
-      tryField<obj array> "bindings" data
-      |> Option.map (Array.choose (tryOfObj >> Option.map unbox<string>) >> Array.toList)
+      fieldArray "bindings" data
+      |> Option.map (Array.choose tryCastString >> Array.toList)
       |> Option.defaultValue [] }
 
 let processFeatureEvent (eventType: string) (data: obj) (callbacks: FeatureCallbacks) =
-  match eventType with
-  | "eval_diff" -> callbacks.OnEvalDiff (parseEvalDiff data)
-  | "cell_dependencies" -> callbacks.OnCellGraph (parseCellGraph data)
-  | "binding_scope_map" -> callbacks.OnBindingScope (parseBindingScopeSnapshot data)
-  | "eval_timeline" -> callbacks.OnTimeline (parseTimelineStats data)
-  | _ -> ()
+  tryHandleEvent eventType (fun () ->
+    match eventType with
+    | "eval_diff" -> callbacks.OnEvalDiff (parseEvalDiff data)
+    | "cell_dependencies" -> callbacks.OnCellGraph (parseCellGraph data)
+    | "binding_scope_map" -> callbacks.OnBindingScope (parseBindingScopeSnapshot data)
+    | "eval_timeline" -> callbacks.OnTimeline (parseTimelineStats data)
+    | _ -> ())
 
 let formatSparklineStatus (stats: VscTimelineStats) =
   if stats.Count = 0 then ""

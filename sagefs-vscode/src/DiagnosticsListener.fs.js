@@ -1,8 +1,9 @@
-import { tryField, subscribeSse } from "./JsHelpers.fs.js";
+import { subscribeSse } from "./JsHelpers.fs.js";
 import { printf, toText } from "./fable_modules/fable-library-js.4.29.0/String.js";
 import { iterate } from "./fable_modules/fable-library-js.4.29.0/Seq.js";
 import { item } from "./fable_modules/fable-library-js.4.29.0/Array.js";
 import { toArray, defaultArg } from "./fable_modules/fable-library-js.4.29.0/Option.js";
+import { fieldArray, fieldInt, fieldString } from "./SafeInterop.fs.js";
 import { uriFile, newRange, newDiagnostic } from "./Vscode.fs.js";
 import { max } from "./fable_modules/fable-library-js.4.29.0/Double.js";
 import { getItemFromDict } from "./fable_modules/fable-library-js.4.29.0/MapUtil.js";
@@ -15,16 +16,16 @@ export function start(port, dc) {
             for (let idx = 0; idx <= (diagnostics.length - 1); idx++) {
                 const diag = item(idx, diagnostics);
                 iterate((file) => {
-                    const message = defaultArg(tryField("message", diag), "");
+                    const message = defaultArg(fieldString("message", diag), "");
                     let severity;
-                    const matchValue = defaultArg(tryField("severity", diag), "");
+                    const matchValue = defaultArg(fieldString("severity", diag), "");
                     severity = ((matchValue === "error") ? (0) : ((matchValue === "warning") ? (1) : ((matchValue === "info") ? (2) : (3))));
-                    const d = newDiagnostic(newRange(max(0, defaultArg(tryField("startLine", diag), 1) - 1), max(0, defaultArg(tryField("startColumn", diag), 1) - 1), max(0, defaultArg(tryField("endLine", diag), 1) - 1), max(0, defaultArg(tryField("endColumn", diag), 1) - 1)), message, severity);
+                    const d = newDiagnostic(newRange(max(0, defaultArg(fieldInt("startLine", diag), 1) - 1), max(0, defaultArg(fieldInt("startColumn", diag), 1) - 1), max(0, defaultArg(fieldInt("endLine", diag), 1) - 1), max(0, defaultArg(fieldInt("endColumn", diag), 1) - 1)), message, severity);
                     if (!byFile.has(file)) {
                         byFile.set(file, []);
                     }
                     void (getItemFromDict(byFile, file).push(d));
-                }, toArray(tryField("file", diag)));
+                }, toArray(fieldString("file", diag)));
             }
             dc.clear();
             let enumerator = getEnumerator(byFile);
@@ -38,7 +39,7 @@ export function start(port, dc) {
             finally {
                 disposeSafe(enumerator);
             }
-        }, toArray(tryField("diagnostics", data)));
+        }, toArray(fieldArray("diagnostics", data)));
     });
 }
 

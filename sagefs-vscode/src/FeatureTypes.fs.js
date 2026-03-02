@@ -1,7 +1,7 @@
 import { Record, Union } from "./fable_modules/fable-library-js.4.29.0/Types.js";
 import { lambda_type, unit_type, float64_type, bool_type, list_type, int32_type, record_type, option_type, string_type, union_type } from "./fable_modules/fable-library-js.4.29.0/Reflection.js";
-import { some, map, defaultArg } from "./fable_modules/fable-library-js.4.29.0/Option.js";
-import { tryField } from "./JsHelpers.fs.js";
+import { map, defaultArg } from "./fable_modules/fable-library-js.4.29.0/Option.js";
+import { tryHandleEvent, fieldFloat, tryCastInt, tryCastString, fieldBool, fieldObj, fieldArray, fieldInt, fieldString } from "./SafeInterop.fs.js";
 import { empty, ofArray } from "./fable_modules/fable-library-js.4.29.0/List.js";
 import { choose, map as map_1 } from "./fable_modules/fable-library-js.4.29.0/Array.js";
 import { printf, toText } from "./fable_modules/fable-library-js.4.29.0/String.js";
@@ -205,82 +205,66 @@ export function FeatureCallbacks_$reflection() {
 }
 
 export function parseDiffLine(data) {
-    const kindStr = defaultArg(tryField("kind", data), "unchanged");
-    return new VscDiffLine((kindStr === "added") ? (new VscDiffLineKind(1, [])) : ((kindStr === "removed") ? (new VscDiffLineKind(2, [])) : ((kindStr === "modified") ? (new VscDiffLineKind(3, [])) : (new VscDiffLineKind(0, [])))), defaultArg(tryField("text", data), ""), tryField("oldText", data));
+    const kindStr = defaultArg(fieldString("kind", data), "unchanged");
+    return new VscDiffLine((kindStr === "added") ? (new VscDiffLineKind(1, [])) : ((kindStr === "removed") ? (new VscDiffLineKind(2, [])) : ((kindStr === "modified") ? (new VscDiffLineKind(3, [])) : (new VscDiffLineKind(0, [])))), defaultArg(fieldString("text", data), ""), fieldString("oldText", data));
 }
 
 export function parseDiffSummary(data) {
-    return new VscDiffSummary(defaultArg(tryField("added", data), 0), defaultArg(tryField("removed", data), 0), defaultArg(tryField("modified", data), 0), defaultArg(tryField("unchanged", data), 0));
+    return new VscDiffSummary(defaultArg(fieldInt("added", data), 0), defaultArg(fieldInt("removed", data), 0), defaultArg(fieldInt("modified", data), 0), defaultArg(fieldInt("unchanged", data), 0));
 }
 
 export function parseEvalDiff(data) {
     let value_1;
-    return new VscEvalDiff(defaultArg(map((arg) => ofArray(map_1(parseDiffLine, arg)), tryField("lines", data)), empty()), (value_1 = (new VscDiffSummary(0, 0, 0, 0)), defaultArg(map(parseDiffSummary, tryField("summary", data)), value_1)), defaultArg(tryField("hasDiff", data), false));
+    return new VscEvalDiff(defaultArg(map((arg) => ofArray(map_1(parseDiffLine, arg)), fieldArray("lines", data)), empty()), (value_1 = (new VscDiffSummary(0, 0, 0, 0)), defaultArg(map(parseDiffSummary, fieldObj("summary")(data)), value_1)), defaultArg(fieldBool("hasDiff", data), false));
 }
 
 export function parseCellNode(data) {
-    return new VscCellNode(defaultArg(tryField("cellId", data), 0), defaultArg(tryField("source", data), ""), defaultArg(map((arg_1) => ofArray(choose((arg) => {
-        let x_1;
-        return map((value_2) => value_2, (x_1 = arg, (x_1 == null) ? undefined : some(x_1)));
-    }, arg_1)), tryField("produces", data)), empty()), defaultArg(map((arg_3) => ofArray(choose((arg_2) => {
-        let x_3;
-        return map((value_4) => value_4, (x_3 = arg_2, (x_3 == null) ? undefined : some(x_3)));
-    }, arg_3)), tryField("consumes", data)), empty()), defaultArg(tryField("isStale", data), false));
+    return new VscCellNode(defaultArg(fieldInt("cellId", data), 0), defaultArg(fieldString("source", data), ""), defaultArg(map((arg) => ofArray(choose(tryCastString, arg)), fieldArray("produces", data)), empty()), defaultArg(map((arg_1) => ofArray(choose(tryCastString, arg_1)), fieldArray("consumes", data)), empty()), defaultArg(fieldBool("isStale", data), false));
 }
 
 export function parseCellGraph(data) {
-    return new VscCellGraph(defaultArg(map((arg) => ofArray(map_1(parseCellNode, arg)), tryField("cells", data)), empty()), defaultArg(map((arg_1) => ofArray(map_1((e) => (new VscCellEdge(defaultArg(tryField("from", e), 0), defaultArg(tryField("to", e), 0))), arg_1)), tryField("edges", data)), empty()));
+    return new VscCellGraph(defaultArg(map((arg) => ofArray(map_1(parseCellNode, arg)), fieldArray("cells", data)), empty()), defaultArg(map((arg_1) => ofArray(map_1((e) => (new VscCellEdge(defaultArg(fieldInt("from", e), 0), defaultArg(fieldInt("to", e), 0))), arg_1)), fieldArray("edges", data)), empty()));
 }
 
 export function parseBindingInfo(data) {
-    return new VscBindingInfo(defaultArg(tryField("name", data), ""), defaultArg(tryField("typeSig", data), ""), defaultArg(tryField("cellIndex", data), 0), defaultArg(tryField("isShadowed", data), false), defaultArg(map((arg_1) => ofArray(choose((arg) => {
-        let x_1;
-        return map((value_4) => value_4, (x_1 = arg, (x_1 == null) ? undefined : some(x_1)));
-    }, arg_1, Int32Array)), tryField("shadowedBy", data)), empty()), defaultArg(map((arg_3) => ofArray(choose((arg_2) => {
-        let x_3;
-        return map((value_6) => value_6, (x_3 = arg_2, (x_3 == null) ? undefined : some(x_3)));
-    }, arg_3, Int32Array)), tryField("referencedIn", data)), empty()));
+    return new VscBindingInfo(defaultArg(fieldString("name", data), ""), defaultArg(fieldString("typeSig", data), ""), defaultArg(fieldInt("cellIndex", data), 0), defaultArg(fieldBool("isShadowed", data), false), defaultArg(map((arg) => ofArray(choose(tryCastInt, arg, Int32Array)), fieldArray("shadowedBy", data)), empty()), defaultArg(map((arg_1) => ofArray(choose(tryCastInt, arg_1, Int32Array)), fieldArray("referencedIn", data)), empty()));
 }
 
 export function parseBindingScopeSnapshot(data) {
-    return new VscBindingScopeSnapshot(defaultArg(map((arg) => ofArray(map_1(parseBindingInfo, arg)), tryField("bindings", data)), empty()), defaultArg(tryField("activeCount", data), 0), defaultArg(tryField("shadowedCount", data), 0));
+    return new VscBindingScopeSnapshot(defaultArg(map((arg) => ofArray(map_1(parseBindingInfo, arg)), fieldArray("bindings", data)), empty()), defaultArg(fieldInt("activeCount", data), 0), defaultArg(fieldInt("shadowedCount", data), 0));
 }
 
 export function parseTimelineStats(data) {
-    return new VscTimelineStats(defaultArg(tryField("count", data), 0), tryField("p50Ms", data), tryField("p95Ms", data), tryField("p99Ms", data), tryField("meanMs", data), defaultArg(tryField("sparkline", data), ""));
+    return new VscTimelineStats(defaultArg(fieldInt("count", data), 0), fieldFloat("p50Ms", data), fieldFloat("p95Ms", data), fieldFloat("p99Ms", data), fieldFloat("meanMs", data), defaultArg(fieldString("sparkline", data), ""));
 }
 
 export function parseNotebookCell(data) {
-    return new VscNotebookCell(defaultArg(tryField("index", data), 0), tryField("label", data), defaultArg(tryField("code", data), ""), tryField("output", data), defaultArg(map((arg_1) => ofArray(choose((arg) => {
-        let x_1;
-        return map((value_2) => value_2, (x_1 = arg, (x_1 == null) ? undefined : some(x_1)));
-    }, arg_1, Int32Array)), tryField("deps", data)), empty()), defaultArg(map((arg_3) => ofArray(choose((arg_2) => {
-        let x_3;
-        return map((value_4) => value_4, (x_3 = arg_2, (x_3 == null) ? undefined : some(x_3)));
-    }, arg_3)), tryField("bindings", data)), empty()));
+    return new VscNotebookCell(defaultArg(fieldInt("index", data), 0), fieldString("label", data), defaultArg(fieldString("code", data), ""), fieldString("output", data), defaultArg(map((arg) => ofArray(choose(tryCastInt, arg, Int32Array)), fieldArray("deps", data)), empty()), defaultArg(map((arg_1) => ofArray(choose(tryCastString, arg_1)), fieldArray("bindings", data)), empty()));
 }
 
 export function processFeatureEvent(eventType, data, callbacks) {
-    switch (eventType) {
-        case "eval_diff": {
-            callbacks.OnEvalDiff(parseEvalDiff(data));
-            break;
+    tryHandleEvent(eventType, () => {
+        switch (eventType) {
+            case "eval_diff": {
+                callbacks.OnEvalDiff(parseEvalDiff(data));
+                break;
+            }
+            case "cell_dependencies": {
+                callbacks.OnCellGraph(parseCellGraph(data));
+                break;
+            }
+            case "binding_scope_map": {
+                callbacks.OnBindingScope(parseBindingScopeSnapshot(data));
+                break;
+            }
+            case "eval_timeline": {
+                callbacks.OnTimeline(parseTimelineStats(data));
+                break;
+            }
+            default:
+                undefined;
         }
-        case "cell_dependencies": {
-            callbacks.OnCellGraph(parseCellGraph(data));
-            break;
-        }
-        case "binding_scope_map": {
-            callbacks.OnBindingScope(parseBindingScopeSnapshot(data));
-            break;
-        }
-        case "eval_timeline": {
-            callbacks.OnTimeline(parseTimelineStats(data));
-            break;
-        }
-        default:
-            undefined;
-    }
+    });
 }
 
 export function formatSparklineStatus(stats) {

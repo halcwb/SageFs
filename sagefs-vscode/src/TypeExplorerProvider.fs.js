@@ -3,7 +3,7 @@ import { Window_createTreeView, newEventEmitter, newThemeIcon, newTreeItem } fro
 import { truncate, map, tryItem, last } from "./fable_modules/fable-library-js.4.29.0/Array.js";
 import { substring, printf, toText } from "./fable_modules/fable-library-js.4.29.0/String.js";
 import { value as value_2, defaultArg } from "./fable_modules/fable-library-js.4.29.0/Option.js";
-import { tryField } from "./JsHelpers.fs.js";
+import { fieldString } from "./SafeInterop.fs.js";
 import { PromiseBuilder__Delay_62FBFDE1, PromiseBuilder__Run_212F1D4B } from "./fable_modules/Fable.Promise.3.2.0/Promise.fs.js";
 import { promise } from "./fable_modules/Fable.Promise.3.2.0/PromiseImpl.fs.js";
 import { explore } from "./SageFsClient.fs.js";
@@ -48,7 +48,7 @@ function parseLine(line) {
 function parseExploreResponse(json) {
     let array;
     try {
-        const text = defaultArg(tryField("content", JSON.parse(json)), "");
+        const text = defaultArg(fieldString("content", JSON.parse(json)), "");
         return map(parseLine, truncate(50, (array = text.split("\n"), array.filter((l) => (l.trim().length > 0)))));
     }
     catch (matchValue) {
@@ -83,7 +83,7 @@ export function getChildren(element) {
             if (matchValue == null) {
                 return Promise.resolve([leafItem("Not connected", "", "warning")]);
             }
-            else if ((c = matchValue, defaultArg(tryField("contextValue", value_2(element)), "") === "ns-root")) {
+            else if ((c = matchValue, defaultArg(fieldString("contextValue", value_2(element)), "") === "ns-root")) {
                 const c_1 = matchValue;
                 const el_1 = value_2(element);
                 return exploreAndParse("System", "Error parsing response", c_1);
@@ -91,7 +91,7 @@ export function getChildren(element) {
             else {
                 const c_2 = matchValue;
                 const el_2 = value_2(element);
-                const ctx = defaultArg(tryField("contextValue", el_2), "");
+                const ctx = defaultArg(fieldString("contextValue", el_2), "");
                 return ((c$0027 = ctx, (c$0027 !== defaultOf()) && c$0027.startsWith("ns:"))) ? (exploreAndParse(substring(ctx, 3), "Error parsing", c_2)) : (Promise.resolve([]));
             }
         }
