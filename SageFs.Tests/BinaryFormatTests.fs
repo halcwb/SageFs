@@ -1488,7 +1488,139 @@ let enumTryParseTests = testList "centralized enum tryParse" [
   }
 ]
 
-// ─── Combined ────────────────────────────────────────────────────
+// ─── P0 Field-Level Bounds Checking ──────────────────────────────
+
+let fieldBoundsTests = testList "field-level bounds" [
+  testCase "readLpString rejects length exceeding remaining bytes" <| fun _ ->
+    use ms = new IO.MemoryStream()
+    use bw = new IO.BinaryWriter(ms)
+    bw.Write(1000u)
+    bw.Write([| 0x41uy; 0x42uy; 0x43uy |])
+    bw.Flush()
+    ms.Position <- 0L
+    use br = new IO.BinaryReader(ms)
+    let threw =
+      try BinaryPrimitives.readLpString br |> ignore; false
+      with _ -> true
+    threw |> Expect.isTrue "should reject length exceeding remaining bytes"
+
+  testCase "readLpStringOption rejects length exceeding remaining bytes" <| fun _ ->
+    use ms = new IO.MemoryStream()
+    use bw = new IO.BinaryWriter(ms)
+    bw.Write(0x7FFFFFFFu)
+    bw.Write([| 0x41uy |])
+    bw.Flush()
+    ms.Position <- 0L
+    use br = new IO.BinaryReader(ms)
+    let threw =
+      try BinaryPrimitives.readLpStringOption br |> ignore; false
+      with _ -> true
+    threw |> Expect.isTrue "should reject oversized optional string length"
+
+  testCase "readLpString with 0xFFFFFFFF does not OOM" <| fun _ ->
+    use ms = new IO.MemoryStream()
+    use bw = new IO.BinaryWriter(ms)
+    bw.Write(0xFFFFFFFFu)
+    bw.Flush()
+    ms.Position <- 0L
+    use br = new IO.BinaryReader(ms)
+    let threw =
+      try BinaryPrimitives.readLpString br |> ignore; false
+      with :? OutOfMemoryException -> false | _ -> true
+    threw |> Expect.isTrue "should throw clean error, not OOM"
+
+  testCase "readLpStringOption None sentinel passes" <| fun _ ->
+    use ms = new IO.MemoryStream()
+    use bw = new IO.BinaryWriter(ms)
+    bw.Write(0xFFFFFFFFu)
+    bw.Flush()
+    ms.Position <- 0L
+    use br = new IO.BinaryReader(ms)
+    BinaryPrimitives.readLpStringOption br
+    |> Expect.isNone "should return None for sentinel"
+
+  testCase "readLpString valid string still works" <| fun _ ->
+    use ms = new IO.MemoryStream()
+    use bw = new IO.BinaryWriter(ms)
+    BinaryPrimitives.writeLpString bw "hello world"
+    bw.Flush()
+    ms.Position <- 0L
+    use br = new IO.BinaryReader(ms)
+    BinaryPrimitives.readLpString br
+    |> Expect.equal "should read valid string" "hello world"
+
+  testCase "readLpStringOption valid string still works" <| fun _ ->
+    use ms = new IO.MemoryStream()
+    use bw = new IO.BinaryWriter(ms)
+    BinaryPrimitives.writeLpStringOption bw (Some "test")
+    bw.Flush()
+    ms.Position <- 0L
+    use br = new IO.BinaryReader(ms)
+    BinaryPrimitives.readLpStringOption br
+    |> Expect.equal "should read valid optional string" (Some "test")
+]
+
+let fuzzPropertyTests = testList "fuzz properties" [
+  testPropertyWithConfig { FsCheckConfig.defaultConfig with maxTest = 500 }
+    "readLpString never OOMs on random bytes" <| fun (data: byte[]) ->
+    match data.Length >= 4 with
+    | false -> ()
+    | true ->
+      use ms = new IO.MemoryStream(data)
+      use br = new IO.BinaryReader(ms)
+      try BinaryPrimitives.readLpString br |> ignore
+      with :? OutOfMemoryException -> failwith "OOM on random input" | _ -> ()
+
+  testPropertyWithConfig { FsCheckConfig.defaultConfig with maxTest = 500 }
+    "readLpStringOption never OOMs on random bytes" <| fun (data: byte[]) ->
+    match data.Length >= 4 with
+    | false -> ()
+    | true ->
+      use ms = new IO.MemoryStream(data)
+      use br = new IO.BinaryReader(ms)
+      try BinaryPrimitives.readLpStringOption br |> ignore
+      with :? OutOfMemoryException -> failwith "OOM on random input" | _ -> ()
+
+  testPropertyWithConfig { FsCheckConfig.defaultConfig with maxTest = 200 }
+    "STC reader never OOMs on random bytes" <| fun (data: byte[]) ->
+    match data.Length >= 64 with
+    | false -> ()
+    | true ->
+      try TestCacheReader.read data |> ignore
+      with :? OutOfMemoryException -> failwith "STC reader OOM" | _ -> ()
+
+  testPropertyWithConfig { FsCheckConfig.defaultConfig with maxTest = 200 }
+    "SFS reader never OOMs on random bytes" <| fun (data: byte[]) ->
+    match data.Length >= 64 with
+    | false -> ()
+    | true ->
+      try SessionBinaryReader.read data |> ignore
+      with :? OutOfMemoryException -> failwith "SFS reader OOM" | _ -> ()
+
+  testPropertyWithConfig { FsCheckConfig.defaultConfig with maxTest = 500 }
+    "lp-string roundtrip preserved after bounds fix" <| fun (s: string) ->
+    let s = match s with null -> "" | v -> v
+    use ms = new IO.MemoryStream()
+    use bw = new IO.BinaryWriter(ms)
+    BinaryPrimitives.writeLpString bw s
+    bw.Flush()
+    ms.Position <- 0L
+    use br = new IO.BinaryReader(ms)
+    BinaryPrimitives.readLpString br
+    |> Expect.equal "roundtrip should preserve string" s
+
+  testPropertyWithConfig { FsCheckConfig.defaultConfig with maxTest = 500 }
+    "lp-string-option roundtrip preserved after bounds fix" <| fun (opt: string option) ->
+    let opt = match opt with Some null -> Some "" | v -> v
+    use ms = new IO.MemoryStream()
+    use bw = new IO.BinaryWriter(ms)
+    BinaryPrimitives.writeLpStringOption bw opt
+    bw.Flush()
+    ms.Position <- 0L
+    use br = new IO.BinaryReader(ms)
+    BinaryPrimitives.readLpStringOption br
+    |> Expect.equal "roundtrip should preserve optional string" opt
+]
 
 [<Tests>]
 let allBinaryFormatTests = testList "Binary Format" [
@@ -1508,4 +1640,6 @@ let allBinaryFormatTests = testList "Binary Format" [
   versionConsistencyTests
   goldenFileTests
   enumTryParseTests
+  fieldBoundsTests
+  fuzzPropertyTests
 ]

@@ -37,11 +37,16 @@ module BinaryPrimitives =
     bw.Write(uint32 bytes.Length)
     bw.Write(bytes)
 
-  /// Read length-prefixed UTF-8 string.
+  /// Read length-prefixed UTF-8 string with bounds validation.
   let readLpString (br: BinaryReader) : string =
     let len = br.ReadUInt32() |> int
-    let bytes = br.ReadBytes(len)
-    Encoding.UTF8.GetString(bytes)
+    let remaining = br.BaseStream.Length - br.BaseStream.Position
+    match int64 len > remaining with
+    | true ->
+      invalidOp (sprintf "lp-string length %d exceeds remaining %d bytes" len remaining)
+    | false ->
+      let bytes = br.ReadBytes(len)
+      Encoding.UTF8.GetString(bytes)
 
   /// Write optional lp-string: 0xFFFFFFFF = None, else lp-string.
   let writeLpStringOption (bw: BinaryWriter) (opt: string option) =
@@ -49,14 +54,19 @@ module BinaryPrimitives =
     | None -> bw.Write(0xFFFFFFFFu)
     | Some s -> writeLpString bw s
 
-  /// Read optional lp-string.
+  /// Read optional lp-string with bounds validation.
   let readLpStringOption (br: BinaryReader) : string option =
     let marker = br.ReadUInt32()
     match marker with
     | 0xFFFFFFFFu -> None
     | len ->
-      let bytes = br.ReadBytes(int len)
-      Some(Encoding.UTF8.GetString(bytes))
+      let remaining = br.BaseStream.Length - br.BaseStream.Position
+      match int64 len > remaining with
+      | true ->
+        invalidOp (sprintf "lp-string-option length %d exceeds remaining %d bytes" (int len) remaining)
+      | false ->
+        let bytes = br.ReadBytes(int len)
+        Some(Encoding.UTF8.GetString(bytes))
 
   let writeU8 (bw: BinaryWriter) (v: byte) = bw.Write(v)
   let writeU16 (bw: BinaryWriter) (v: uint16) = bw.Write(v)

@@ -159,18 +159,25 @@ module TestCacheReader =
   let private findSection (tag: uint32) (entries: DirEntry list) =
     entries |> List.tryFind (fun e -> e.Tag = tag)
 
-  let private parseImap (payload: byte[]) : CoverageEntry list =
-    use ms = new MemoryStream(payload)
-    use br = new BinaryReader(ms)
-    let count = br.ReadUInt32() |> int
-    [ for _ in 0 .. count - 1 do
-        let tid = BinaryPrimitives.readLpString br
-        let wc = br.ReadUInt32()
-        let words =
-          match wc with
-          | 0u -> [||]
-          | n -> [| for _ in 1u .. n -> br.ReadUInt64() |]
-        yield { TestId = tid; BitmapWordCount = wc; BitmapWords = words } ]
+  let private parseImap (payload: byte[]) : Result<CoverageEntry list, string> =
+    try
+      use ms = new MemoryStream(payload)
+      use br = new BinaryReader(ms)
+      let count = br.ReadUInt32() |> int
+      ok [ for _ in 0 .. count - 1 do
+              let tid = BinaryPrimitives.readLpString br
+              let wc = br.ReadUInt32()
+              let remaining = ms.Length - ms.Position
+              match int64 wc * 8L > remaining with
+              | true ->
+                failwith (sprintf "Bitmap word count %d requires %d bytes but only %d remain" wc (wc * 8u) remaining)
+              | false ->
+              let words =
+                match wc with
+                | 0u -> [||]
+                | n -> [| for _ in 1u .. n -> br.ReadUInt64() |]
+              yield { TestId = tid; BitmapWordCount = wc; BitmapWords = words } ]
+    with ex -> err (sprintf "IMAP parse error: %s" ex.Message)
 
   let private parseTres (payload: byte[]) : Result<ResultEntry list, string> =
     try
@@ -249,7 +256,9 @@ module TestCacheReader =
           let payloadMap = sectionPayloads |> List.map (fun (e, p, _) -> (e.Tag, p)) |> Map.ofList
           match Map.tryFind 0x494D4150u payloadMap, Map.tryFind 0x54524553u payloadMap with
           | Some imapP, Some tresP ->
-            let coverage = parseImap imapP
+            match parseImap imapP with
+            | Result.Error e -> err e
+            | Result.Ok coverage ->
             match parseTres tresP with
             | Result.Error e -> err e
             | Result.Ok results ->
