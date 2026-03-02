@@ -309,3 +309,151 @@ module SessionBinaryReader =
               ok { Meta = m; Interactions = ints; References = refs; CreatedAtMs = createdAtMs }
             | Result.Error e, _, _ | _, Result.Error e, _ | _, _, Result.Error e -> err e
           | Result.Error e, _, _ | _, Result.Error e, _ | _, _, Result.Error e -> err e
+
+
+/// Maps between SessionReplayState and SfsData for binary persistence.
+module SessionMapping =
+  open SessionBinaryTypes
+  open SageFs.Features.Replay
+
+  /// Convert SessionReplayState to binary-serializable SfsData.
+  let fromReplayState
+    (sessionId: string)
+    (projectPath: string)
+    (workDir: string)
+    (refs: string list)
+    (state: SessionReplayState) : SfsData =
+
+    let ver =
+      match System.Reflection.Assembly.GetEntryAssembly() with
+      | null -> "0.0.0"
+      | a -> string (a.GetName().Version)
+
+    let meta : SessionMeta = {
+      SageFsVersion = ver
+      FSharpVersion = ""
+      DotNetVersion = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription
+      ProjectPath = projectPath
+      WorkingDirectory = workDir
+      EvalCount = uint32 state.EvalCount
+      FailedEvalCount = uint32 state.FailedEvalCount
+      SessionId = sessionId
+    }
+
+    let interactions =
+      state.EvalHistory
+      |> List.map (fun e ->
+        let kind =
+          match e.Code.TrimStart() with
+          | c when c.StartsWith("#r ") || c.StartsWith("#load ") -> InteractionKind.Directive
+          | c when c.StartsWith("#") -> InteractionKind.ScriptLoad
+          | _ -> InteractionKind.Expression
+        let flags =
+          let mutable f = EntryFlags.None
+          match e.Result.StartsWith("error") || e.Result.StartsWith("Error") with
+          | true -> f <- f ||| EntryFlags.Failed
+          | false -> ()
+          match e.Result.Length > 0 with
+          | true -> f <- f ||| EntryFlags.HasOutput
+          | false -> ()
+          f
+        { Code = e.Code
+          Output = e.Result
+          TimestampMs = e.Timestamp.ToUnixTimeMilliseconds()
+          Kind = kind
+          Flags = flags
+          DurationMicros = uint32 (e.Duration.TotalMicroseconds) })
+
+    let references =
+      refs
+      |> List.map (fun r ->
+        let kind =
+          match r with
+          | r when r.EndsWith(".dll") -> RefKind.DllPath
+          | r when r.Contains("nuget:") -> RefKind.NuGet
+          | r when r.EndsWith(".fsx") -> RefKind.LoadedScript
+          | _ -> RefKind.IncludePath
+        { Kind = kind; Path = r })
+
+    { Meta = meta
+      Interactions = interactions
+      References = references
+      CreatedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }
+
+  /// Restore SessionReplayState from deserialized SfsData (partial).
+  let toReplayState (data: SfsData) : SessionReplayState =
+    let evalHistory =
+      data.Interactions
+      |> List.map (fun i ->
+        { Code = i.Code
+          Result = i.Output
+          TypeSignature = None
+          Duration = TimeSpan.FromMicroseconds(float i.DurationMicros)
+          Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(i.TimestampMs) })
+
+    let status =
+      match data.Interactions with
+      | [] -> ReplayStatus.NotStarted
+      | _ -> ReplayStatus.Ready
+
+    { SessionReplayState.empty with
+        Status = status
+        EvalCount = int data.Meta.EvalCount
+        FailedEvalCount = int data.Meta.FailedEvalCount
+        EvalHistory = evalHistory
+        StartedAt = Some (DateTimeOffset.FromUnixTimeMilliseconds(data.CreatedAtMs))
+        LastActivity =
+          data.Interactions
+          |> List.tryLast
+          |> Option.map (fun i -> DateTimeOffset.FromUnixTimeMilliseconds(i.TimestampMs)) }
+
+
+/// File I/O for .sagefs binary session files.
+module SessionFile =
+  open SessionBinaryTypes
+
+  /// Get the sessions directory, creating it if needed.
+  let sessionDir (sageFsDir: string) =
+    let dir = IO.Path.Combine(sageFsDir, "sessions")
+    IO.Directory.CreateDirectory(dir) |> ignore
+    dir
+
+  let private sessionPath sageFsDir (sessionId: string) =
+    IO.Path.Combine(sessionDir sageFsDir, sprintf "%s.sagefs" sessionId)
+
+  /// Save SfsData to a .sagefs file with atomic write.
+  let save (sageFsDir: string) (sessionId: string) (data: SfsData) : Result<string, string> =
+    try
+      let path = sessionPath sageFsDir sessionId
+      let tmpPath = path + ".tmp"
+      let bytes = SessionBinaryWriter.write data
+      IO.File.WriteAllBytes(tmpPath, bytes)
+      match IO.File.Exists(path) with
+      | true -> IO.File.Delete(path)
+      | false -> ()
+      IO.File.Move(tmpPath, path)
+      Ok path
+    with ex ->
+      Error (sprintf "Failed to save session: %s" ex.Message)
+
+  /// Load SfsData from a .sagefs file.
+  let load (sageFsDir: string) (sessionId: string) : Result<SfsData, string> =
+    let path = sessionPath sageFsDir sessionId
+    match IO.File.Exists(path) with
+    | false -> Error "No session file found"
+    | true ->
+      try
+        let bytes = IO.File.ReadAllBytes(path)
+        SessionBinaryReader.read bytes
+      with ex ->
+        Error (sprintf "Failed to read session: %s" ex.Message)
+
+  /// List all saved session IDs.
+  let listSaved (sageFsDir: string) : string list =
+    let dir = sessionDir sageFsDir
+    match IO.Directory.Exists(dir) with
+    | false -> []
+    | true ->
+      IO.Directory.GetFiles(dir, "*.sagefs")
+      |> Array.map IO.Path.GetFileNameWithoutExtension
+      |> Array.toList

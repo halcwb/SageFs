@@ -411,6 +411,318 @@ let sfsTests = testList "SFS v3" [
         Crc32.computeAll hdr = storedCrc)
 ]
 
+// ─── Mapping & Integration Tests ─────────────────────────────────
+
+open SageFs.Features.LiveTesting
+open SageFs.Features.Replay
+
+let genTestId =
+  Gen.elements [ for i in 1..20 -> sprintf "%016X" (abs (hash i)) ]
+  |> Gen.map TestId.TestId
+
+let genCoverageBitmap =
+  gen {
+    let! count = Gen.choose (0, 128)
+    let wordCount = (count + 63) / 64
+    let! words = Gen.arrayOfLength wordCount (Gen.map uint64 (Gen.choose (0, Int32.MaxValue)))
+    return { CoverageBitmap.Bits = words; Count = count }
+  }
+
+let genLiveTestResult =
+  Gen.oneof [
+    Gen.map (fun ms -> TestResult.Passed (TimeSpan.FromMilliseconds(float ms))) (Gen.choose (0, 10000))
+    gen {
+      let! ms = Gen.choose (0, 10000)
+      let! msg = Gen.elements ["assertion failed"; "expected 42"; "null ref"; "timeout"]
+      return TestResult.Failed (TestFailure.AssertionFailed msg, TimeSpan.FromMilliseconds(float ms))
+    }
+    Gen.map TestResult.Skipped (Gen.elements ["reason1"; "reason2"])
+    Gen.constant TestResult.NotRun
+  ]
+
+let genTestRunResult =
+  gen {
+    let! tid = genTestId
+    let! name = Gen.elements ["test1"; "test2"; "myTest.should_work"]
+    let! result = genLiveTestResult
+    return {
+      TestRunResult.TestId = tid
+      TestName = name
+      Result = result
+      Timestamp = DateTimeOffset.UtcNow
+      Output = None
+    }
+  }
+
+let genLiveTestState =
+  gen {
+    let! n = Gen.choose (0, 10)
+    let! tids = Gen.listOfLength n genTestId
+    let! bitmaps = Gen.listOfLength n genCoverageBitmap
+    let! results = Gen.listOfLength n genTestRunResult
+    let coverageMap = List.zip tids bitmaps |> Map.ofList
+    let resultsMap =
+      List.zip tids results
+      |> List.map (fun (tid, r) -> tid, { r with TestId = tid })
+      |> Map.ofList
+    let! gen = Gen.choose (0, 100)
+    return { LiveTestState.empty with
+               TestCoverageBitmaps = coverageMap
+               LastResults = resultsMap
+               LastGeneration = RunGeneration gen }
+  }
+
+let genEvalRecord =
+  gen {
+    let! code = Gen.elements ["let x = 42;;"; "printfn \"hi\";;"; "#r \"nuget: FsCheck\";;"; "1 + 1;;"]
+    let! result = Gen.elements ["val x: int = 42"; "hi"; ""; "val it: int = 2"]
+    let! durationMs = Gen.choose (1, 5000)
+    let! tsOffset = Gen.choose (0, 100000)
+    return {
+      EvalRecord.Code = code
+      Result = result
+      TypeSignature = (match result with | "" -> None | r -> Some r)
+      Duration = TimeSpan.FromMilliseconds(float durationMs)
+      Timestamp = DateTimeOffset.UtcNow.AddMilliseconds(float tsOffset)
+    }
+  }
+
+let genSessionReplayState =
+  gen {
+    let! n = Gen.choose (0, 15)
+    let! evals = Gen.listOfLength n genEvalRecord
+    let! failCount = Gen.choose (0, n)
+    return { SessionReplayState.empty with
+               Status = (match n with | 0 -> ReplayStatus.NotStarted | _ -> ReplayStatus.Ready)
+               EvalCount = n
+               FailedEvalCount = failCount
+               EvalHistory = evals
+               StartedAt = Some DateTimeOffset.UtcNow
+               LastActivity = (match evals with | [] -> None | _ -> Some (List.last evals).Timestamp) }
+  }
+
+let private fsCheckConfig = { FsCheckConfig.defaultConfig with maxTest = 100 }
+
+let stcMappingTests = testList "STC Mapping" [
+
+  testPropertyWithConfig fsCheckConfig "coverage entry count roundtrips" <|
+    Prop.forAll (Arb.fromGen genLiveTestState) (fun state ->
+      let stcData = TestCacheMapping.fromLiveTestState state
+      let restored = TestCacheMapping.toLiveTestState stcData
+      state.TestCoverageBitmaps |> Map.count
+      |> Expect.equal "same coverage count" (restored.TestCoverageBitmaps |> Map.count))
+
+  testPropertyWithConfig fsCheckConfig "coverage bitmap words preserved" <|
+    Prop.forAll (Arb.fromGen genLiveTestState) (fun state ->
+      let stcData = TestCacheMapping.fromLiveTestState state
+      let restored = TestCacheMapping.toLiveTestState stcData
+      state.TestCoverageBitmaps
+      |> Map.iter (fun tid bm ->
+        match Map.tryFind tid restored.TestCoverageBitmaps with
+        | Some rbm -> rbm.Bits |> Expect.equal "same bits" bm.Bits
+        | None -> failwith (sprintf "Missing coverage for %A" tid)))
+
+  testPropertyWithConfig fsCheckConfig "result count roundtrips" <|
+    Prop.forAll (Arb.fromGen genLiveTestState) (fun state ->
+      let stcData = TestCacheMapping.fromLiveTestState state
+      let restored = TestCacheMapping.toLiveTestState stcData
+      state.LastResults |> Map.count
+      |> Expect.equal "same result count" (restored.LastResults |> Map.count))
+
+  testPropertyWithConfig fsCheckConfig "outcome roundtrips" <|
+    Prop.forAll (Arb.fromGen genLiveTestState) (fun state ->
+      let stcData = TestCacheMapping.fromLiveTestState state
+      let restored = TestCacheMapping.toLiveTestState stcData
+      state.LastResults
+      |> Map.iter (fun tid runResult ->
+        match Map.tryFind tid restored.LastResults with
+        | Some rr ->
+          let classify r =
+            match r with
+            | TestResult.Passed _ -> "pass"
+            | TestResult.Failed _ -> "fail"
+            | TestResult.Skipped _ -> "skip"
+            | TestResult.NotRun -> "skip"
+          classify rr.Result |> Expect.equal "same outcome" (classify runResult.Result)
+        | None -> failwith (sprintf "Missing result for %A" tid)))
+
+  testPropertyWithConfig fsCheckConfig "generation roundtrips" <|
+    Prop.forAll (Arb.fromGen genLiveTestState) (fun state ->
+      let stcData = TestCacheMapping.fromLiveTestState state
+      let restored = TestCacheMapping.toLiveTestState stcData
+      restored.LastGeneration |> Expect.equal "same generation" state.LastGeneration)
+
+  testPropertyWithConfig fsCheckConfig "duration within 1ms" <|
+    Prop.forAll (Arb.fromGen genLiveTestState) (fun state ->
+      let stcData = TestCacheMapping.fromLiveTestState state
+      let restored = TestCacheMapping.toLiveTestState stcData
+      state.LastResults
+      |> Map.iter (fun tid runResult ->
+        match Map.tryFind tid restored.LastResults with
+        | Some rr ->
+          let getMs r =
+            match r with
+            | TestResult.Passed d -> d.TotalMilliseconds
+            | TestResult.Failed (_, d) -> d.TotalMilliseconds
+            | _ -> 0.0
+          let diff = abs (getMs runResult.Result - getMs rr.Result)
+          (diff, 1.0) |> Expect.isLessThanOrEqual "duration within 1ms"
+        | None -> ()))
+]
+
+let stcE2eTests = testList "STC End-to-End" [
+
+  testPropertyWithConfig fsCheckConfig "full binary roundtrip preserves coverage" <|
+    Prop.forAll (Arb.fromGen genLiveTestState) (fun state ->
+      let stcData = TestCacheMapping.fromLiveTestState state
+      let bytes = TestCacheWriter.write stcData
+      match TestCacheReader.read bytes with
+      | Ok restored ->
+        restored.CoverageEntries.Length
+        |> Expect.equal "same count" stcData.CoverageEntries.Length
+        List.zip stcData.CoverageEntries restored.CoverageEntries
+        |> List.iter (fun (orig, rest) ->
+          rest.TestId |> Expect.equal "same test id" orig.TestId
+          rest.BitmapWords |> Expect.equal "same bits" orig.BitmapWords)
+      | Error e -> failwith (sprintf "Read failed: %s" e))
+
+  testPropertyWithConfig fsCheckConfig "full binary roundtrip preserves results" <|
+    Prop.forAll (Arb.fromGen genLiveTestState) (fun state ->
+      let stcData = TestCacheMapping.fromLiveTestState state
+      let bytes = TestCacheWriter.write stcData
+      match TestCacheReader.read bytes with
+      | Ok restored ->
+        restored.ResultEntries.Length
+        |> Expect.equal "same count" stcData.ResultEntries.Length
+        List.zip stcData.ResultEntries restored.ResultEntries
+        |> List.iter (fun (orig, rest) ->
+          rest.TestId |> Expect.equal "same id" orig.TestId
+          rest.Outcome |> Expect.equal "same outcome" orig.Outcome
+          rest.DurationMs |> Expect.equal "same duration" orig.DurationMs
+          rest.Message |> Expect.equal "same message" orig.Message)
+      | Error e -> failwith (sprintf "Read failed: %s" e))
+
+  testPropertyWithConfig fsCheckConfig "full binary roundtrip preserves generation" <|
+    Prop.forAll (Arb.fromGen genLiveTestState) (fun state ->
+      let stcData = TestCacheMapping.fromLiveTestState state
+      let bytes = TestCacheWriter.write stcData
+      match TestCacheReader.read bytes with
+      | Ok restored ->
+        restored.ImapGeneration
+        |> Expect.equal "same generation" stcData.ImapGeneration
+      | Error e -> failwith (sprintf "Read failed: %s" e))
+
+  testPropertyWithConfig { fsCheckConfig with maxTest = 20 } "file save/load roundtrip" <|
+    Prop.forAll (Arb.fromGen genLiveTestState) (fun state ->
+      let stcData = TestCacheMapping.fromLiveTestState state
+      let hash = sprintf "test-%d" (abs (hash state))
+      let tmpDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "sagefs-test-" + System.Guid.NewGuid().ToString("N"))
+      match TestCacheFile.save tmpDir hash stcData with
+      | Ok path ->
+        match TestCacheFile.load tmpDir hash with
+        | Ok loaded ->
+          loaded.CoverageEntries.Length
+          |> Expect.equal "same coverage count" stcData.CoverageEntries.Length
+          loaded.ResultEntries.Length
+          |> Expect.equal "same result count" stcData.ResultEntries.Length
+          loaded.ImapGeneration
+          |> Expect.equal "same generation" stcData.ImapGeneration
+          try System.IO.Directory.Delete(tmpDir, true) with _ -> ()
+        | Error e -> failwith (sprintf "Load failed: %s" e)
+      | Error e -> failwith (sprintf "Save failed: %s" e))
+]
+
+let sfsMappingTests = testList "SFS Mapping" [
+
+  testPropertyWithConfig fsCheckConfig "interaction count preserved" <|
+    Prop.forAll (Arb.fromGen genSessionReplayState) (fun state ->
+      let sfsData = SessionMapping.fromReplayState "test-session" "Test.fsproj" "C:\\test" [] state
+      sfsData.Interactions.Length
+      |> Expect.equal "same count" state.EvalCount)
+
+  testPropertyWithConfig fsCheckConfig "eval/failed counts preserved" <|
+    Prop.forAll (Arb.fromGen genSessionReplayState) (fun state ->
+      let sfsData = SessionMapping.fromReplayState "test-session" "Test.fsproj" "C:\\test" [] state
+      sfsData.Meta.EvalCount |> Expect.equal "same eval count" (uint32 state.EvalCount)
+      sfsData.Meta.FailedEvalCount |> Expect.equal "same failed" (uint32 state.FailedEvalCount))
+
+  testPropertyWithConfig fsCheckConfig "binary roundtrip preserves interactions" <|
+    Prop.forAll (Arb.fromGen genSessionReplayState) (fun state ->
+      let sfsData = SessionMapping.fromReplayState "test-session" "Test.fsproj" "C:\\test" [] state
+      let bytes = SessionBinaryWriter.write sfsData
+      match SessionBinaryReader.read bytes with
+      | Ok restored ->
+        restored.Interactions.Length
+        |> Expect.equal "same count" sfsData.Interactions.Length
+        List.zip sfsData.Interactions restored.Interactions
+        |> List.iter (fun (orig, rest) ->
+          rest.Code |> Expect.equal "same code" orig.Code
+          rest.Output |> Expect.equal "same output" orig.Output
+          rest.Kind |> Expect.equal "same kind" orig.Kind
+          rest.DurationMicros |> Expect.equal "same duration" orig.DurationMicros)
+      | Error e -> failwith (sprintf "Read failed: %s" e))
+
+  testPropertyWithConfig fsCheckConfig "binary roundtrip preserves references" <|
+    Prop.forAll (Arb.fromGen genSessionReplayState) (fun state ->
+      let refs = ["FSharp.Core.dll"; "nuget: Newtonsoft.Json"; "script.fsx"]
+      let sfsData = SessionMapping.fromReplayState "test-session" "Test.fsproj" "C:\\test" refs state
+      let bytes = SessionBinaryWriter.write sfsData
+      match SessionBinaryReader.read bytes with
+      | Ok restored ->
+        restored.References.Length |> Expect.equal "same ref count" sfsData.References.Length
+        List.zip sfsData.References restored.References
+        |> List.iter (fun (orig, rest) ->
+          rest.Kind |> Expect.equal "same kind" orig.Kind
+          rest.Path |> Expect.equal "same path" orig.Path)
+      | Error e -> failwith (sprintf "Read failed: %s" e))
+
+  testPropertyWithConfig fsCheckConfig "binary roundtrip preserves meta" <|
+    Prop.forAll (Arb.fromGen genSessionReplayState) (fun state ->
+      let sfsData = SessionMapping.fromReplayState "test-session" "Test.fsproj" "C:\\test" [] state
+      let bytes = SessionBinaryWriter.write sfsData
+      match SessionBinaryReader.read bytes with
+      | Ok restored ->
+        restored.Meta.SessionId |> Expect.equal "same session" sfsData.Meta.SessionId
+        restored.Meta.ProjectPath |> Expect.equal "same project" sfsData.Meta.ProjectPath
+        restored.Meta.EvalCount |> Expect.equal "same eval count" sfsData.Meta.EvalCount
+        restored.Meta.FailedEvalCount |> Expect.equal "same failed" sfsData.Meta.FailedEvalCount
+      | Error e -> failwith (sprintf "Read failed: %s" e))
+
+  testPropertyWithConfig { fsCheckConfig with maxTest = 20 } "file save/load roundtrip" <|
+    Prop.forAll (Arb.fromGen genSessionReplayState) (fun state ->
+      let sid = sprintf "test-session-%d" (abs (hash state))
+      let sfsData = SessionMapping.fromReplayState sid "Test.fsproj" "C:\\test" ["test.dll"] state
+      let tmpDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "sagefs-test-" + System.Guid.NewGuid().ToString("N"))
+      match SessionFile.save tmpDir sid sfsData with
+      | Ok path ->
+        match SessionFile.load tmpDir sid with
+        | Ok loaded ->
+          loaded.Interactions.Length
+          |> Expect.equal "same count" sfsData.Interactions.Length
+          loaded.Meta.SessionId
+          |> Expect.equal "same session" sfsData.Meta.SessionId
+          try System.IO.Directory.Delete(tmpDir, true) with _ -> ()
+        | Error e -> failwith (sprintf "Load failed: %s" e)
+      | Error e -> failwith (sprintf "Save failed: %s" e))
+
+  testPropertyWithConfig fsCheckConfig "reverse mapping preserves eval count" <|
+    Prop.forAll (Arb.fromGen genSessionReplayState) (fun state ->
+      let sfsData = SessionMapping.fromReplayState "test-session" "Test.fsproj" "C:\\test" [] state
+      let restored = SessionMapping.toReplayState sfsData
+      restored.EvalCount |> Expect.equal "same eval count" state.EvalCount)
+
+  testPropertyWithConfig fsCheckConfig "full binary reverse mapping preserves history" <|
+    Prop.forAll (Arb.fromGen genSessionReplayState) (fun state ->
+      let sfsData = SessionMapping.fromReplayState "test-session" "Test.fsproj" "C:\\test" [] state
+      let bytes = SessionBinaryWriter.write sfsData
+      match SessionBinaryReader.read bytes with
+      | Ok loaded ->
+        let restored = SessionMapping.toReplayState loaded
+        restored.EvalHistory.Length
+        |> Expect.equal "same length" state.EvalHistory.Length
+      | Error e -> failwith (sprintf "Read failed: %s" e))
+]
+
 // ─── Combined ────────────────────────────────────────────────────
 
 [<Tests>]
@@ -418,4 +730,7 @@ let allBinaryFormatTests = testList "Binary Format" [
   primitiveTests
   stcTests
   sfsTests
+  stcMappingTests
+  stcE2eTests
+  sfsMappingTests
 ]

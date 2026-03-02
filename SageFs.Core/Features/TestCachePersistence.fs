@@ -230,3 +230,137 @@ module TestCacheReader =
               CreatedAtMs = createdAtMs
             }
           | _ -> err "Missing required IMAP or TRES section"
+
+
+/// Maps between LiveTestState and StcData for binary persistence.
+module TestCacheMapping =
+  open TestCacheTypes
+  open SageFs.Features.LiveTesting
+
+  /// Convert LiveTestState coverage/results to binary-serializable StcData.
+  let fromLiveTestState (state: LiveTestState) : StcData =
+    let coverageEntries =
+      state.TestCoverageBitmaps
+      |> Map.toList
+      |> List.map (fun (TestId.TestId tid, bm) ->
+        { TestId = tid
+          BitmapWordCount = uint32 bm.Bits.Length
+          BitmapWords = bm.Bits })
+
+    let resultEntries =
+      state.LastResults
+      |> Map.toList
+      |> List.map (fun (TestId.TestId tid, runResult) ->
+        let outcome, durationMs, message =
+          match runResult.Result with
+          | TestResult.Passed duration ->
+            Outcome.Pass, uint32 duration.TotalMilliseconds, None
+          | TestResult.Failed (failure, duration) ->
+            let msg =
+              match failure with
+              | TestFailure.AssertionFailed m -> m
+              | TestFailure.ExceptionThrown (m, _) -> m
+              | TestFailure.TimedOut ts -> sprintf "Timed out after %A" ts
+            Outcome.Fail, uint32 duration.TotalMilliseconds, Some msg
+          | TestResult.Skipped reason ->
+            Outcome.Skip, 0u, Some reason
+          | TestResult.NotRun ->
+            Outcome.Skip, 0u, None
+        { TestId = tid
+          Outcome = outcome
+          DurationMs = durationMs
+          Message = message })
+
+    let generation =
+      match state.LastGeneration with
+      | RunGeneration g -> uint32 g
+
+    { ImapGeneration = generation
+      CoverageEntries = coverageEntries
+      ResultEntries = resultEntries
+      CreatedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }
+
+  /// Restore LiveTestState from deserialized StcData (lossy reverse mapping).
+  let toLiveTestState (data: StcData) : LiveTestState =
+    let coverageBitmaps =
+      data.CoverageEntries
+      |> List.map (fun e ->
+        let tid = TestId.TestId e.TestId
+        let bm : CoverageBitmap = {
+          Bits = e.BitmapWords
+          Count = int e.BitmapWordCount * 64
+        }
+        tid, bm)
+      |> Map.ofList
+
+    let lastResults =
+      data.ResultEntries
+      |> List.map (fun e ->
+        let tid = TestId.TestId e.TestId
+        let duration = TimeSpan.FromMilliseconds(float e.DurationMs)
+        let result =
+          match e.Outcome with
+          | Outcome.Pass -> TestResult.Passed duration
+          | Outcome.Fail ->
+            let msg = e.Message |> Option.defaultValue "Unknown failure"
+            TestResult.Failed (TestFailure.AssertionFailed msg, duration)
+          | Outcome.Skip ->
+            let reason = e.Message |> Option.defaultValue "Skipped"
+            TestResult.Skipped reason
+          | _ -> TestResult.NotRun
+        let runResult : TestRunResult = {
+          TestId = tid
+          TestName = e.TestId
+          Result = result
+          Timestamp = DateTimeOffset.UtcNow
+          Output = None
+        }
+        tid, runResult)
+      |> Map.ofList
+
+    let gen = RunGeneration (int data.ImapGeneration)
+    { LiveTestState.empty with
+        TestCoverageBitmaps = coverageBitmaps
+        LastResults = lastResults
+        LastGeneration = gen }
+
+
+/// File I/O for .sagetc binary cache files.
+module TestCacheFile =
+  open TestCacheTypes
+
+  /// Get the cache directory, creating it if needed.
+  let cacheDir (sageFsDir: string) =
+    let dir = IO.Path.Combine(sageFsDir, "cache")
+    IO.Directory.CreateDirectory(dir) |> ignore
+    dir
+
+  let private cachePath sageFsDir (projectHash: string) =
+    IO.Path.Combine(cacheDir sageFsDir, sprintf "%s.sagetc" projectHash)
+
+  /// Save StcData to a .sagetc file with atomic write.
+  let save (sageFsDir: string) (projectHash: string) (data: StcData) : Result<string, string> =
+    try
+      let path = cachePath sageFsDir projectHash
+      let tmpPath = path + ".tmp"
+      let bytes = TestCacheWriter.write data
+      IO.File.WriteAllBytes(tmpPath, bytes)
+      match IO.File.Exists(path) with
+      | true -> IO.File.Delete(path)
+      | false -> ()
+      IO.File.Move(tmpPath, path)
+      Ok path
+    with ex ->
+      Error (sprintf "Failed to save test cache: %s" ex.Message)
+
+  /// Load StcData from a .sagetc file.
+  let load (sageFsDir: string) (projectHash: string) : Result<StcData, string> =
+    let path = cachePath sageFsDir projectHash
+    match IO.File.Exists(path) with
+    | false -> Error "No cache file found"
+    | true ->
+      try
+        let bytes = IO.File.ReadAllBytes(path)
+        TestCacheReader.read bytes
+      with ex ->
+        Error (sprintf "Failed to read test cache: %s" ex.Message)
