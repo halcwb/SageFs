@@ -244,10 +244,9 @@ let getSystemStatus (c: Client) =
 
 let parseHotReloadState (parsed: obj) =
   let files =
-    tryOfObj (parsed?files)
+    tryField<obj array> "files" parsed
     |> Option.map (fun rawFiles ->
       rawFiles
-      |> unbox<obj array>
       |> Array.choose (fun f ->
         tryField<string> "path" f
         |> Option.map (fun p ->

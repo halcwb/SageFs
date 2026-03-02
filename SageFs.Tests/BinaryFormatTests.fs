@@ -1622,6 +1622,107 @@ let fuzzPropertyTests = testList "fuzz properties" [
     |> Expect.equal "roundtrip should preserve optional string" opt
 ]
 
+// ─── Session Isolation Property Tests ────────────────────────────
+
+let private mkIsolationSession (sessionId: string) (interactions: (string * string) list) =
+  { SfsData.Meta = {
+      SageFsVersion = "0.5.413"; FSharpVersion = "9.0"; DotNetVersion = "10.0"
+      ProjectPath = sprintf "/test/%s.fsproj" sessionId
+      WorkingDirectory = sprintf "/test/%s" sessionId
+      EvalCount = uint32 interactions.Length
+      FailedEvalCount = 0u
+      SessionId = sessionId }
+    Interactions = interactions |> List.map (fun (code, output) ->
+      { Code = code; Output = output; TimestampMs = 100L
+        Kind = InteractionKind.Expression
+        Flags = EntryFlags.None; DurationMicros = 500u })
+    References = []
+    CreatedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }
+
+let sessionIsolationTests = testList "Session Isolation" [
+
+  testProperty "SFS: two sessions roundtrip independently" <| fun (NonEmptyString rawA) (NonEmptyString rawB) ->
+    let safeA = rawA.Replace("\000", "X")
+    let safeB = rawB.Replace("\000", "Y")
+    let dataA = mkIsolationSession safeA [("let a = 1", "val a: int = 1")]
+    let dataB = mkIsolationSession safeB [("let b = 2", "val b: int = 2"); ("let c = 3", "val c: int = 3")]
+    let bytesA = SessionBinaryWriter.write dataA
+    let bytesB = SessionBinaryWriter.write dataB
+    let rtA = SessionBinaryReader.read bytesA
+    let rtB = SessionBinaryReader.read bytesB
+    match rtA, rtB with
+    | Ok a, Ok b ->
+      a.Meta.SessionId |> Expect.equal "session A ID preserved" safeA
+      b.Meta.SessionId |> Expect.equal "session B ID preserved" safeB
+      a.Interactions.Length |> Expect.equal "session A interaction count" 1
+      b.Interactions.Length |> Expect.equal "session B interaction count" 2
+      a.Interactions.[0].Code |> Expect.equal "session A code" "let a = 1"
+      b.Interactions.[0].Code |> Expect.equal "session B code 0" "let b = 2"
+      b.Interactions.[1].Code |> Expect.equal "session B code 1" "let c = 3"
+    | Error e, _ -> failwithf "Session A read failed: %s" e
+    | _, Error e -> failwithf "Session B read failed: %s" e
+
+  testProperty "SFS: session bytes don't leak across sessions" <| fun (NonEmptyString rawA) ->
+    let safeA = rawA.Replace("\000", "X")
+    let unique = sprintf "UNIQUE_%s" (Guid.NewGuid().ToString("N"))
+    let dataA = mkIsolationSession safeA [("let x = 1", "val x: int = 1")]
+    let bytesA = SessionBinaryWriter.write dataA
+    let bytesAStr = Text.Encoding.UTF8.GetString(bytesA)
+    bytesAStr.Contains(unique)
+    |> Expect.isFalse "session A bytes must not contain unrelated data"
+
+  testProperty "SFS: concurrent file writes preserve both sessions" <| fun (NonEmptyString rawA) ->
+    let safeA = rawA.Replace("\000", "X")
+    let tmpDir = IO.Path.Combine(IO.Path.GetTempPath(), Guid.NewGuid().ToString("N"))
+    IO.Directory.CreateDirectory(tmpDir) |> ignore
+    try
+      let dataA = mkIsolationSession safeA [("let a = 1", "val a: int = 1")]
+      let dataB = mkIsolationSession "session-B" [("let b = 2", "val b: int = 2")]
+      let pathA = IO.Path.Combine(tmpDir, "a.sagefs")
+      let pathB = IO.Path.Combine(tmpDir, "b.sagefs")
+      let t1 = Threading.Tasks.Task.Run(fun () ->
+        IO.File.WriteAllBytes(pathA, SessionBinaryWriter.write dataA))
+      let t2 = Threading.Tasks.Task.Run(fun () ->
+        IO.File.WriteAllBytes(pathB, SessionBinaryWriter.write dataB))
+      Threading.Tasks.Task.WaitAll(t1, t2)
+      let rtA = IO.File.ReadAllBytes(pathA) |> SessionBinaryReader.read
+      let rtB = IO.File.ReadAllBytes(pathB) |> SessionBinaryReader.read
+      match rtA, rtB with
+      | Ok a, Ok b ->
+        a.Meta.SessionId |> Expect.equal "A preserved after concurrent write" safeA
+        b.Meta.SessionId |> Expect.equal "B preserved after concurrent write" "session-B"
+      | Error e, _ -> failwithf "Session A corrupted: %s" e
+      | _, Error e -> failwithf "Session B corrupted: %s" e
+    finally
+      IO.Directory.Delete(tmpDir, true)
+
+  testProperty "STC: two caches roundtrip independently" <| fun (PositiveInt countA) (PositiveInt countB) ->
+    let cA = min countA 10
+    let cB = min countB 10
+    let mkCache (tag: string) count =
+      { StcData.CoverageEntries = []
+        ResultEntries = [
+          for i in 1..count do
+            { TestId = sprintf "%s_%d" tag i
+              Outcome = Outcome.Pass
+              DurationMs = uint32 (100 * i)
+              Message = Option.None } ]
+        ImapGeneration = 1u
+        CreatedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }
+    let dataA = mkCache "Alpha" cA
+    let dataB = mkCache "Beta" cB
+    let bytesA = TestCacheWriter.write dataA
+    let bytesB = TestCacheWriter.write dataB
+    let rtA = TestCacheReader.read bytesA
+    let rtB = TestCacheReader.read bytesB
+    match rtA, rtB with
+    | Ok a, Ok b ->
+      a.ResultEntries.Length |> Expect.equal "A result count" cA
+      b.ResultEntries.Length |> Expect.equal "B result count" cB
+    | Error e, _ -> failwithf "STC A failed: %s" e
+    | _, Error e -> failwithf "STC B failed: %s" e
+]
+
 [<Tests>]
 let allBinaryFormatTests = testList "Binary Format" [
   primitiveTests
@@ -1642,4 +1743,5 @@ let allBinaryFormatTests = testList "Binary Format" [
   enumTryParseTests
   fieldBoundsTests
   fuzzPropertyTests
+  sessionIsolationTests
 ]

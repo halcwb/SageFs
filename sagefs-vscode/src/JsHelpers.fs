@@ -8,10 +8,16 @@ open Vscode
 let inline tryOfObj (x: 'a) : 'a option =
   if isNull (box x) then None else Some x
 
-/// Null-safe field extraction from a JS object
+/// Null-safe field extraction from a JS object.
+/// Guards against both the object and the field being null/undefined.
 let tryField<'T> (name: string) (obj: obj) : 'T option =
-  let v = obj?(name)
-  if isNull (box v) then None else Some (unbox<'T> v)
+  match isNull (box obj) with
+  | true -> None
+  | false ->
+    let v = obj?(name)
+    match isNull (box v) with
+    | true -> None
+    | false -> Some (unbox<'T> v)
 
 // ── JSON ────────────────────────────────────────────────────────────────
 
