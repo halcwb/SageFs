@@ -744,7 +744,13 @@ module McpTools =
       let! proxy = ctx.SessionOps.GetProxy sessionId
       match proxy with
       | None ->
-        return Result.Error (sprintf "Session '%s' not found" sessionId)
+        let! info = ctx.SessionOps.GetSessionInfo sessionId
+        match info with
+        | Some i when i.Status = WorkerProtocol.SessionStatus.Starting
+                   || i.Status = WorkerProtocol.SessionStatus.Restarting ->
+          return Result.Error (sprintf "Session '%s' is still warming up (%s). Please wait and retry." sessionId (WorkerProtocol.SessionStatus.label i.Status))
+        | _ ->
+          return Result.Error (sprintf "Session '%s' not found" sessionId)
       | Some send ->
         let replyId = Guid.NewGuid().ToString("N").[..7]
         let! response = send (msg replyId) |> Async.StartAsTask
@@ -781,8 +787,18 @@ module McpTools =
           match proxy with
           | Some _ -> return Ok candidate
           | None ->
-            setActiveSessionId ctx agent ""
-            return Error "Session is no longer running. Use create_session to start a new one."
+            // Proxy not available — check if session is still starting up
+            let! info = ctx.SessionOps.GetSessionInfo candidate
+            match info with
+            | Some i when i.Status = WorkerProtocol.SessionStatus.Starting
+                       || i.Status = WorkerProtocol.SessionStatus.Restarting ->
+              return Error (sprintf "Session '%s' is still warming up (%s). Please wait and retry." candidate (WorkerProtocol.SessionStatus.label i.Status))
+            | Some _ ->
+              setActiveSessionId ctx agent ""
+              return Error "Session is no longer running. Use create_session to start a new one."
+            | None ->
+              setActiveSessionId ctx agent ""
+              return Error "Session is no longer running. Use create_session to start a new one."
         | false ->
           return Error "No active session. Use create_session to create one first."
     }
