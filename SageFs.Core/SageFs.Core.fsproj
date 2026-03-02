@@ -8,6 +8,7 @@
     <ItemGroup>
         <Compile Include="Args.fs" />
         <Compile Include="Utils.fs" />
+        <Compile Include="BinaryFormat.fs" />
         <Compile Include="Instrumentation.fs" />
         <Compile Include="ProjectLoading.fs" />
         <Compile Include="ShadowCopy.fs" />
@@ -15,6 +16,7 @@
         <Compile Include="AspireSetup.fs" />
         <Compile Include="ErrorMessages.fs" />
         <Compile Include="Features\LiveTestingTypes.fs" />
+        <Compile Include="Features\TestCachePersistence.fs" />
         <Compile Include="Features\CoverageInstrumenter.fs" />
         <Compile Include="Features\LiveTestingInstrumentation.fs" />
         <Compile Include="Features\LiveTestingExecutors.fs" />
@@ -24,6 +26,7 @@
         <Compile Include="Features\DiagnosticsStore.fs" />
         <Compile Include="Features\Events.fs" />
         <Compile Include="Features\Replay.fs" />
+        <Compile Include="Features\SessionPersistence.fs" />
         <Compile Include="Features\EvalDiff.fs" />
         <Compile Include="Features\CellDependencyGraph.fs" />
         <Compile Include="Features\BindingExplorer.fs" />

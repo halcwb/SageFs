@@ -1,0 +1,232 @@
+namespace SageFs.Features
+
+open System
+open System.IO
+open System.Text
+open SageFs
+
+/// Domain types for .sagetc v1 binary format (test cache).
+module TestCacheTypes =
+
+  [<RequireQualifiedAccess>]
+  type Outcome =
+    | Pass = 0uy
+    | Fail = 1uy
+    | Skip = 2uy
+    | Error = 3uy
+
+  type CoverageEntry = {
+    TestId: string
+    BitmapWordCount: uint32
+    BitmapWords: uint64[]
+  }
+
+  type ResultEntry = {
+    TestId: string
+    Outcome: Outcome
+    DurationMs: uint32
+    Message: string option
+  }
+
+  type StcData = {
+    CoverageEntries: CoverageEntry list
+    ResultEntries: ResultEntry list
+    ImapGeneration: uint32
+    CreatedAtMs: int64
+  }
+
+  module StcData =
+    let empty = {
+      CoverageEntries = []
+      ResultEntries = []
+      ImapGeneration = 0u
+      CreatedAtMs = 0L
+    }
+
+
+/// Writer for .sagetc v1 binary format.
+module TestCacheWriter =
+  open TestCacheTypes
+
+  let private writeImap (entries: CoverageEntry list) : byte[] =
+    use ms = new MemoryStream()
+    use bw = new BinaryWriter(ms)
+    bw.Write(uint32 (List.length entries))
+    for e in entries do
+      BinaryPrimitives.writeLpString bw e.TestId
+      bw.Write(e.BitmapWordCount)
+      for w in e.BitmapWords do
+        bw.Write(w)
+    bw.Flush()
+    ms.ToArray()
+
+  let private writeTcov (entries: CoverageEntry list) : byte[] =
+    use ms = new MemoryStream()
+    use bw = new BinaryWriter(ms)
+    bw.Write(uint32 (List.length entries))
+    for e in entries do
+      BinaryPrimitives.writeLpString bw e.TestId
+      bw.Write(e.BitmapWordCount * 64u)
+    bw.Flush()
+    ms.ToArray()
+
+  let private writeTres (entries: ResultEntry list) : byte[] =
+    use ms = new MemoryStream()
+    use bw = new BinaryWriter(ms)
+    bw.Write(uint32 (List.length entries))
+    for e in entries do
+      BinaryPrimitives.writeLpString bw e.TestId
+      bw.Write(byte e.Outcome)
+      bw.Write(e.DurationMs)
+      BinaryPrimitives.writeLpStringOption bw e.Message
+    bw.Flush()
+    ms.ToArray()
+
+  let write (data: StcData) : byte[] =
+    let imapPayload = writeImap data.CoverageEntries
+    let tcovPayload = writeTcov data.CoverageEntries
+    let tresPayload = writeTres data.ResultEntries
+
+    let sectionCount = 3u
+    let headerSize = 64
+    let dirEntrySize = 16
+    let dirSize = int sectionCount * dirEntrySize
+
+    let imapOffset = uint64 (headerSize + dirSize)
+    let tcovOffset = imapOffset + uint64 imapPayload.Length
+    let tresOffset = tcovOffset + uint64 tcovPayload.Length
+    let totalSize = tresOffset + uint64 tresPayload.Length
+
+    let imapCrc = Crc32.computeAll imapPayload
+    let tcovCrc = Crc32.computeAll tcovPayload
+    let tresCrc = Crc32.computeAll tresPayload
+
+    use ms = new MemoryStream()
+    use bw = new BinaryWriter(ms)
+
+    // Header (64 bytes) — matches spec §3.2
+    bw.Write([| 0x53uy; 0x54uy; 0x43uy; 0x31uy |]) // "STC1"
+    bw.Write(1us)                                     // format_version
+    bw.Write(1us)                                     // min_reader_version
+    bw.Write(sectionCount)                            // section_count (u32)
+    bw.Write(0u)                                      // flags
+    bw.Write(data.CreatedAtMs)                        // created_at_ms
+    bw.Write(totalSize)                               // total_file_size
+    bw.Write(uint32 (List.length data.ResultEntries)) // test_count
+    bw.Write(0u)                                      // header_crc placeholder @36
+    bw.Write(data.ImapGeneration)                     // imap_generation
+    bw.Write(Array.zeroCreate<byte> 20)               // reserved to 64
+
+    // Directory (3 × 16 bytes: tag:u32 + offset:u64 + crc:u32)
+    bw.Write(0x494D4150u); bw.Write(imapOffset); bw.Write(imapCrc) // IMAP
+    bw.Write(0x54434F56u); bw.Write(tcovOffset); bw.Write(tcovCrc) // TCOV
+    bw.Write(0x54524553u); bw.Write(tresOffset); bw.Write(tresCrc) // TRES
+
+    // Payloads
+    bw.Write(imapPayload)
+    bw.Write(tcovPayload)
+    bw.Write(tresPayload)
+    bw.Flush()
+
+    // Patch header CRC
+    let result = ms.ToArray()
+    let hdr = Array.zeroCreate<byte> 64
+    Array.Copy(result, hdr, 64)
+    hdr.[36] <- 0uy; hdr.[37] <- 0uy; hdr.[38] <- 0uy; hdr.[39] <- 0uy
+    let hcrc = Crc32.computeAll hdr
+    let cb = BitConverter.GetBytes(hcrc)
+    Array.Copy(cb, 0, result, 36, 4)
+    result
+
+
+/// Reader for .sagetc v1 binary format.
+module TestCacheReader =
+  open TestCacheTypes
+
+  let private ok v : Result<_, string> = Ok v
+  let private err msg : Result<_, string> = FSharp.Core.Error msg
+
+  type DirEntry = { Tag: uint32; Offset: uint64; Crc: uint32 }
+
+  let private findSection (tag: uint32) (entries: DirEntry list) =
+    entries |> List.tryFind (fun e -> e.Tag = tag)
+
+  let private parseImap (payload: byte[]) : CoverageEntry list =
+    use ms = new MemoryStream(payload)
+    use br = new BinaryReader(ms)
+    let count = br.ReadUInt32() |> int
+    [ for _ in 0 .. count - 1 do
+        let tid = BinaryPrimitives.readLpString br
+        let wc = br.ReadUInt32()
+        let words =
+          match wc with
+          | 0u -> [||]
+          | n -> [| for _ in 1u .. n -> br.ReadUInt64() |]
+        yield { TestId = tid; BitmapWordCount = wc; BitmapWords = words } ]
+
+  let private parseTres (payload: byte[]) : ResultEntry list =
+    use ms = new MemoryStream(payload)
+    use br = new BinaryReader(ms)
+    let count = br.ReadUInt32() |> int
+    [ for _ in 0 .. count - 1 do
+        let tid = BinaryPrimitives.readLpString br
+        let outcome = LanguagePrimitives.EnumOfValue<byte, Outcome>(br.ReadByte())
+        let dur = br.ReadUInt32()
+        let msg = BinaryPrimitives.readLpStringOption br
+        yield { TestId = tid; Outcome = outcome; DurationMs = dur; Message = msg } ]
+
+  let read (data: byte[]) : Result<StcData, string> =
+    if data.Length < 64 then err "File too short for STC1 header"
+    elif data.[0] <> 0x53uy || data.[1] <> 0x54uy || data.[2] <> 0x43uy || data.[3] <> 0x31uy then
+      err "Invalid magic: expected STC1"
+    else
+      let storedCrc = BitConverter.ToUInt32(data, 36)
+      let hdr = Array.zeroCreate<byte> 64
+      Array.Copy(data, hdr, 64)
+      hdr.[36] <- 0uy; hdr.[37] <- 0uy; hdr.[38] <- 0uy; hdr.[39] <- 0uy
+      if storedCrc <> Crc32.computeAll hdr then
+        err (sprintf "Header CRC mismatch: stored=%08X computed=%08X" storedCrc (Crc32.computeAll hdr))
+      else
+        let sectionCount = BitConverter.ToUInt32(data, 8) |> int
+        let createdAtMs = BitConverter.ToInt64(data, 16)
+        let imapGen = BitConverter.ToUInt32(data, 40)
+
+        let dirEntries = [
+          for i in 0 .. sectionCount - 1 do
+            let o = 64 + i * 16
+            yield {
+              Tag = BitConverter.ToUInt32(data, o)
+              Offset = BitConverter.ToUInt64(data, o + 4)
+              Crc = BitConverter.ToUInt32(data, o + 12)
+            } ]
+
+        // Compute section sizes from offset gaps
+        let sorted = dirEntries |> List.sortBy (fun e -> e.Offset)
+        let totalSize = BitConverter.ToUInt64(data, 24)
+
+        let sectionPayloads =
+          sorted |> List.mapi (fun i e ->
+            let nextOff =
+              match List.tryItem (i + 1) sorted with
+              | Some next -> next.Offset
+              | None -> totalSize
+            let size = int (nextOff - e.Offset)
+            let payload = data.[int e.Offset .. int e.Offset + size - 1]
+            let computed = Crc32.computeAll payload
+            (e, payload, computed = e.Crc))
+
+        let crcOk = sectionPayloads |> List.forall (fun (_, _, ok) -> ok)
+        if not crcOk then err "Section CRC mismatch"
+        else
+          let payloadMap = sectionPayloads |> List.map (fun (e, p, _) -> (e.Tag, p)) |> Map.ofList
+          match Map.tryFind 0x494D4150u payloadMap, Map.tryFind 0x54524553u payloadMap with
+          | Some imapP, Some tresP ->
+            let coverage = parseImap imapP
+            let results = parseTres tresP
+            ok {
+              CoverageEntries = coverage
+              ResultEntries = results
+              ImapGeneration = imapGen
+              CreatedAtMs = createdAtMs
+            }
+          | _ -> err "Missing required IMAP or TRES section"
