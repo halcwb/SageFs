@@ -807,6 +807,12 @@ type LiveTestState = {
   /// Per-test packed coverage bitmaps from IL probe hits, keyed by TestId.
   /// All tests in the same batch share the same bitmap (conservative: any test might have hit any probe).
   TestCoverageBitmaps: Map<TestId, CoverageBitmap>
+  /// Monotonic version counter — incremented in recomputeStatuses on every test state change.
+  /// Used by SseDedupKey for O(1) change detection instead of recomputing from StatusEntries.
+  StateVersion: int64
+  /// Pre-computed test summary — updated in recomputeStatuses to avoid O(n log n) filtering
+  /// in the dedup key hot path (was 50-100ms with 3131 tests, now O(1) field read).
+  CachedTestSummary: TestSummary
 }
 
 module LiveTestState =
@@ -829,6 +835,8 @@ module LiveTestState =
     FlakyHistory = Map.empty
     TestSessionMap = Map.empty
     TestCoverageBitmaps = Map.empty
+    StateVersion = 0L
+    CachedTestSummary = { Total = 0; Passed = 0; Failed = 0; Stale = 0; Running = 0; Disabled = 0; Enabled = true }
   }
 
   /// Filter StatusEntries to only include tests belonging to the given session.

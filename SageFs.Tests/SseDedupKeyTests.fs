@@ -24,7 +24,13 @@ let withTests (count: int) (model: SageFsModel) =
   let entries =
     [| for i in 1..count ->
         makeEntry i (TestRunStatus.Passed (TimeSpan.FromMilliseconds 10.0)) |]
-  let ts = { model.LiveTesting.TestState with StatusEntries = entries }
+  let statuses = entries |> Array.map (fun e -> e.Status)
+  let summary = TestSummary.fromStatuses model.LiveTesting.TestState.Activation statuses
+  let ts =
+    { model.LiveTesting.TestState with
+        StatusEntries = entries
+        CachedTestSummary = summary
+        StateVersion = model.LiveTesting.TestState.StateVersion + 1L }
   { model with LiveTesting = { model.LiveTesting with TestState = ts } }
 
 let withActivation (activation: LiveTestingActivation) (model: SageFsModel) =
@@ -81,7 +87,13 @@ let tests = testList "SseDedupKey" [
               TestFailure.AssertionFailed "oops",
               TimeSpan.FromMilliseconds 20.0))
              makeEntry 3 (TestRunStatus.Passed (TimeSpan.FromMilliseconds 10.0)) |]
-        let ts = { baseModel.LiveTesting.TestState with StatusEntries = entries }
+        let statuses = entries |> Array.map (fun e -> e.Status)
+        let summary = TestSummary.fromStatuses baseModel.LiveTesting.TestState.Activation statuses
+        let ts =
+          { baseModel.LiveTesting.TestState with
+              StatusEntries = entries
+              CachedTestSummary = summary
+              StateVersion = baseModel.LiveTesting.TestState.StateVersion + 1L }
         { baseModel with LiveTesting = { baseModel.LiveTesting with TestState = ts } }
       let before = SseDedupKey.fromModel modelPassed
       let after = SseDedupKey.fromModel modelFailed
