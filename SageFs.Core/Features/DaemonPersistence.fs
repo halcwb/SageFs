@@ -47,3 +47,14 @@ module DaemonPersistence =
     match SessionFile.load sageFsDir sessionId with
     | Ok sfsData -> Ok (SessionMapping.toReplayState sfsData)
     | Error e -> Error e
+
+  /// Save daemon session manifest to .sagefm binary.
+  let saveManifest (sageFsDir: string) (state: Replay.DaemonReplayState) : Result<string, string> =
+    let data = ManifestMapping.fromReplayState state
+    ManifestFile.save sageFsDir data
+
+  /// Load daemon session manifest from .sagefm binary.
+  let loadManifest (sageFsDir: string) : Result<Replay.DaemonReplayState, string> =
+    match ManifestFile.load sageFsDir with
+    | Ok data -> Ok (ManifestMapping.toReplayState data)
+    | Error e -> Error e

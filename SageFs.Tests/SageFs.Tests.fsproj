@@ -109,6 +109,7 @@
         <Compile Include="AlgebraicPropertyTests.fs" />
         <Compile Include="EventFoldPropertyTests.fs" />
         <Compile Include="BinaryFormatTests.fs" />
+        <Compile Include="ManifestPersistenceTests.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 

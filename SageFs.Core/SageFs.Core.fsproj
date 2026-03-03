@@ -27,6 +27,7 @@
         <Compile Include="Features\Events.fs" />
         <Compile Include="Features\Replay.fs" />
         <Compile Include="Features\SessionPersistence.fs" />
+        <Compile Include="Features\ManifestPersistence.fs" />
         <Compile Include="Features\DaemonPersistence.fs" />
         <Compile Include="Features\EvalDiff.fs" />
         <Compile Include="Features\CellDependencyGraph.fs" />
