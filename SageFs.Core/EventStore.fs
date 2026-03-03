@@ -47,6 +47,10 @@ let configureStore (connectionString: string) : IDocumentStore =
 let appendEvents (store: IDocumentStore) (streamId: string) (events: SageFsEvent list) =
   let config = RetryPolicy.defaults
   let sw = System.Diagnostics.Stopwatch.StartNew()
+  let activity =
+    Instrumentation.startSpan Instrumentation.sessionSource "eventstore.append"
+      [ ("eventstore.stream_id", box streamId)
+        ("eventstore.event_count", box events.Length) ]
   let rec attempt n =
     task {
       try
@@ -56,6 +60,7 @@ let appendEvents (store: IDocumentStore) (streamId: string) (events: SageFsEvent
         do! session.SaveChangesAsync()
         sw.Stop()
         Instrumentation.eventstoreAppendDurationMs.Record(sw.Elapsed.TotalMilliseconds)
+        Instrumentation.succeedSpan activity
         return Ok ()
       with ex ->
         match RetryPolicy.decide config n ex with
@@ -67,31 +72,49 @@ let appendEvents (store: IDocumentStore) (streamId: string) (events: SageFsEvent
           sw.Stop()
           Instrumentation.eventstoreAppendDurationMs.Record(sw.Elapsed.TotalMilliseconds)
           Instrumentation.eventstoreAppendFailures.Add(1L)
+          Instrumentation.failSpan activity ex.Message
           return Error (sprintf "Event append failed after %d attempts: %s" (n + 1) ex.Message)
-        | RetryPolicy.Success -> return Ok ()
+        | RetryPolicy.Success ->
+          Instrumentation.succeedSpan activity
+          return Ok ()
     }
   attempt 0
 
 /// Fetch all events from a session stream
 let fetchStream (store: IDocumentStore) (streamId: string) =
   task {
+    let sw = System.Diagnostics.Stopwatch.StartNew()
+    let activity =
+      Instrumentation.startSpan Instrumentation.sessionSource "eventstore.fetch"
+        [ ("eventstore.stream_id", box streamId); ("eventstore.fetch_mode", box "full") ]
     use session = store.LightweightSession()
     let! events = session.Events.FetchStreamAsync(streamId)
-    return
+    let result =
       events
       |> Seq.choose (fun e ->
         match e.Data with
         | :? SageFsEvent as evt -> Some (e.Timestamp, evt)
         | _ -> None)
       |> Seq.toList
+    sw.Stop()
+    Instrumentation.eventstoreFetchDurationMs.Record(sw.Elapsed.TotalMilliseconds)
+    Instrumentation.eventstoreStreamEventCount.Record(int64 result.Length)
+    Instrumentation.succeedSpan activity
+    return result
   }
 
 /// Fetch recent events from a session stream (most recent N)
 let fetchRecentEvents (store: IDocumentStore) (streamId: string) (count: int) =
   task {
+    let sw = System.Diagnostics.Stopwatch.StartNew()
+    let activity =
+      Instrumentation.startSpan Instrumentation.sessionSource "eventstore.fetch"
+        [ ("eventstore.stream_id", box streamId)
+          ("eventstore.fetch_mode", box "recent")
+          ("eventstore.requested_count", box count) ]
     use session = store.LightweightSession()
     let! events = session.Events.FetchStreamAsync(streamId)
-    return
+    let result =
       events
       |> Seq.choose (fun e ->
         match e.Data with
@@ -101,6 +124,11 @@ let fetchRecentEvents (store: IDocumentStore) (streamId: string) (count: int) =
       |> List.rev
       |> List.truncate count
       |> List.rev
+    sw.Stop()
+    Instrumentation.eventstoreFetchDurationMs.Record(sw.Elapsed.TotalMilliseconds)
+    Instrumentation.eventstoreStreamEventCount.Record(int64 result.Length)
+    Instrumentation.succeedSpan activity
+    return result
   }
 
 /// Count events in a session stream
@@ -127,4 +155,12 @@ module EventPersistence =
     AppendEvents = fun streamId events -> appendEvents store streamId events
     FetchStream = fun streamId -> fetchStream store streamId
     CountEvents = fun streamId -> countEvents store streamId
+  }
+
+  /// No-op persistence: silently drops writes, returns empty on reads.
+  /// Used when PostgreSQL is unavailable and binary-only mode is active.
+  let noop : EventPersistence = {
+    AppendEvents = fun _ _ -> Threading.Tasks.Task.FromResult(Ok ())
+    FetchStream = fun _ -> Threading.Tasks.Task.FromResult([])
+    CountEvents = fun _ -> Threading.Tasks.Task.FromResult(0)
   }

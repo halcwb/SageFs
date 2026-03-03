@@ -13,6 +13,7 @@ module Instrumentation =
   let testCycleSource = new ActivitySource("SageFs.TestCycle")
   let mcpSource = new ActivitySource("SageFs.Mcp")
   let elmloopSource = new ActivitySource("SageFs.ElmLoop")
+  let daemonSource = new ActivitySource("SageFs.Daemon")
 
   let sessionMeter = new Meter("SageFs.SessionManager")
   let testCycleMeter = new Meter("SageFs.TestCycle")
@@ -159,6 +160,34 @@ module Instrumentation =
   let cacheSaveMs =
     sessionMeter.CreateHistogram<float>("sagefs.cache.save_ms", "ms", "Periodic test cache save duration")
 
+  // P2: RED metric gaps — MCP tool duration
+  let mcpToolDurationMs =
+    mcpMeter.CreateHistogram<float>("sagefs.mcp.tool_duration_ms", "ms", "MCP tool invocation duration")
+
+  // P2: RED metric gaps — Worker proxy
+  let workerRequestDurationMs =
+    sessionMeter.CreateHistogram<float>("sagefs.worker.request_duration_ms", "ms", "Daemon→worker proxy request duration")
+  let workerRequestErrors =
+    sessionMeter.CreateCounter<int64>("sagefs.worker.request_errors_total", description = "Total daemon→worker proxy request errors")
+
+  // P2: RED metric gaps — SSE
+  let sseWriteErrors =
+    mcpMeter.CreateCounter<int64>("sagefs.sse.write_errors_total", description = "Total SSE write errors")
+  let sseConnectionDurationMs =
+    mcpMeter.CreateHistogram<float>("sagefs.sse.connection_duration_ms", "ms", "SSE connection lifetime duration")
+
+  // P2: RED metric gaps — EventStore fetch
+  let eventstoreFetchDurationMs =
+    sessionMeter.CreateHistogram<float>("sagefs.eventstore.fetch_duration_ms", "ms", "EventStore fetch duration")
+  let eventstoreStreamEventCount =
+    sessionMeter.CreateHistogram<int64>("sagefs.eventstore.stream_event_count", description = "Event count per fetched stream")
+
+  // P2: RED metric gaps — FSI eval
+  let fsiEvalDurationMs =
+    mcpMeter.CreateHistogram<float>("sagefs.fsi.eval_duration_ms", "ms", "FSI eval duration")
+  let fsiEvalErrors =
+    mcpMeter.CreateCounter<int64>("sagefs.fsi.eval_errors_total", description = "Total FSI eval errors")
+
   /// SSE/long-lived paths to suppress in ASP.NET Core HTTP span instrumentation.
   let sseFilterPaths =
     [ "/events"; "/diagnostics"; "/__sagefs__/reload"; "/sse"; "/dashboard/stream"; "/health" ]
@@ -169,6 +198,7 @@ module Instrumentation =
 
   /// Env vars to propagate to worker processes for OTel.
   /// Always includes service name; includes OTLP endpoint/protocol only if configured.
+  /// Propagates current W3C TraceContext as TRACEPARENT so worker spans link to daemon traces.
   let workerOtelEnvVars (sessionId: string) : (string * string) list =
     let base' = [ "OTEL_SERVICE_NAME", sprintf "sagefs-worker-%s" sessionId ]
     let endpoint = System.Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT")
@@ -179,7 +209,13 @@ module Instrumentation =
         | true -> ()
         match System.String.IsNullOrEmpty protocol with
         | false -> "OTEL_EXPORTER_OTLP_PROTOCOL", protocol
-        | true -> () ]
+        | true -> ()
+        // W3C TraceContext: propagate current Activity as TRACEPARENT
+        match Activity.Current with
+        | null -> ()
+        | a ->
+          let traceparent = sprintf "00-%s-%s-%02x" (a.TraceId.ToHexString()) (a.SpanId.ToHexString()) (int a.ActivityTraceFlags)
+          "TRACEPARENT", traceparent ]
     base' @ extras
 
   /// All ActivitySource names for OTel registration in McpServer.
@@ -189,6 +225,7 @@ module Instrumentation =
       "SageFs.LiveTesting"
       "SageFs.ElmLoop"
       "SageFs.Mcp"
+      "SageFs.Daemon"
       "Marten" ]
 
   /// All Meter names for OTel registration in McpServer.
@@ -306,6 +343,7 @@ module Instrumentation =
   let tracedMcpTool (toolName: string) (agentName: string) (f: unit -> System.Threading.Tasks.Task<string>) : System.Threading.Tasks.Task<string> =
     task {
       mcpToolInvocations.Add(1L)
+      let sw = Stopwatch.StartNew()
       let activity = mcpSource.StartActivity("mcp.tool.invoke", ActivityKind.Server)
       try
         match isNull activity with
@@ -317,19 +355,27 @@ module Instrumentation =
           activity.SetTag("rpc.method", toolName) |> ignore
         | true -> ()
         let! result = f ()
-        mcpToolSuccesses.Add(1L, System.Collections.Generic.KeyValuePair("mcp.tool.name", box toolName))
+        sw.Stop()
+        let tag = System.Collections.Generic.KeyValuePair("mcp.tool.name", box toolName)
+        mcpToolSuccesses.Add(1L, tag)
+        mcpToolDurationMs.Record(sw.Elapsed.TotalMilliseconds, tag)
         match isNull activity with
         | false ->
+          activity.SetTag("duration_ms", sw.Elapsed.TotalMilliseconds) |> ignore
           activity.Stop()
           activity.Dispose()
         | true -> ()
         return result
       with ex ->
-        mcpToolFailures.Add(1L, System.Collections.Generic.KeyValuePair("mcp.tool.name", box toolName))
+        sw.Stop()
+        let tag = System.Collections.Generic.KeyValuePair("mcp.tool.name", box toolName)
+        mcpToolFailures.Add(1L, tag)
+        mcpToolDurationMs.Record(sw.Elapsed.TotalMilliseconds, tag)
         match isNull activity with
         | false ->
           activity.SetTag("error", true) |> ignore
           activity.SetTag("error.message", ex.Message) |> ignore
+          activity.SetTag("duration_ms", sw.Elapsed.TotalMilliseconds) |> ignore
           activity.SetStatus(ActivityStatusCode.Error, ex.Message) |> ignore
           activity.Stop()
           activity.Dispose()
@@ -366,6 +412,7 @@ module Instrumentation =
     task {
       fsiEvals.Add(1L)
       fsiStatements.Add(int64 statementCount)
+      let sw = Stopwatch.StartNew()
       let activity = mcpSource.StartActivity("fsi.eval", ActivityKind.Server)
       try
         match isNull activity with
@@ -375,17 +422,24 @@ module Instrumentation =
           activity.SetTag("fsi.session.id", sessionId) |> ignore
         | true -> ()
         let! result = f ()
+        sw.Stop()
+        fsiEvalDurationMs.Record(sw.Elapsed.TotalMilliseconds)
         match isNull activity with
         | false ->
+          activity.SetTag("duration_ms", sw.Elapsed.TotalMilliseconds) |> ignore
           activity.Stop()
           activity.Dispose()
         | true -> ()
         return result
       with ex ->
+        sw.Stop()
+        fsiEvalDurationMs.Record(sw.Elapsed.TotalMilliseconds)
+        fsiEvalErrors.Add(1L)
         match isNull activity with
         | false ->
           activity.SetTag("error", true) |> ignore
           activity.SetTag("error.message", ex.Message) |> ignore
+          activity.SetTag("duration_ms", sw.Elapsed.TotalMilliseconds) |> ignore
           activity.SetStatus(ActivityStatusCode.Error, ex.Message) |> ignore
           activity.Stop()
           activity.Dispose()

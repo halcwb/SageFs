@@ -321,8 +321,10 @@ let runSseWriteLoop
           do! writeSseFrame body frame
       with
       | :? OperationCanceledException -> ()
-      | :? System.IO.IOException -> ()
-      | :? ObjectDisposedException -> ()
+      | :? System.IO.IOException ->
+        SageFs.Instrumentation.sseWriteErrors.Add(1L)
+      | :? ObjectDisposedException ->
+        SageFs.Instrumentation.sseWriteErrors.Add(1L)
     finally
       for sub in subs do sub.Dispose()
   }
@@ -841,6 +843,12 @@ let startMcpServer (cfg: McpServerConfig) =
             app.MapGet("/events", fun (ctx: Microsoft.AspNetCore.Http.HttpContext) ->
                 task {
                     SageFs.Instrumentation.sseConnectionsActive.Add(1L)
+                    let connSw = System.Diagnostics.Stopwatch.StartNew()
+                    let connActivity =
+                      SageFs.Instrumentation.startSpanWithKind
+                        SageFs.Instrumentation.daemonSource "sse.connection"
+                        System.Diagnostics.ActivityKind.Server
+                        [("sse.endpoint", box "/events")]
                     setSseHeaders ctx
 
                     match cfg.StateChanged with
@@ -875,10 +883,17 @@ let startMcpServer (cfg: McpServerConfig) =
                               ctx.RequestAborted
                               [ stateSource; testEventBroadcast.Publish; sessionEventBroadcast.Publish ]
                               15000
+                        connSw.Stop()
+                        SageFs.Instrumentation.sseConnectionDurationMs.Record(connSw.Elapsed.TotalMilliseconds)
                         SageFs.Instrumentation.sseConnectionsActive.Add(-1L)
+                        SageFs.Instrumentation.succeedSpan connActivity
                     | None ->
                         ctx.Response.StatusCode <- 501
                         do! writeSseFrame ctx.Response.Body "event: error\ndata: {\"error\":\"No Elm loop available\"}\n\n"
+                        connSw.Stop()
+                        SageFs.Instrumentation.sseConnectionDurationMs.Record(connSw.Elapsed.TotalMilliseconds)
+                        SageFs.Instrumentation.sseConnectionsActive.Add(-1L)
+                        SageFs.Instrumentation.failSpan connActivity "No Elm loop available"
                 } :> Task
             ) |> ignore
 

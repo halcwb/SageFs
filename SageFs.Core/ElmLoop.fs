@@ -114,16 +114,35 @@ module ElmLoop =
       cbSw.Stop()
       Instrumentation.elmloopCallbackMs.Record(cbSw.Elapsed.TotalMilliseconds, batchTag)
 
-      // Phase 4: Spawn effects
+      // Phase 4: Spawn effects with parent trace context from batch span
       match allEffects.IsEmpty with
       | false -> Instrumentation.elmloopEffectsSpawned.Add(int64 allEffects.Length)
       | true -> ()
+      // Capture batch activity context so effects become children of this batch
+      let parentCtx =
+        match isNull activity with
+        | false -> activity.Context
+        | true -> System.Diagnostics.ActivityContext()
+      let hasParent =
+        parentCtx.TraceId.ToString() <> "00000000000000000000000000000000"
       for effect in allEffects do
         Async.Start (async {
-          try do! program.ExecuteEffect (fun msg -> queue.Enqueue msg; tryDrain()) effect
+          // Create an effect child span linked to the batch via explicit parent context
+          let effectActivity =
+            match hasParent with
+            | true ->
+              Instrumentation.elmloopSource.StartActivity(
+                "elm.effect",
+                ActivityKind.Internal,
+                parentCtx)
+            | false -> null
+          try
+            do! program.ExecuteEffect (fun msg -> queue.Enqueue msg; tryDrain()) effect
+            Instrumentation.succeedSpan effectActivity
           with ex ->
             Instrumentation.elmloopErrors.Add(1L, kvp "phase" "effect")
             Log.error "[ElmLoop] Effect threw: %s" ex.Message
+            Instrumentation.failSpan effectActivity ex.Message
         })
 
       batchSw.Stop()

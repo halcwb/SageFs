@@ -177,6 +177,10 @@ module CoverageInstrumenter =
   /// Returns (InstrumentationMap, instrumentedAssemblyPath) or error.
   let instrumentAssembly (assemblyPath: string)
     : Result<InstrumentationMap * string, string> =
+    let sw = System.Diagnostics.Stopwatch.StartNew()
+    let activity =
+      SageFs.Instrumentation.startSpan SageFs.Instrumentation.testCycleSource "coverage.instrument_assembly"
+        [ ("coverage.assembly_path", box assemblyPath) ]
     try
       let pdbPath = Path.ChangeExtension(assemblyPath, ".pdb")
       let hasPdb = File.Exists(pdbPath)
@@ -189,6 +193,11 @@ module CoverageInstrumenter =
       let points = collectSequencePoints moduleDef
       match points.Length = 0 with
       | true ->
+        sw.Stop()
+        match isNull activity with
+        | false -> activity.SetTag("coverage.probe_count", 0) |> ignore
+        | true -> ()
+        SageFs.Instrumentation.succeedSpan activity
         Ok(InstrumentationMap.empty, assemblyPath)
       | false ->
         let slots =
@@ -219,8 +228,17 @@ module CoverageInstrumenter =
           Path.Combine(dir, sprintf "%s.instrumented%s" name ext)
         let writerParams = WriterParameters(WriteSymbols = hasPdb)
         asm.Write(instrPath, writerParams)
+        sw.Stop()
+        match isNull activity with
+        | false ->
+          activity.SetTag("coverage.probe_count", points.Length) |> ignore
+          activity.SetTag("duration_ms", sw.Elapsed.TotalMilliseconds) |> ignore
+        | true -> ()
+        SageFs.Instrumentation.succeedSpan activity
         Ok(map, instrPath)
     with ex ->
+      sw.Stop()
+      SageFs.Instrumentation.failSpan activity ex.Message
       Error(sprintf "Instrumentation failed: %s" ex.Message)
 
   /// Instrument an assembly in-place by writing to temp then replacing.

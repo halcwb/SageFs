@@ -727,6 +727,9 @@ module SessionManager =
             return! loop state
 
         | SessionCommand.ScheduleRestart id ->
+          let recoverySpan =
+            Instrumentation.startSpan Instrumentation.sessionSource "session.crash_recovery"
+              [("session.id", box id)]
           match ManagerState.tryGetSession id state with
           | Some session when session.Info.Status = SessionStatus.Restarting ->
             let onExited workerPid exitCode =
@@ -744,6 +747,10 @@ module SessionManager =
                           LastActivity = DateTime.UtcNow } }
               let newState = ManagerState.addSession id restarted state
               awaitWorkerPort id proc inbox ct
+              match isNull recoverySpan with
+              | false -> recoverySpan.SetTag("recovery.outcome", "restarted") |> ignore
+              | true -> ()
+              Instrumentation.succeedSpan recoverySpan
               return! loop newState
             | Error _msg ->
               // Spawn failed — treat as another crash
@@ -756,9 +763,19 @@ module SessionManager =
               match outcome with
               | SessionLifecycle.ExitOutcome.Abandoned _
               | SessionLifecycle.ExitOutcome.Graceful ->
+                match isNull recoverySpan with
+                | false -> recoverySpan.SetTag("recovery.outcome", "abandoned") |> ignore
+                | true -> ()
+                Instrumentation.succeedSpan recoverySpan
                 let newState = ManagerState.removeSession id state
                 return! loop newState
               | SessionLifecycle.ExitOutcome.RestartAfter(delay, newRestartState) ->
+                match isNull recoverySpan with
+                | false ->
+                  recoverySpan.SetTag("recovery.outcome", "retry_scheduled") |> ignore
+                  recoverySpan.SetTag("recovery.retry_delay_ms", delay.TotalMilliseconds) |> ignore
+                | true -> ()
+                Instrumentation.succeedSpan recoverySpan
                 let updated =
                   { session with
                       RestartState = newRestartState }
@@ -769,6 +786,7 @@ module SessionManager =
                 }, ct)
                 return! loop newState
           | _ ->
+            Instrumentation.succeedSpan recoverySpan
             return! loop state
 
         | SessionCommand.StopAll reply ->

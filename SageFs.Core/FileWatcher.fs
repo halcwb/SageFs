@@ -105,7 +105,18 @@ let start
         pendingChanges <- []
         cs)
     for c in changes do
-      onRebuildNeeded c
+      Instrumentation.fileWatcherChanges.Add(1L)
+      // Create a test_cycle root span so downstream Elm effects and worker calls
+      // inherit W3C TraceContext. Tag with the file change timestamp.
+      let activity =
+        Instrumentation.startSpan Instrumentation.testCycleSource "test_cycle"
+          [ ("file.path", box c.FilePath)
+            ("file.change_kind", box (string c.Kind))
+            ("file.change_at", box (c.Timestamp.ToString("o"))) ]
+      try
+        onRebuildNeeded c
+      finally
+        Instrumentation.succeedSpan activity
 
   let timer = new Threading.Timer(Threading.TimerCallback(onTimer), null, Threading.Timeout.Infinite, Threading.Timeout.Infinite)
 

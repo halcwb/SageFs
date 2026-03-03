@@ -16,27 +16,58 @@ open OpenTelemetry.Logs
 
 /// Send a message through the session proxy with railway error handling.
 /// Centralizes error recovery for IO, pipe, and disposed exceptions.
+/// Wrapped in a daemon.proxy_to_worker span for trace propagation to workers.
 let proxyToSession
   (getProxy: string -> Threading.Tasks.Task<(WorkerProtocol.WorkerMessage -> Async<WorkerProtocol.WorkerResponse>) option>)
   (sid: string)
   (msg: WorkerProtocol.WorkerMessage)
   : Threading.Tasks.Task<Result<WorkerProtocol.WorkerResponse, SageFsError>> = task {
+  let sw = System.Diagnostics.Stopwatch.StartNew()
+  let activity =
+    Instrumentation.startSpanWithKind
+      Instrumentation.daemonSource "daemon.proxy_to_worker"
+      System.Diagnostics.ActivityKind.Client
+      [("session.id", box sid); ("worker.message_type", box (msg.GetType().Name))]
   match sid with
-  | null | "" -> return Error (SageFsError.SessionNotFound (sid |> Option.ofObj |> Option.defaultValue ""))
+  | null | "" ->
+    sw.Stop()
+    Instrumentation.workerRequestErrors.Add(1L)
+    Instrumentation.failSpan activity "empty session id"
+    return Error (SageFsError.SessionNotFound (sid |> Option.ofObj |> Option.defaultValue ""))
   | _ ->
     try
       let! proxy = getProxy sid
       match proxy with
       | Some send ->
         let! resp = send msg |> Async.StartAsTask
+        sw.Stop()
+        Instrumentation.workerRequestDurationMs.Record(sw.Elapsed.TotalMilliseconds)
+        Instrumentation.succeedSpan activity
         return Ok resp
-      | None -> return Error (SageFsError.WorkerCommunicationFailed(sid, "No proxy available for session"))
+      | None ->
+        sw.Stop()
+        Instrumentation.workerRequestErrors.Add(1L)
+        Instrumentation.workerRequestDurationMs.Record(sw.Elapsed.TotalMilliseconds)
+        Instrumentation.failSpan activity "No proxy available for session"
+        return Error (SageFsError.WorkerCommunicationFailed(sid, "No proxy available for session"))
     with
     | :? IO.IOException as ex ->
+      sw.Stop()
+      Instrumentation.workerRequestErrors.Add(1L)
+      Instrumentation.workerRequestDurationMs.Record(sw.Elapsed.TotalMilliseconds)
+      Instrumentation.failSpan activity ex.Message
       return Error (SageFsError.WorkerCommunicationFailed(sid, sprintf "Session pipe broken — %s" ex.Message))
     | :? AggregateException as ae when (ae.InnerException :? IO.IOException) ->
+      sw.Stop()
+      Instrumentation.workerRequestErrors.Add(1L)
+      Instrumentation.workerRequestDurationMs.Record(sw.Elapsed.TotalMilliseconds)
+      Instrumentation.failSpan activity ae.InnerException.Message
       return Error (SageFsError.WorkerCommunicationFailed(sid, sprintf "Session pipe broken — %s" ae.InnerException.Message))
     | :? ObjectDisposedException as ex ->
+      sw.Stop()
+      Instrumentation.workerRequestErrors.Add(1L)
+      Instrumentation.workerRequestDurationMs.Record(sw.Elapsed.TotalMilliseconds)
+      Instrumentation.failSpan activity ex.Message
       return Error (SageFsError.WorkerCommunicationFailed(sid, sprintf "Session pipe closed — %s" ex.Message))
 }
 
@@ -76,7 +107,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
 
   log.LogInformation("SageFs daemon v{Version} starting on port {Port}", version, mcpPort)
 
-  // Set up persistence: PostgreSQL is required (via Docker auto-start or SAGEFS_CONNECTION_STRING)
+  // Set up persistence: PostgreSQL preferred, binary-only fallback if unavailable
   let persistence =
     match PostgresInfra.getOrStartPostgres () with
     | Ok connStr ->
@@ -84,9 +115,18 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       log.LogInformation("Event persistence: PostgreSQL")
       SageFs.EventStore.EventPersistence.postgres store
     | Error msg ->
-      log.LogCritical("PostgreSQL is required: {Error}", msg)
-      failwith msg
+      log.LogWarning("PostgreSQL unavailable ({Error}), running in binary-only mode", msg)
+      SageFs.EventStore.EventPersistence.noop
   let daemonStreamId = "daemon-sessions"
+
+  /// Fire-and-forget event append — logs errors but doesn't block the caller.
+  let appendEventsAsync (events: Features.Events.SageFsEvent list) =
+    System.Threading.Tasks.Task.Run(fun () ->
+      task {
+        match! persistence.AppendEvents daemonStreamId events with
+        | Ok () -> ()
+        | Error err -> log.LogWarning("Fire-and-forget event append failed: {Error}", err)
+      } :> System.Threading.Tasks.Task) |> ignore
 
   // Handle --prune: mark all alive sessions as stopped and exit
   match args |> List.exists (function Args.Arguments.Prune -> true | _ -> false) with
@@ -141,7 +181,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
           |> Async.StartAsTask
         match result with
         | Ok info ->
-          let! _ = persistence.AppendEvents daemonStreamId [
+          appendEventsAsync [
             Features.Events.SageFsEvent.DaemonSessionCreated
               {| SessionId = info.Id; Projects = projects; WorkingDir = workingDir; CreatedAt = DateTimeOffset.UtcNow |}
           ]
@@ -162,8 +202,8 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
           sessionManager.PostAndAsyncReply(fun reply ->
             SessionManager.SessionCommand.StopSession(sessionId, reply))
           |> Async.StartAsTask
-        // Persist stop event
-        let! _ = persistence.AppendEvents daemonStreamId [
+        // Persist stop event (fire-and-forget)
+        appendEventsAsync [
           Features.Events.SageFsEvent.DaemonSessionStopped
             {| SessionId = sessionId; StoppedAt = DateTimeOffset.UtcNow |}
         ]
@@ -273,11 +313,10 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
         uniqueByDir |> List.map (fun r -> r.SessionId) |> Set.ofList
       let prunedCount = (Set.difference staleIds keptIds).Count
       for staleId in Set.difference staleIds keptIds do
-        let! _ = persistence.AppendEvents daemonStreamId [
+        appendEventsAsync [
           Features.Events.SageFsEvent.DaemonSessionStopped
             {| SessionId = staleId; StoppedAt = DateTimeOffset.UtcNow |}
         ]
-        ()
       match prunedCount > 0 with
       | true -> Instrumentation.daemonDuplicatesPruned.Add(int64 prunedCount)
       | false -> ()
@@ -295,11 +334,10 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
         uniqueByDir |> List.partition (fun prev -> IO.Directory.Exists prev.WorkingDir)
       for prev in missing do
         log.LogWarning("Skipping session {SessionId} — directory {WorkingDir} no longer exists", prev.SessionId, prev.WorkingDir)
-        let! _ = persistence.AppendEvents daemonStreamId [
+        appendEventsAsync [
           Features.Events.SageFsEvent.DaemonSessionStopped
             {| SessionId = prev.SessionId; StoppedAt = DateTimeOffset.UtcNow |}
         ]
-        ()
       // Resume all valid sessions in parallel — each is an independent worker process
       let resumeSpan = Instrumentation.startSpan Instrumentation.sessionSource "sagefs.daemon.session_resume" []
       let resumeTasks =
@@ -311,7 +349,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
           | Ok info ->
             Instrumentation.daemonSessionsResumed.Add(1L)
             // Stop the OLD session ID so it doesn't resurrect on next restart
-            let! _ = persistence.AppendEvents daemonStreamId [
+            appendEventsAsync [
               Features.Events.SageFsEvent.DaemonSessionStopped
                 {| SessionId = prev.SessionId; StoppedAt = DateTimeOffset.UtcNow |}
             ]
@@ -1178,11 +1216,10 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
     | Error err -> log.LogWarning("Failed to save session manifest: {Error}", err)
 
     for info in activeSessions do
-      let! _ = persistence.AppendEvents daemonStreamId [
+      appendEventsAsync [
         Features.Events.SageFsEvent.DaemonSessionStopped
           {| SessionId = info.Id; StoppedAt = DateTimeOffset.UtcNow |}
       ]
-      ()
     // Stop all workers with a timeout — don't block forever if a worker is hung
     let stopTask =
       sessionManager.PostAndAsyncReply(fun reply ->
