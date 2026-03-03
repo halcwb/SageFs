@@ -866,19 +866,15 @@ module SageFsRender =
       match model.Sessions.ActiveSessionId with
       | ActiveSession.Viewing sid -> sid
       | ActiveSession.AwaitingSession -> ""
-    let outputRegion = {
-      Id = "output"
-      Flags = RegionFlags.Scrollable ||| RegionFlags.LiveUpdate
-      Content =
-        let buf = model.RecentOutput.GetActiveBuffer(model.Sessions.ActiveSessionId)
-        let sb = System.Text.StringBuilder(buf.Count * 40)
-        buf.RenderAll(sb)
-        sb.ToString()
-      Affordances = []
-      Cursor = None
-      Completions = None
-      LineAnnotations = [||]
-    }
+    let outputRegion =
+      let buf = model.RecentOutput.GetActiveBuffer(model.Sessions.ActiveSessionId)
+      { Id = "output"
+        Flags = RegionFlags.Scrollable ||| RegionFlags.LiveUpdate
+        Content = buf.RenderAllCached()
+        Affordances = []
+        Cursor = None
+        Completions = None
+        LineAnnotations = [||] }
 
     let diagnosticsRegion = {
       Id = "diagnostics"

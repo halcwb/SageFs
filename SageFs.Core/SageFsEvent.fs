@@ -26,11 +26,16 @@ type OutputRingBuffer(capacity: int) =
   let items = Array.zeroCreate<OutputLine> capacity
   let mutable writeIdx = 0
   let mutable count = 0
+  let mutable version = 0
+  let mutable cachedRenderVersion = -1
+  let mutable cachedRenderContent = ""
 
   member _.Capacity = capacity
   member _.Count = count
   member _.Length = count
   member _.IsEmpty = count = 0
+  /// Monotonically increasing version — increments on every mutation.
+  member _.Version = version
 
   /// Add a single line. Overwrites oldest when full.
   member _.Add(line: OutputLine) =
@@ -39,6 +44,7 @@ type OutputRingBuffer(capacity: int) =
     match count < capacity with
     | true -> count <- count + 1
     | false -> ()
+    version <- version + 1
 
   /// Add multiple lines in order. Overwrites oldest when full.
   member rb.AddRange(lines: OutputLine seq) =
@@ -48,6 +54,7 @@ type OutputRingBuffer(capacity: int) =
   member _.Clear() =
     writeIdx <- 0
     count <- 0
+    version <- version + 1
 
   /// Newest-first indexer: .[0] = most recently added (backward-compat with old list).
   member _.Item(index: int) =
@@ -96,6 +103,18 @@ type OutputRingBuffer(capacity: int) =
         | OutputKind.System -> "system"
       sb.Append('[').Append(line.Timestamp.ToString("HH:mm:ss")).Append("] [")
         .Append(kindLabel).Append("] ").Append(line.Text) |> ignore
+
+  /// Cached render — returns cached string when buffer hasn't changed since last call.
+  member this.RenderAllCached() =
+    match version = cachedRenderVersion with
+    | true -> cachedRenderContent
+    | false ->
+      let sb = System.Text.StringBuilder(count * 40)
+      this.RenderAll(sb)
+      let s = sb.ToString()
+      cachedRenderVersion <- version
+      cachedRenderContent <- s
+      s
 
   /// Check if any line matches a predicate (newest-first search).
   member _.Exists(predicate: OutputLine -> bool) =

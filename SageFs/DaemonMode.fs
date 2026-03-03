@@ -407,7 +407,11 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
             Log.info "[elm] output=%d diags=%d | %s"
               outputCount diagCount latest
           | false -> ()
-          stateChangedEvent.Trigger (ModelChanged json)
+          // Non-blocking: fire SSE push on thread pool so ElmLoop drain returns immediately.
+          // Subscribers (MCP, Dashboard) do JSON parsing + SSE writes that took 50-90ms
+          // when run synchronously on the drain thread.
+          System.Threading.ThreadPool.QueueUserWorkItem(fun _ ->
+            stateChangedEvent.Trigger (ModelChanged json)) |> ignore
         | false -> ()
       with ex -> Log.error "[elm] State change propagation error: %s (%s)" ex.Message (ex.GetType().Name))
 
