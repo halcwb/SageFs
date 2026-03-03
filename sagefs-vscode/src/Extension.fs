@@ -958,7 +958,7 @@ let activate (context: ExtensionContext) =
 
   // Status polling
   refreshStatus ()
-  let statusInterval = jsSetInterval refreshStatus 5000
+  let statusInterval = jsSetInterval refreshStatus 15000
   context.subscriptions.Add (
     { new Disposable with member _.dispose () = jsClearInterval statusInterval; null }
   )

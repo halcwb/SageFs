@@ -2,7 +2,7 @@
   "name": "sagefs",
   "displayName": "SageFs — Live F# Development",
   "description": "Send F# code to SageFs for instant evaluation, type-checking, and hot reload.",
-  "version": "0.5.461",
+  "version": "0.5.462",
   "publisher": "sagefs",
   "license": "MIT",
   "icon": "icon.png",
@@ -216,6 +216,11 @@
           "enum": ["error", "info", "debug"],
           "default": "info",
           "description": "Output channel log level."
+        },
+        "sagefs.inlineResultTimeout": {
+          "type": "number",
+          "default": 30000,
+          "description": "How long (ms) inline eval results stay visible before auto-clearing. Set to 0 to keep forever."
         }
       }
     },

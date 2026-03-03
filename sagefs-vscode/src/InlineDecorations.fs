@@ -4,6 +4,12 @@ open Fable.Core.JsInterop
 open Vscode
 open SageFs.Vscode.JsHelpers
 
+// ── Configuration ──────────────────────────────────────────────
+
+let getInlineTimeout () =
+  let config = Workspace.getConfiguration "sagefs"
+  config.get("inlineResultTimeout", 30000)
+
 // ── Mutable state ──────────────────────────────────────────────
 
 let mutable blockDecorations: Map<int, TextEditorDecorationType> = Map.empty
@@ -28,6 +34,12 @@ let clearBlockDecoration (line: int) =
     deco.dispose () |> ignore
     staleDecorations <- Map.remove line staleDecorations
   | None -> ()
+
+let autoClearAfter (line: int) =
+  let ms = getInlineTimeout ()
+  match ms with
+  | 0 -> ()
+  | _ -> jsSetTimeout (fun () -> clearBlockDecoration line) ms |> ignore
 
 let clearAllDecorations () =
   blockDecorations |> Map.iter (fun _ deco -> deco.dispose () |> ignore)
@@ -99,7 +111,7 @@ let showInlineResult (editor: TextEditor) (text: string) (durationMs: float opti
     let range = newRange line endCol line endCol
     editor.setDecorations(deco, ResizeArray [| box range |])
     blockDecorations <- Map.add line deco blockDecorations
-    jsSetTimeout (fun () -> clearBlockDecoration line) 30000 |> ignore
+    autoClearAfter line
 
 let showInlineDiagnostic (editor: TextEditor) (text: string) =
   let firstLine =
@@ -123,4 +135,4 @@ let showInlineDiagnostic (editor: TextEditor) (text: string) =
     let range = newRange line endCol line endCol
     editor.setDecorations(deco, ResizeArray [| box range |])
     blockDecorations <- Map.add line deco blockDecorations
-    jsSetTimeout (fun () -> clearBlockDecoration line) 30000 |> ignore
+    autoClearAfter line
