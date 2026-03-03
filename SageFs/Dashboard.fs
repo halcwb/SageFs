@@ -45,7 +45,7 @@ let saveThemes (sageFsDir: string) (themes: Collections.Concurrent.ConcurrentDic
     let dict = themes |> Seq.map (fun kv -> kv.Key, kv.Value) |> dict
     let json = Text.Json.JsonSerializer.Serialize(dict, Text.Json.JsonSerializerOptions(WriteIndented = true))
     File.WriteAllText(path, json)
-  with _ -> ()
+  with ex -> Log.warn "Failed to save themes to %s: %s" sageFsDir ex.Message
 
 /// Load theme preferences from ~/.SageFs/themes.json
 let loadThemes (sageFsDir: string) : Collections.Concurrent.ConcurrentDictionary<string, string> =
@@ -62,7 +62,7 @@ let loadThemes (sageFsDir: string) : Collections.Concurrent.ConcurrentDictionary
           result.[kv.Key] <- kv.Value
       | true -> ()
     | false -> ()
-  with _ -> ()
+  with ex -> Log.warn "Failed to load themes from %s: %s" sageFsDir ex.Message
   result
 
 /// sseHtmlElements uses renderHtml which prepends <!DOCTYPE html> to every
@@ -1826,7 +1826,7 @@ let createEvalFileHandler
         ctx.Response.StatusCode <- 400
         do! ctx.Response.WriteAsJsonAsync({| error = "File not found or path missing" |})
       | false ->
-        let code = File.ReadAllText(filePath)
+        let! code = File.ReadAllTextAsync(filePath)
         let codeWithTerminator =
           let trimmed = code.TrimEnd()
           match trimmed.EndsWith(";;") with

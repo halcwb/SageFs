@@ -8,6 +8,7 @@ open System.Text.Json
 open System.Text.Json.Serialization
 open System.Threading.Tasks
 open SageFs.AppState
+open SageFs.Utils
 
 /// Pure functions for MCP adapter (formatting responses)
 module McpAdapter =
@@ -905,7 +906,7 @@ module McpTools =
               match Array.isEmpty hookResult.AffectedTestIds with
               | false -> notifyElm ctx (SageFsEvent.AffectedTestsComputed hookResult.AffectedTestIds)
               | true -> ()
-            with _ -> ()
+            with ex -> Log.warn "Failed to deserialize hook result: %s" ex.Message
           | None -> ()
           match metadata |> Map.tryFind "assemblyLoadErrors" with
           | Some json ->
@@ -915,7 +916,7 @@ module McpTools =
               match List.isEmpty errors with
               | false -> notifyElm ctx (SageFsEvent.AssemblyLoadFailed errors)
               | true -> ()
-            with _ -> ()
+            with ex -> Log.warn "Failed to deserialize assembly load errors: %s" ex.Message
           | None -> ()
         | WorkerProtocol.WorkerResponse.EvalResult(_, Error err, _, _) ->
           notifyElm ctx (
