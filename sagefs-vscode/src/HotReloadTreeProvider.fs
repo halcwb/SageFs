@@ -165,6 +165,11 @@ let setSession (c: Client.Client) (sessionId: string option) =
   | None -> ()
   refresh ()
 
+let stopAutoRefresh () =
+  match autoRefreshTimer with
+  | Some t -> jsClearInterval t; autoRefreshTimer <- None
+  | None -> ()
+
 let register (ctx: ExtensionContext) =
   let provider = createProvider ()
   let tv = Window.createTreeView "sagefs-hotReload" (createObj [

@@ -957,5 +957,7 @@ let deactivate () =
   typeExplorer <- None
   dashboardPanel |> Option.iter (fun p -> p.dispose () |> ignore)
   dashboardPanel <- None
+  HotReload.stopAutoRefresh ()
+  SessionCtx.stopAutoRefresh ()
   TestDeco.dispose ()
   InlineDeco.clearAllDecorations ()

@@ -11,7 +11,7 @@ module Client = SageFs.Vscode.SageFsClient
 
 // ── TestController lifecycle ─────────────────────────────────
 
-let [<Literal>] private EndRunDebounceMs = 500
+let [<Literal>] private EndRunDebounceMs = 2000
 
 type TestAdapter = {
   Controller: TestController

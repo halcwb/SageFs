@@ -69,7 +69,7 @@ let create () =
             | None -> t.DisplayName
           let cmd = createObj [
             "title" ==> title
-            "command" ==> ""
+            "command" ==> "sagefs.runTests"
             "tooltip" ==> tooltip
           ]
           lenses.Add(newCodeLens range cmd)

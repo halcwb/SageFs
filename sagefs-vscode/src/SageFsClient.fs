@@ -115,7 +115,11 @@ let postCommand (c: Client) (path: string) (body: string) (timeout: int) : JS.Pr
   promise {
     try
       let! resp = httpPost c path body timeout
-      return jsonParse resp.body |> parseOutcome
+      match resp.statusCode with
+      | s when s >= 200 && s < 300 ->
+        return jsonParse resp.body |> parseOutcome
+      | s ->
+        return Failed (sprintf "HTTP %d: %s" s (resp.body.Substring(0, min 200 resp.body.Length)))
     with err ->
       return Failed (string err)
   }
@@ -177,7 +181,7 @@ let isRunning (c: Client) =
   promise {
     try
       let! resp = httpGet c "/health" 3000
-      return resp.statusCode > 0
+      return resp.statusCode = 200
     with _ ->
       return false
   }
