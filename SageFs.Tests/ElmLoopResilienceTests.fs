@@ -15,6 +15,10 @@ let wait () =
 
 [<Tests>]
 let elmLoopResilienceTests =
+  // Decision: Elm loop catches exceptions in Update/Render/OnModelChanged/Effect.
+  //   A single bad message must not kill the dispatch loop — all frontends depend on it.
+  // Assumes (2026-01): Every frontend shares one ElmProgram per instance.
+  // See ElmLoop.fs header for the full contract.
   testList "ElmLoop resilience" [
 
     testCase "Update throws: model stays, no effect, loop recovers" <| fun _ ->
@@ -42,7 +46,7 @@ let elmLoopResilienceTests =
 
       rt.Dispatch 3  // recovers, model=2
       waitFor (fun () -> effCount.Value >= 2) 2000 |> ignore
-      effCount.Value |> Expect.equal "effect fires on d3" 2
+      effCount.Value |> Expect.equal "effect fires on d3 — loop survived throw (see ElmLoop.fs header)" 2
       rt.GetModel() |> Expect.equal "model is 2" 2
 
     testCase "Render throws: previous regions preserved, effects fire" <| fun _ ->
@@ -89,7 +93,7 @@ let elmLoopResilienceTests =
 
       rt.Dispatch 2  // OnModelChanged throws, but effect should still fire
       waitFor (fun () -> effCount.Value >= 2) 2000 |> ignore
-      effCount.Value |> Expect.equal "effect on d2 despite throw" 2
+      effCount.Value |> Expect.equal "effect on d2 despite throw — resilience contract (see ElmLoop.fs header)" 2
       rt.GetModel() |> Expect.equal "model updated" 2
 
       rt.Dispatch 3  // recovers
@@ -120,7 +124,7 @@ let elmLoopResilienceTests =
 
       rt.Dispatch 3  // effect=3, succeeds
       waitFor (fun () -> effCount.Value >= 2) 2000 |> ignore
-      effCount.Value |> Expect.equal "effect 3 ran" 2
+      effCount.Value |> Expect.equal "effect 3 ran — loop survived bad effect (see ElmLoop.fs header)" 2
 
     testCase "Initial Render throws: starts with empty regions" <| fun _ ->
       let prog : ElmProgram<int, int, int, int> = {

@@ -117,7 +117,8 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
     log.LogInformation("ThreadPool min threads: {Old} → {New}", minWorker, desiredMin)
   | false -> ()
 
-  // Set up persistence: PostgreSQL preferred, binary-only fallback if unavailable
+  // Set up persistence: binary manifest is primary. PostgreSQL/Marten is fire-and-forget
+  // audit logging, being phased out. See EventStore.fs header for full rationale.
   let persistence =
     match PostgresInfra.getOrStartPostgres () with
     | Ok connStr ->

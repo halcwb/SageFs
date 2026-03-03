@@ -1,3 +1,14 @@
+/// ROLE: Event persistence via Marten/PostgreSQL — append-only stream per session.
+///   Binary manifest is PRIMARY for session restoration (see DaemonMode.fs line 279).
+///   Marten/PostgreSQL is fire-and-forget audit logging — being phased out.
+/// Weight: Revisit pending — binary format is source of truth. PostgreSQL + Docker
+///   overhead is no longer justified once historical session queries migrate off Marten.
+/// Assumes (2026-03): Binary manifest covers all session restoration needs.
+///   Historical session queries (DaemonMode.fs line 885) still use Marten — last dependency.
+/// Invalidates-when: Historical session queries are migrated off Marten. At that point,
+///   this entire module can be deleted along with the PostgreSQL/Docker dependency.
+/// Danger: Adding new Marten features or treating PostgreSQL as authoritative — binary
+///   is the source of truth. New features should target the binary format, not Marten.
 module SageFs.EventStore
 
 #nowarn "44" // Marten deprecates GeneratedCodeMode, but CritterStackDefaults() requires DI

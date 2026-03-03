@@ -35,6 +35,10 @@ let createStore schemaName =
 
 [<Tests>]
 let eventStoreTests =
+  // Decision: Marten/PostgreSQL provides append-only event streams per session.
+  //   This is fire-and-forget audit logging — binary manifest is the source of truth.
+  //   Being phased out. See EventStore.fs header for full rationale.
+  // Assumes (2026-03): Historical session queries still need Marten (DaemonMode.fs line 885).
   testList "[Integration] Event Store with Marten" [
 
     testCase "can append and retrieve a SessionStarted event"
@@ -50,7 +54,7 @@ let eventStoreTests =
         use readSession = store.LightweightSession()
         let! events = readSession.Events.FetchStreamAsync(streamId)
         events.Count
-        |> Expect.equal "should have one event" 1
+        |> Expect.equal "events persist to stream — audit trail (see EventStore.fs header)" 1
       }
       |> Async.AwaitTask
       |> Async.RunSynchronously
@@ -173,7 +177,7 @@ let persistenceTests =
         use readAfter = store.LightweightSession()
         let! after = readAfter.Events.FetchStreamAsync(streamId)
         after.Count
-        |> Expect.equal "stream should grow by one" (countBefore + 1)
+        |> Expect.equal "stream grows across runs — persistence (see EventStore.fs header)" (countBefore + 1)
 
         // The latest event should contain our marker
         let latest = after.[after.Count - 1].Data

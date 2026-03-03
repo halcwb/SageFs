@@ -10,18 +10,9 @@ open SageFs
 open SageFs.WorkerProtocol
 open SageFs.SessionManager
 
-// ═══════════════════════════════════════════════════════════════
-// CQRS Read/Write Separation Tests for SessionManager
-//
-// Problem: SessionManager uses a single MailboxProcessor for
-// ALL operations. During slow commands (dotnet build ~30s),
-// ALL reads queue behind the write — SSE pushes hang, dashboard
-// appears frozen.
-//
-// Fix: CQRS — publish an immutable QuerySnapshot after each
-// command. Reads go to the snapshot (lock-free, instant).
-// Writes stay on the mailbox (sequential, consistent).
-// ═══════════════════════════════════════════════════════════════
+// See SessionManager.fs module header for the CQRS rationale.
+// Problem: MailboxProcessor reads block behind writes — p99 > 200ms during slow commands.
+// Fix: Immutable QuerySnapshot published after each command. Reads bypass the actor.
 
 // ── Test helpers ──────────────────────────────────────────────
 
@@ -103,7 +94,7 @@ let cqrsPatternTests = testList "CQRS pattern" [
     let completed = readTask.Wait(500)
 
     completed
-    |> Expect.isFalse "mailbox read should be blocked behind slow write"
+    |> Expect.isFalse "mailbox read should be blocked behind slow write (see SessionManager.fs header)"
   }
 
   test "snapshot read completes instantly during slow write" {
@@ -120,9 +111,9 @@ let cqrsPatternTests = testList "CQRS pattern" [
     let result = snapshotRead "s1"
     sw.Stop()
 
-    result |> Expect.equal "should find item in snapshot" (Some "ready")
+    result |> Expect.equal "snapshot read instant during slow write — CQRS bypass (see SessionManager.fs header)" (Some "ready")
     (sw.ElapsedMilliseconds, 10L)
-    |> Expect.isLessThan "snapshot read should be < 10ms"
+    |> Expect.isLessThan "snapshot read < 10ms — lock-free CQRS (see SessionManager.fs header)"
   }
 
   test "snapshot eventually updates after write completes" {
@@ -173,9 +164,9 @@ let cqrsPatternTests = testList "CQRS pattern" [
       |> fun t -> t.Result
     sw.Stop()
 
-    results |> Array.iter (fun r -> r |> Expect.isSome "should find item")
+    results |> Array.iter (fun r -> r |> Expect.isSome "concurrent snapshot reads must succeed (see SessionManager.fs header)")
     (sw.ElapsedMilliseconds, 100L)
-    |> Expect.isLessThan "100 concurrent reads in < 100ms"
+    |> Expect.isLessThan "100 concurrent reads < 100ms — lock-free CQRS (see SessionManager.fs header)"
   }
 ]
 
@@ -185,7 +176,7 @@ let querySnapshotTests = testList "QuerySnapshot projection" [
 
   test "fromState projects empty state" {
     let snap = QuerySnapshot.fromState ManagerState.empty StandbyInfo.NoPool
-    snap.Sessions |> Expect.isEmpty "empty state has no sessions"
+    snap.Sessions |> Expect.isEmpty "empty state has no sessions (see SessionManager.fs header)"
     snap.StandbyInfo |> Expect.equal "standby is NoPool" StandbyInfo.NoPool
   }
 
@@ -411,7 +402,7 @@ let snapshotDashboardTests = testList "Snapshot dashboard helpers" [
       QuerySnapshot.tryGetSession "s1" snap |> ignore
     sw.Stop()
     (sw.ElapsedMilliseconds, 50L)
-    |> Expect.isLessThan "1000 snapshot reads in < 50ms"
+    |> Expect.isLessThan "1000 snapshot reads < 50ms — CQRS scalability (see SessionManager.fs header)"
   }
 ]
 

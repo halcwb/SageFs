@@ -1,6 +1,14 @@
 namespace SageFs
 
-/// Core Elm Architecture types — the contract every frontend depends on
+/// ROLE: Core Elm Architecture types — the contract every frontend depends on.
+///   Update is pure: (Msg → Model → Model * Effect list). No I/O inside Update.
+///   EffectHandler runs side effects OUTSIDE the loop, dispatching results as Msgs.
+/// Weight: Chesterton's fence — TUI, Dashboard, VSCode, Neovim, and Raylib all dispatch through this.
+/// Assumes (2026-01): All UI goes through a single ElmProgram dispatch loop per frontend.
+/// Invalidates-when: A frontend needs multiple independent dispatch loops (e.g., split-pane
+///   with independent state), or when Update purity is no longer needed for replay/undo.
+/// Danger: Adding side effects inside Update — breaks replay tests and time-travel debugging.
+///   Adding mutable fields to ElmProgram — breaks concurrent dispatch safety.
 type Update<'Model, 'Msg, 'Effect> =
   'Msg -> 'Model -> 'Model * 'Effect list
 

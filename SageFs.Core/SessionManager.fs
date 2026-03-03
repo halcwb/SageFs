@@ -6,8 +6,17 @@ open System.Threading
 open SageFs.WorkerProtocol
 open SageFs.Utils
 
-/// Manages worker sub-processes, each owning an FSI session.
-/// Erlang-style supervisor: spawn, monitor, restart on crash.
+/// ROLE: Erlang-style supervisor for FSI worker sub-processes via MailboxProcessor.
+///   SessionCommand DU serializes all mutations through a single agent loop.
+///   Immutable QuerySnapshot published after each command for lock-free CQRS reads.
+/// Weight: Chesterton's fence — actor serialization prevents FSI worker threading bugs.
+/// Assumes (2026-03): All write operations go through the MailboxProcessor loop.
+///   CQRS snapshot bypass added 2026-01 so reads (dashboard, SSE) never block behind
+///   slow writes (dotnet build ~30s). See SessionManagerCqrsTests for the problem demo.
+/// Invalidates-when: Worker processes become thread-safe, making mailbox serialization
+///   unnecessary. Or when read latency < 5ms without CQRS (measure, don't guess).
+/// Danger: Adding reads inside the mailbox loop — causes p99 > 200ms during slow writes.
+///   Spawning workers outside the agent — races on ManagerState.Sessions map.
 module SessionManager =
 
   type ManagedSession = {
