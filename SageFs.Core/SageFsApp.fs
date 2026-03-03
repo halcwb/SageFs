@@ -426,6 +426,7 @@ module SageFsUpdate =
 
       | SageFsEvent.SessionSwitched (_, toId) ->
         { model with
+            SessionContext = None
             Sessions = {
               model.Sessions with
                 ActiveSessionId = ActiveSession.Viewing toId
@@ -523,8 +524,12 @@ module SageFsUpdate =
           { model with RecentOutput = SageFsModel.addOutput lines model.RecentOutput }, []
 
       | SageFsEvent.WarmupContextUpdated ctx ->
-        // Inject warmup banner into output BEFORE any eval results
-        let bannerLines = WarmupBanner.toOutputLines ctx
+        // Only show banner on first arrival; repeated dispatches (from periodic
+        // RequestSessionList) just update context silently to avoid flooding output.
+        let bannerLines =
+          match model.SessionContext with
+          | None -> WarmupBanner.toOutputLines ctx
+          | Some _ -> []
         // Re-map any ReflectionOnly tests now that we have source file paths
         let sourceFiles = ctx.FileStatuses |> List.map (fun f -> f.Path) |> Array.ofList
         let lt =
@@ -534,11 +539,14 @@ module SageFsUpdate =
             recomputeStatuses model.LiveTesting (fun s ->
               let remapped = Features.LiveTesting.SourceMapping.mapFromProjectFiles sourceFiles s.DiscoveredTests
               { s with DiscoveredTests = remapped })
-        // bannerLines are prepended (newest-first convention: List.rev so header is last/oldest)
+        let output =
+          match bannerLines with
+          | [] -> model.RecentOutput
+          | lines -> SageFsModel.addOutput (List.rev lines) model.RecentOutput
         { model with
             SessionContext = Some ctx
             LiveTesting = lt
-            RecentOutput = SageFsModel.addOutput (List.rev bannerLines) model.RecentOutput }, []
+            RecentOutput = output }, []
 
       // ── Live testing events ──
       | SageFsEvent.TestLocationsDetected (_, locations) ->
