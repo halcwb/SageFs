@@ -44,6 +44,7 @@ open System.Text.RegularExpressions
 open SageFs
 open SageFs.Affordances
 open SageFs.Utils
+open SageFs.Server.DashboardTypes
 
 module FalcoResponse = Falco.Response
 
@@ -154,93 +155,6 @@ let loadThemes (sageFsDir: string) : Collections.Concurrent.ConcurrentDictionary
 let ssePatchNode (ctx: HttpContext) (node: XmlNode) =
   Response.sseStringElements ctx (renderNode node)
 
-/// Discriminated union for output line kinds — replaces stringly-typed matching.
-type OutputLineKind =
-  | ResultLine
-  | ErrorLine
-  | InfoLine
-  | SystemLine
-
-module OutputLineKind =
-  let fromString (s: string) =
-    match s.ToLowerInvariant() with
-    | "result" -> ResultLine
-    | "error" -> ErrorLine
-    | "info" -> InfoLine
-    | _ -> SystemLine
-
-  let toCssClass = function
-    | ResultLine -> "output-result"
-    | ErrorLine -> "output-error"
-    | InfoLine -> "output-info"
-    | SystemLine -> "output-system"
-
-/// Parsed output line with typed kind.
-type OutputLine = {
-  Timestamp: string option
-  Kind: OutputLineKind
-  Text: string
-}
-
-/// Discriminated union for diagnostic severity.
-type DiagSeverity =
-  | DiagError
-  | DiagWarning
-
-module DiagSeverity =
-  let fromString (s: string) =
-    match s.ToLowerInvariant() with
-    | "error" -> DiagError
-    | _ -> DiagWarning
-
-  let toCssClass = function
-    | DiagError -> "diag-error"
-    | DiagWarning -> "diag-warning"
-
-  let toIcon = function
-    | DiagError -> "✗"
-    | DiagWarning -> "⚠"
-
-/// Parsed diagnostic with typed severity.
-type Diagnostic = {
-  Severity: DiagSeverity
-  Message: string
-  Line: int
-  Col: int
-}
-
-/// Eval statistics view model — pre-computed for rendering.
-type EvalStatsView = {
-  Count: int
-  AvgMs: float
-  MinMs: float
-  MaxMs: float
-}
-
-/// Discover .fsproj and .sln/.slnx files in a directory.
-type DiscoveredProjects = {
-  WorkingDir: string
-  Solutions: string list
-  Projects: string list
-}
-
-let discoverProjects (workingDir: string) : DiscoveredProjects =
-  let projects =
-    try
-      Directory.EnumerateFiles(workingDir, "*.fsproj", SearchOption.AllDirectories)
-      |> Seq.map (fun p -> Path.GetRelativePath(workingDir, p))
-      |> Seq.toList
-    with _ -> []
-  let solutions =
-    try
-      Directory.EnumerateFiles(workingDir)
-      |> Seq.filter (fun f ->
-        let ext = Path.GetExtension(f).ToLowerInvariant()
-        ext = ".sln" || ext = ".slnx")
-      |> Seq.map Path.GetFileName
-      |> Seq.toList
-    with _ -> []
-  { WorkingDir = workingDir; Solutions = solutions; Projects = projects }
 
 /// Render keyboard shortcut help as an HTML fragment.
 let renderKeyboardHelp () =
@@ -605,115 +519,6 @@ let renderDiagnostics (diags: Diagnostic list) =
         ])
   ]
 
-type ParsedSession = {
-  Id: string
-  Status: string
-  StatusMessage: string option
-  IsActive: bool
-  IsSelected: bool
-  ProjectsText: string
-  EvalCount: int
-  Uptime: string
-  WorkingDir: string
-  LastActivity: string
-  StandbyLabel: string
-}
-
-let parseSessionLines (content: string) =
-  let sessionRegex = Regex(@"^([> ])\s+(\S+)\s*\[([^\]]+)\](\s*\*)?(\s*\([^)]*\))?(\s*evals:\d+)?(\s*up:(?:just now|\S+))?(\s*dir:\S.*?)?(\s*last:.+)?$")
-  let extractTag (prefix: string) (value: string) =
-    let v = value.Trim()
-    match v.StartsWith(prefix, System.StringComparison.Ordinal) with
-    | true -> v.Substring(prefix.Length).Trim()
-    | false -> ""
-  content.Split('\n')
-  |> Array.filter (fun (l: string) ->
-    l.Length > 0
-    && not (l.StartsWith("───", System.StringComparison.Ordinal))
-    && not (l.StartsWith("⏳", System.StringComparison.Ordinal))
-    && not (l.Contains("↑↓ nav"))
-    && not (l.Contains("Enter switch"))
-    && not (l.Contains("Ctrl+Tab cycle")))
-  |> Array.map (fun (l: string) ->
-    let m = sessionRegex.Match(l)
-    match m.Success with
-    | true ->
-      let evalsMatch = Regex.Match(m.Groups.[6].Value, @"evals:(\d+)")
-      { Id = m.Groups.[2].Value
-        Status = m.Groups.[3].Value
-        StatusMessage = None
-        IsActive = m.Groups.[4].Value.Contains("*")
-        IsSelected = m.Groups.[1].Value = ">"
-        ProjectsText = m.Groups.[5].Value.Trim()
-        EvalCount = match evalsMatch.Success with | true -> int evalsMatch.Groups.[1].Value | false -> 0
-        Uptime = extractTag "up:" m.Groups.[7].Value
-        WorkingDir = extractTag "dir:" m.Groups.[8].Value
-        LastActivity = extractTag "last:" m.Groups.[9].Value
-        StandbyLabel = "" }
-    | false ->
-      { Id = l.Trim()
-        Status = "unknown"
-        StatusMessage = None
-        IsActive = false
-        IsSelected = false
-        ProjectsText = ""
-        EvalCount = 0
-        Uptime = ""
-        WorkingDir = ""
-        LastActivity = ""
-        StandbyLabel = "" })
-  |> Array.toList
-
-let isCreatingSession (content: string) =
-  content.Contains("⏳ Creating session...")
-
-/// A previously-known session that can be resumed.
-type PreviousSession = {
-  Id: string
-  WorkingDir: string
-  Projects: string list
-  LastSeen: DateTime
-}
-
-/// State queries — always-present read accessors for dashboard rendering.
-type DashboardQueries = {
-  GetSessionState: string -> SessionState
-  GetStatusMsg: string -> string option
-  GetEvalStats: string -> Threading.Tasks.Task<SageFs.Affordances.EvalStats>
-  GetSessionWorkingDir: string -> string
-  GetActiveSessionId: unit -> string
-  GetElmRegions: unit -> RenderRegion list option
-  GetPreviousSessions: unit -> Threading.Tasks.Task<PreviousSession list>
-  GetAllSessions: unit -> Threading.Tasks.Task<WorkerProtocol.SessionInfo list>
-  GetStandbyInfo: unit -> Threading.Tasks.Task<StandbyInfo>
-  GetSessionStandbyInfo: string -> StandbyInfo
-  GetHotReloadState: string -> Threading.Tasks.Task<{| files: {| path: string; watched: bool |} list; watchedCount: int |} option>
-  GetWarmupContext: string -> Threading.Tasks.Task<WarmupContext option>
-  GetWarmupProgress: string -> string
-  GetTestTrace: unit -> {| Timing: Features.LiveTesting.TestCycleTiming option; IsRunning: bool; Summary: Features.LiveTesting.TestSummary |} option
-  GetLiveTestingStatus: unit -> string
-}
-
-/// Commands that mutate session state.
-type DashboardActions = {
-  EvalCode: string -> string -> Threading.Tasks.Task<Result<string, string>>
-  ResetSession: string -> Threading.Tasks.Task<Result<string, string>>
-  HardResetSession: string -> Threading.Tasks.Task<Result<string, string>>
-  Dispatch: SageFsMsg -> unit
-  SwitchSession: (string -> Threading.Tasks.Task<Result<string, string>>) option
-  StopSession: (string -> Threading.Tasks.Task<Result<string, string>>) option
-  CreateSession: (string list -> string -> Threading.Tasks.Task<Result<string, string>>) option
-  ShutdownCallback: (unit -> unit) option
-}
-
-/// Infrastructure dependencies — event sources, tracking, themes.
-type DashboardInfra = {
-  Version: string
-  StateChanged: IEvent<DaemonStateChange> option
-  ConnectionTracker: ConnectionTracker option
-  SessionThemes: Collections.Concurrent.ConcurrentDictionary<string, string>
-  GetCompletions: (string -> string -> int -> Threading.Tasks.Task<Features.AutoCompletion.CompletionItem list>) option
-}
 
 /// Render the session picker — shown in the main area when no sessions exist.
 let renderSessionPicker (previous: PreviousSession list) =
@@ -955,87 +760,9 @@ let renderSessions (sessions: ParsedSession list) (creating: bool) =
       ]
   ]
 
-let parseOutputLines (content: string) : OutputLine list =
-  let tsKindRegex = Regex(@"^\[(\d{2}:\d{2}:\d{2})\]\s*\[(\w+)\]\s*(.*)", RegexOptions.Singleline)
-  let kindOnlyRegex = Regex(@"^\[(\w+)\]\s*(.*)", RegexOptions.Singleline)
-  content.Split('\n')
-  |> Array.filter (fun (l: string) -> l.Length > 0)
-  |> Array.map (fun (l: string) ->
-    let m = tsKindRegex.Match(l)
-    match m.Success with
-    | true ->
-      { Timestamp = Some m.Groups.[1].Value
-        Kind = OutputLineKind.fromString m.Groups.[2].Value
-        Text = m.Groups.[3].Value }
-    | false ->
-      let m2 = kindOnlyRegex.Match(l)
-      match m2.Success with
-      | true ->
-        { Timestamp = None
-          Kind = OutputLineKind.fromString m2.Groups.[1].Value
-          Text = m2.Groups.[2].Value }
-      | false ->
-        { Timestamp = None; Kind = ResultLine; Text = l })
-  |> Array.toList
-
-let parseDiagLines (content: string) : Diagnostic list =
-  let diagRegex = Regex(@"^\[(\w+)\]\s*\((\d+),(\d+)\)\s*(.*)")
-  content.Split('\n')
-  |> Array.filter (fun (l: string) -> l.Length > 0)
-  |> Array.map (fun (l: string) ->
-    let m = diagRegex.Match(l)
-    match m.Success with
-    | true ->
-      { Severity = DiagSeverity.fromString m.Groups.[1].Value
-        Message = m.Groups.[4].Value
-        Line = int m.Groups.[2].Value
-        Col = int m.Groups.[3].Value }
-    | false ->
-      { Severity = match l.Contains("[error]") with | true -> DiagError | false -> DiagWarning
-        Message = l
-        Line = 0
-        Col = 0 })
-  |> Array.toList
 
 
 
-/// Override parsed session statuses with live SessionState data.
-/// The TUI text may be stale — live state is the source of truth.
-let overrideSessionStatuses
-  (getState: string -> SessionState)
-  (getStatusMsg: string -> string option)
-  (sessions: ParsedSession list) : ParsedSession list =
-  sessions
-  |> List.map (fun (s: ParsedSession) ->
-    let liveStatus =
-      match getState s.Id with
-      | SessionState.Ready -> "running"
-      | SessionState.Evaluating -> "running"
-      | SessionState.WarmingUp -> "starting"
-      | SessionState.Faulted -> "faulted"
-      | SessionState.Uninitialized -> "stopped"
-    { s with Status = liveStatus; StatusMessage = getStatusMsg s.Id })
-
-/// Complete snapshot of all dashboard state needed for a single full-page render.
-/// Constructed once per push, then passed to renderMainContent for atomic morph.
-type DashboardSnapshot = {
-  Version: string
-  SessionState: string
-  SessionId: string
-  WorkingDir: string
-  WarmupProgress: string
-  EvalStats: EvalStatsView
-  ThemeName: string
-  ConnectionLabel: string option
-  HotReloadPanel: XmlNode
-  SessionContextPanel: XmlNode
-  TestTracePanel: XmlNode
-  OutputPanel: XmlNode
-  SessionsPanel: XmlNode
-  SessionPicker: XmlNode
-  ThemePicker: XmlNode
-  ThemeVars: XmlNode
-}
 
 /// Render the full dynamic content of the dashboard as a single <div id="main">.
 /// This is the ONLY thing pushed via SSE on every state change.
@@ -1657,7 +1384,7 @@ let createStreamHandler
       let hrTask = q.GetHotReloadState currentSessionId
       let wCtxTask = q.GetWarmupContext currentSessionId
       do! System.Threading.Tasks.Task.WhenAll(statsTask, hrTask, wCtxTask)
-      let stats = statsTask.Result
+      let stats : SageFs.Affordances.EvalStats = statsTask.Result
       let hrState = hrTask.Result
       let wCtx = wCtxTask.Result
       // Push sessionId signal so eval form can include it
@@ -2259,7 +1986,7 @@ let createApiStateHandler
       let activeSid = q.GetActiveSessionId ()
       let activeDir = q.GetSessionWorkingDir activeSid
       let state = q.GetSessionState activeSid
-      let! stats = q.GetEvalStats activeSid
+      let! (stats : SageFs.Affordances.EvalStats) = q.GetEvalStats activeSid
       let regions =
         match q.GetElmRegions () with
         | Some r ->
@@ -2330,79 +2057,6 @@ let createApiStateHandler
       infra.ConnectionTracker |> Option.iter (fun t -> t.Unregister(clientId))
   }
 
-/// Parse an editor action string + optional value into an EditorAction DU case.
-let parseEditorAction (actionName: string) (value: string option) : EditorAction option =
-  match actionName with
-  | "insertChar" ->
-    value |> Option.bind (fun s -> if s.Length > 0 then Some (EditorAction.InsertChar s.[0]) else None)
-  | "newLine" -> Some EditorAction.NewLine
-  | "submit" -> Some EditorAction.Submit
-  | "cancel" -> Some EditorAction.Cancel
-  | "deleteBackward" -> Some EditorAction.DeleteBackward
-  | "deleteForward" -> Some EditorAction.DeleteForward
-  | "deleteWord" -> Some EditorAction.DeleteWord
-  | "moveUp" -> Some (EditorAction.MoveCursor Direction.Up)
-  | "moveDown" -> Some (EditorAction.MoveCursor Direction.Down)
-  | "moveLeft" -> Some (EditorAction.MoveCursor Direction.Left)
-  | "moveRight" -> Some (EditorAction.MoveCursor Direction.Right)
-  | "setCursorPosition" ->
-    value |> Option.bind (fun v ->
-      let parts = (v : string).Split(',')
-      match parts.Length = 2 with
-      | false -> None
-      | true ->
-        match Int32.TryParse(parts.[0] : string), Int32.TryParse(parts.[1] : string) with
-        | (true, line), (true, col) -> Some (EditorAction.SetCursorPosition (line, col))
-        | _ -> None)
-  | "moveWordForward" -> Some EditorAction.MoveWordForward
-  | "moveWordBackward" -> Some EditorAction.MoveWordBackward
-  | "moveToLineStart" -> Some EditorAction.MoveToLineStart
-  | "moveToLineEnd" -> Some EditorAction.MoveToLineEnd
-  | "undo" -> Some EditorAction.Undo
-  | "selectAll" -> Some EditorAction.SelectAll
-  | "triggerCompletion" -> Some EditorAction.TriggerCompletion
-  | "dismissCompletion" -> Some EditorAction.DismissCompletion
-  | "historyPrevious" -> Some EditorAction.HistoryPrevious
-  | "historyNext" -> Some EditorAction.HistoryNext
-  | "acceptCompletion" -> Some EditorAction.AcceptCompletion
-  | "nextCompletion" -> Some EditorAction.NextCompletion
-  | "previousCompletion" -> Some EditorAction.PreviousCompletion
-  | "selectWord" -> Some EditorAction.SelectWord
-  | "deleteToEndOfLine" -> Some EditorAction.DeleteToEndOfLine
-  | "redo" -> Some EditorAction.Redo
-  | "toggleSessionPanel" -> Some EditorAction.ToggleSessionPanel
-  | "listSessions" -> Some EditorAction.ListSessions
-  | "switchSession" -> value |> Option.map EditorAction.SwitchSession
-  | "createSession" -> value |> Option.map (fun v -> EditorAction.CreateSession [v])
-  | "stopSession" -> value |> Option.map EditorAction.StopSession
-  | "historySearch" -> value |> Option.map EditorAction.HistorySearch
-  | "resetSession" -> Some EditorAction.ResetSession
-  | "hardResetSession" -> Some EditorAction.HardResetSession
-  | "sessionNavUp" -> Some EditorAction.SessionNavUp
-  | "sessionNavDown" -> Some EditorAction.SessionNavDown
-  | "sessionSelect" -> Some EditorAction.SessionSelect
-  | "sessionDelete" -> Some EditorAction.SessionDelete
-  | "sessionStopOthers" -> Some EditorAction.SessionStopOthers
-  | "clearOutput" -> Some EditorAction.ClearOutput
-  | "sessionSetIndex" ->
-    value |> Option.bind (fun s -> match Int32.TryParse(s) with true, i -> Some (EditorAction.SessionSetIndex i) | _ -> None)
-  | "sessionCycleNext" -> Some EditorAction.SessionCycleNext
-  | "sessionCyclePrev" -> Some EditorAction.SessionCyclePrev
-  | "promptChar" ->
-    value |> Option.bind (fun s -> if s.Length > 0 then Some (EditorAction.PromptChar s.[0]) else None)
-  | "promptBackspace" -> Some EditorAction.PromptBackspace
-  | "promptConfirm" -> Some EditorAction.PromptConfirm
-  | "promptCancel" -> Some EditorAction.PromptCancel
-  | _ -> None
-
-/// Parse an app-level message, falling back to EditorAction wrapped in SageFsMsg.Editor.
-let parseAppMsg (actionName: string) (editorAction: EditorAction option) : SageFsMsg option =
-  match actionName with
-  | "enableLiveTesting" -> Some SageFsMsg.EnableLiveTesting
-  | "disableLiveTesting" -> Some SageFsMsg.DisableLiveTesting
-  | "cycleRunPolicy" -> Some SageFsMsg.CycleRunPolicy
-  | "toggleCoverage" -> Some SageFsMsg.ToggleCoverage
-  | _ -> editorAction |> Option.map SageFsMsg.Editor
 
 /// POST /api/dispatch — accept EditorAction JSON and dispatch to Elm runtime.
 let createApiDispatchHandler

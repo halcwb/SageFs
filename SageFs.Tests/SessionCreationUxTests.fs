@@ -91,17 +91,17 @@ let sessionsRenderTests = testList "Sessions panel creating indicator" [
       "  ses-abc [running] * (Test.fsproj) evals:5 up:2m dir:. last:just now\n\
        ⏳ Creating session...\n\
        ─── ↑↓ nav · Enter switch · Del stop · Ctrl+Tab cycle"
-    let parsed = SageFs.Server.Dashboard.parseSessionLines content
+    let parsed = SageFs.Server.DashboardTypes.parseSessionLines content
     parsed
     |> List.length
     |> Expect.equal "should have 1 session" 1
 
   testCase "dashboard isCreatingSession detects creating line" <| fun () ->
-    SageFs.Server.Dashboard.isCreatingSession "ses\n⏳ Creating session..."
+    SageFs.Server.DashboardTypes.isCreatingSession "ses\n⏳ Creating session..."
     |> Expect.isTrue "should detect creating"
 
   testCase "dashboard isCreatingSession returns false without it" <| fun () ->
-    SageFs.Server.Dashboard.isCreatingSession "ses\nother"
+    SageFs.Server.DashboardTypes.isCreatingSession "ses\nother"
     |> Expect.isFalse "should not detect creating"
 ]
 

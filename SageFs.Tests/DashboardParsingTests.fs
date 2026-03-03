@@ -2,6 +2,7 @@ module SageFs.Tests.DashboardParsingTests
 
 open Expecto
 open SageFs
+open SageFs.Server.DashboardTypes
 open System.Text.RegularExpressions
 
 /// Dashboard output/diagnostics parsers — mirrors Dashboard.fs logic.
@@ -204,6 +205,7 @@ let tests = testList "Dashboard parsing" [
 module SessionStateOverride =
   open SageFs
   open SageFs.Server.Dashboard
+  open SageFs.Server.DashboardTypes
 
   let mkSession id status =
     { ParsedSession.Id = id
@@ -215,11 +217,12 @@ module SessionStateOverride =
       EvalCount = 0
       Uptime = ""
       WorkingDir = ""
-      LastActivity = "" }
+      LastActivity = ""
+      StandbyLabel = "" }
 
 [<Tests>]
 let stateOverrideTests =
-  let open' getState = SageFs.Server.Dashboard.overrideSessionStatuses getState (fun _ -> None)
+  let open' getState = SageFs.Server.DashboardTypes.overrideSessionStatuses getState (fun _ -> None)
   let mk = SessionStateOverride.mkSession
   testList "Session state override" [
     testCase "Ready maps to running" (fun () ->
@@ -257,27 +260,27 @@ let ghostSessionTests =
   testList "Ghost session filtering (Bug #2)" [
     testCase "filters TUI keyboard shortcut lines" (fun () ->
       let input = "  session-abc [running] *\n↑↓ nav · Enter switch"
-      let sessions = SageFs.Server.Dashboard.parseSessionLines input
+      let sessions = SageFs.Server.DashboardTypes.parseSessionLines input
       Expect.equal sessions.Length 1 "only real session, no ghost from shortcuts")
 
     testCase "filters box-drawing border lines" (fun () ->
       let input = "  session-abc [running] *\n──────────"
-      let sessions = SageFs.Server.Dashboard.parseSessionLines input
+      let sessions = SageFs.Server.DashboardTypes.parseSessionLines input
       Expect.equal sessions.Length 1 "border lines filtered")
 
     testCase "filters spinner lines" (fun () ->
       let input = "  session-abc [running] *\n⏳ Loading..."
-      let sessions = SageFs.Server.Dashboard.parseSessionLines input
+      let sessions = SageFs.Server.DashboardTypes.parseSessionLines input
       Expect.equal sessions.Length 1 "spinner lines filtered")
 
     testCase "filters Ctrl+Tab cycle lines" (fun () ->
       let input = "  session-abc [running] *\nCtrl+Tab cycle sessions"
-      let sessions = SageFs.Server.Dashboard.parseSessionLines input
+      let sessions = SageFs.Server.DashboardTypes.parseSessionLines input
       Expect.equal sessions.Length 1 "Ctrl+Tab line filtered")
 
     testCase "preserves all valid sessions" (fun () ->
       let input = "  session-abc [running] *\n  session-def [starting]"
-      let sessions = SageFs.Server.Dashboard.parseSessionLines input
+      let sessions = SageFs.Server.DashboardTypes.parseSessionLines input
       Expect.equal sessions.Length 2 "both valid sessions kept")
   ]
 
@@ -416,8 +419,8 @@ let connectionCountTests =
 
 [<Tests>]
 let stoppedSessionFilterTests =
-  let parse = SageFs.Server.Dashboard.parseSessionLines
-  let override' getState = SageFs.Server.Dashboard.overrideSessionStatuses getState (fun _ -> None)
+  let parse = SageFs.Server.DashboardTypes.parseSessionLines
+  let override' getState = SageFs.Server.DashboardTypes.overrideSessionStatuses getState (fun _ -> None)
   testList "Stopped session filtering" [
     testCase "stopped sessions are filtered from rendered list" (fun () ->
       // Simulate: two sessions parsed from TUI, one has live state Uninitialized (= stopped)
@@ -454,63 +457,63 @@ let stoppedSessionFilterTests =
 let dashboardActualParsingTests = testList "Dashboard actual parsing" [
   testList "parseOutputLines" [
     testCase "timestamp + kind line" (fun () ->
-      let result = SageFs.Server.Dashboard.parseOutputLines "[12:34:56] [result] val x = 42"
+      let result = SageFs.Server.DashboardTypes.parseOutputLines "[12:34:56] [result] val x = 42"
       Expect.equal result.Length 1 "one line"
       Expect.equal result.[0].Timestamp (Some "12:34:56") "timestamp"
-      Expect.equal result.[0].Kind SageFs.Server.Dashboard.ResultLine "kind"
+      Expect.equal result.[0].Kind ResultLine "kind"
       Expect.equal result.[0].Text "val x = 42" "text")
     testCase "kind-only line" (fun () ->
-      let result = SageFs.Server.Dashboard.parseOutputLines "[error] Something went wrong"
+      let result = SageFs.Server.DashboardTypes.parseOutputLines "[error] Something went wrong"
       Expect.equal result.[0].Timestamp None "no timestamp"
-      Expect.equal result.[0].Kind SageFs.Server.Dashboard.ErrorLine "kind"
+      Expect.equal result.[0].Kind ErrorLine "kind"
       Expect.equal result.[0].Text "Something went wrong" "text")
     testCase "plain text falls back to ResultLine" (fun () ->
-      let result = SageFs.Server.Dashboard.parseOutputLines "just some output"
-      Expect.equal result.[0].Kind SageFs.Server.Dashboard.ResultLine "fallback kind")
+      let result = SageFs.Server.DashboardTypes.parseOutputLines "just some output"
+      Expect.equal result.[0].Kind ResultLine "fallback kind")
     testCase "empty input returns empty list" (fun () ->
-      let result = SageFs.Server.Dashboard.parseOutputLines ""
+      let result = SageFs.Server.DashboardTypes.parseOutputLines ""
       Expect.isEmpty result "empty input")
     testCase "multiple lines parsed" (fun () ->
       let input = "[12:00:00] [result] line1\n[error] line2\nplain line3"
-      let result = SageFs.Server.Dashboard.parseOutputLines input
+      let result = SageFs.Server.DashboardTypes.parseOutputLines input
       Expect.equal result.Length 3 "three lines"
-      Expect.equal result.[0].Kind SageFs.Server.Dashboard.ResultLine "first"
-      Expect.equal result.[1].Kind SageFs.Server.Dashboard.ErrorLine "second"
-      Expect.equal result.[2].Kind SageFs.Server.Dashboard.ResultLine "third")
+      Expect.equal result.[0].Kind ResultLine "first"
+      Expect.equal result.[1].Kind ErrorLine "second"
+      Expect.equal result.[2].Kind ResultLine "third")
     testCase "info line kind" (fun () ->
-      let result = SageFs.Server.Dashboard.parseOutputLines "[info] Loading..."
-      Expect.equal result.[0].Kind SageFs.Server.Dashboard.InfoLine "info")
+      let result = SageFs.Server.DashboardTypes.parseOutputLines "[info] Loading..."
+      Expect.equal result.[0].Kind InfoLine "info")
     testCase "system line kind" (fun () ->
-      let result = SageFs.Server.Dashboard.parseOutputLines "[system] Startup"
-      Expect.equal result.[0].Kind SageFs.Server.Dashboard.SystemLine "system")
+      let result = SageFs.Server.DashboardTypes.parseOutputLines "[system] Startup"
+      Expect.equal result.[0].Kind SystemLine "system")
   ]
 
   testList "parseDiagLines" [
     testCase "standard diagnostic format" (fun () ->
-      let result = SageFs.Server.Dashboard.parseDiagLines "[error] (10,5) Something is wrong"
+      let result = SageFs.Server.DashboardTypes.parseDiagLines "[error] (10,5) Something is wrong"
       Expect.equal result.Length 1 "one diag"
-      Expect.equal result.[0].Severity SageFs.Server.Dashboard.DiagError "error"
+      Expect.equal result.[0].Severity DiagError "error"
       Expect.equal result.[0].Line 10 "line"
       Expect.equal result.[0].Col 5 "col"
       Expect.equal result.[0].Message "Something is wrong" "msg")
     testCase "warning diagnostic" (fun () ->
-      let result = SageFs.Server.Dashboard.parseDiagLines "[warning] (3,1) Unused variable"
-      Expect.equal result.[0].Severity SageFs.Server.Dashboard.DiagWarning "warning")
+      let result = SageFs.Server.DashboardTypes.parseDiagLines "[warning] (3,1) Unused variable"
+      Expect.equal result.[0].Severity DiagWarning "warning")
     testCase "unstructured line with [error] falls back to DiagError" (fun () ->
-      let result = SageFs.Server.Dashboard.parseDiagLines "Some text with [error] in it"
-      Expect.equal result.[0].Severity SageFs.Server.Dashboard.DiagError "error fallback"
+      let result = SageFs.Server.DashboardTypes.parseDiagLines "Some text with [error] in it"
+      Expect.equal result.[0].Severity DiagError "error fallback"
       Expect.equal result.[0].Line 0 "line 0")
     testCase "unstructured line without error falls back to DiagWarning" (fun () ->
-      let result = SageFs.Server.Dashboard.parseDiagLines "Some random diagnostic text"
-      Expect.equal result.[0].Severity SageFs.Server.Dashboard.DiagWarning "warning fallback")
+      let result = SageFs.Server.DashboardTypes.parseDiagLines "Some random diagnostic text"
+      Expect.equal result.[0].Severity DiagWarning "warning fallback")
     testCase "empty input returns empty list" (fun () ->
-      let result = SageFs.Server.Dashboard.parseDiagLines ""
+      let result = SageFs.Server.DashboardTypes.parseDiagLines ""
       Expect.isEmpty result "empty")
     testCase "multiple diagnostics" (fun () ->
-      let result = SageFs.Server.Dashboard.parseDiagLines "[error] (1,1) first\n[warning] (2,2) second"
+      let result = SageFs.Server.DashboardTypes.parseDiagLines "[error] (1,1) first\n[warning] (2,2) second"
       Expect.equal result.Length 2 "two diags"
-      Expect.equal result.[0].Severity SageFs.Server.Dashboard.DiagError "first error"
-      Expect.equal result.[1].Severity SageFs.Server.Dashboard.DiagWarning "second warning")
+      Expect.equal result.[0].Severity DiagError "first error"
+      Expect.equal result.[1].Severity DiagWarning "second warning")
   ]
 ]
 

@@ -6,6 +6,7 @@ open Expecto
 open Expecto.Flip
 open SageFs
 open SageFs.Server.Dashboard
+open SageFs.Server.DashboardTypes
 
 /// Helper: write text to a file with explicit types.
 let writeText (path: string) (content: string) =

@@ -5,6 +5,7 @@ open System.Threading
 open SageFs
 open SageFs.Utils
 open SageFs.Server
+open SageFs.Server.DashboardTypes
 open Falco
 open Falco.Routing
 open Microsoft.AspNetCore.Http
@@ -863,7 +864,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
 
   let sessionThemes = Dashboard.loadThemes DaemonState.SageFsDir
 
-  let dashboardQueries : Dashboard.DashboardQueries = {
+  let dashboardQueries : DashboardQueries = {
     GetSessionState = getSessionState
     GetStatusMsg = getStatusMsg
     GetEvalStats = getEvalStatsAsync
@@ -878,10 +879,10 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       let activeSessions =
         SessionManager.QuerySnapshot.allSessions snapshot
         |> List.map (fun (info: WorkerProtocol.SessionInfo) ->
-          { Dashboard.PreviousSession.Id = info.Id
-            Dashboard.PreviousSession.WorkingDir = info.WorkingDirectory
-            Dashboard.PreviousSession.Projects = info.Projects
-            Dashboard.PreviousSession.LastSeen = info.LastActivity })
+          { PreviousSession.Id = info.Id
+            PreviousSession.WorkingDir = info.WorkingDirectory
+            PreviousSession.Projects = info.Projects
+            PreviousSession.LastSeen = info.LastActivity })
       let activeIds = activeSessions |> List.map (fun s -> s.Id) |> Set.ofList
       // Historical sessions from Marten (stopped ones not currently active)
       let! historicalSessions = task {
@@ -893,10 +894,10 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
             |> Map.values
             |> Seq.filter (fun r -> r.StoppedAt.IsSome && not (activeIds.Contains r.SessionId))
             |> Seq.map (fun r ->
-              { Dashboard.PreviousSession.Id = r.SessionId
-                Dashboard.PreviousSession.WorkingDir = r.WorkingDir
-                Dashboard.PreviousSession.Projects = r.Projects
-                Dashboard.PreviousSession.LastSeen = r.StoppedAt |> Option.map (fun t -> t.DateTime) |> Option.defaultValue r.CreatedAt.DateTime })
+              { PreviousSession.Id = r.SessionId
+                PreviousSession.WorkingDir = r.WorkingDir
+                PreviousSession.Projects = r.Projects
+                PreviousSession.LastSeen = r.StoppedAt |> Option.map (fun t -> t.DateTime) |> Option.defaultValue r.CreatedAt.DateTime })
             |> Seq.toList
         with
         | :? Marten.Exceptions.MartenException as ex ->
@@ -910,6 +911,8 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
     }
     GetAllSessions = getAllSessions
     GetStandbyInfo = sessionOps.GetStandbyInfo
+    GetSessionStandbyInfo = fun sessionId ->
+      (readSnapshot()).PerSessionStandby |> Map.tryFind sessionId |> Option.defaultValue StandbyInfo.NoPool
     GetHotReloadState = fun sessionId ->
       fetchWorkerEndpoint sessionId "/hotreload" dashboardFetchTimeoutSec (fun resp ->
         use doc = Text.Json.JsonDocument.Parse(resp)
@@ -952,7 +955,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       SageFs.Features.LiveTesting.LiveTestCycleState.liveTestingStatusBarForSession activeId model.LiveTesting
   }
 
-  let dashboardActions : Dashboard.DashboardActions = {
+  let dashboardActions : DashboardActions = {
     EvalCode = fun sid code -> task {
       let! result = proxyToSession sessionOps.GetProxy sid (WorkerProtocol.WorkerMessage.EvalCode(code, "dash"))
       return
@@ -1011,7 +1014,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
     ShutdownCallback = Some (fun () -> cts.Cancel())
   }
 
-  let dashboardInfra : Dashboard.DashboardInfra = {
+  let dashboardInfra : DashboardInfra = {
     Version = version
     StateChanged = Some stateChangedEvent.Publish
     ConnectionTracker = Some connectionTracker
