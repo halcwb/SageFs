@@ -1719,29 +1719,31 @@ let createStreamHandler
 
       match infra.StateChanged with
       | Some evt ->
-        // Event-driven: push on every state change
         let tcs = Threading.Tasks.TaskCompletionSource()
         use _ct = ctx.RequestAborted.Register(fun () -> tcs.TrySetResult() |> ignore)
-        // Throttle: coalesce rapid state changes into at most one push per 100ms.
-        // Without this, rapid evals flood the SSE stream and freeze the browser.
-        let mutable dirty = 0
-        let pushThrottled () = task {
-          match Threading.Interlocked.Exchange(&dirty, 1) = 0 with
-          | true ->
-            do! Threading.Tasks.Task.Delay(100)
-            Threading.Interlocked.Exchange(&dirty, 0) |> ignore
+        // Serialize SSE writes via MailboxProcessor — no locks, no mutable state.
+        // Coalesces rapid state changes: drain queued, throttle 100ms, drain again, push once.
+        let pushAgent = MailboxProcessor.Start((fun inbox ->
+          let rec loop () = async {
+            do! inbox.Receive()
+            while inbox.CurrentQueueLength > 0 do
+              do! inbox.Receive()
+            do! Async.Sleep 100
+            while inbox.CurrentQueueLength > 0 do
+              do! inbox.Receive()
             try
-              do! pushState ()
+              do! pushState () |> Async.AwaitTask
             with
             | :? System.IO.IOException -> ()
-            | :? System.ObjectDisposedException -> ()
+            | :? ObjectDisposedException -> ()
             | :? OperationCanceledException -> ()
             | ex -> Log.error "[Dashboard SSE] pushState failed: %s" ex.Message
-          | false -> ()
-        }
+            return! loop ()
+          }
+          loop ()), ctx.RequestAborted)
         use _sub = evt.Subscribe(fun _ ->
-          Threading.Tasks.Task.Run(fun () -> pushThrottled () :> Threading.Tasks.Task)
-          |> ignore)
+          try pushAgent.Post(())
+          with :? ObjectDisposedException -> ())
         do! tcs.Task
       | None ->
         // Fallback: poll every second
