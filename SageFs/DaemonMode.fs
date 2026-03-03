@@ -531,6 +531,36 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       elmRuntime.Dispatch(SageFsMsg.TestCycleTick DateTimeOffset.UtcNow)),
     null, 200, 200)
 
+  // Periodic test cache save — crash recovery for test results.
+  // Fires every 60s, only writes when RunGeneration has advanced since last save.
+  let mutable lastSavedGeneration = 0
+  let cacheSaveTimer = new System.Threading.Timer(
+    System.Threading.TimerCallback(fun _ ->
+      try
+        let model = elmRuntime.GetModel()
+        let (Features.LiveTesting.RunGeneration gen) = model.LiveTesting.TestState.LastGeneration
+        match gen > lastSavedGeneration with
+        | true ->
+          let sw = System.Diagnostics.Stopwatch.StartNew()
+          let activeSessions = SessionManager.QuerySnapshot.allSessions (readSnapshot())
+          let uniqueProjectSets =
+            activeSessions
+            |> List.map (fun s -> s.Projects)
+            |> List.distinctBy (fun ps ->
+              ps |> List.sort |> List.map (fun p -> p.Replace("\\", "/").ToLowerInvariant()) |> String.concat "|")
+          for projects in uniqueProjectSets do
+            match Features.DaemonPersistence.saveTestCache DaemonState.SageFsDir projects model.LiveTesting.TestState with
+            | Ok path -> log.LogDebug("Periodic cache save to {Path} (gen {Gen})", path, gen)
+            | Error err -> log.LogWarning("Periodic cache save failed: {Error}", err)
+          sw.Stop()
+          Instrumentation.cacheSaveCount.Add(1L)
+          Instrumentation.cacheSaveMs.Record(sw.Elapsed.TotalMilliseconds)
+          lastSavedGeneration <- gen
+        | false -> ()
+      with ex ->
+        log.LogWarning("Periodic cache save error: {Error}", ex.Message)),
+    null, 60_000, 60_000)
+
   // Live testing file watcher — monitors *.fs and *.fsx changes, dispatches FileContentChanged.
   // Uses timer-based debounce with per-path deduplication (same pattern as FileWatcher.start).
   // File content is read in the debounced callback, NOT in the raw FSW handler.
@@ -1008,6 +1038,8 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       log.LogInformation("Restored cached test state ({CoverageCount} coverage, {ResultCount} results) in <100ms",
         cachedState.TestCoverageBitmaps.Count, cachedState.LastResults.Count)
       elmRuntime.Dispatch(SageFsMsg.RestoreTestCache cachedState)
+      let (Features.LiveTesting.RunGeneration gen) = cachedState.LastGeneration
+      lastSavedGeneration <- gen
     | Error msg -> log.LogDebug("No pre-warmup test cache: {Reason}", msg)
 
   // Resume sessions in background — don't block the daemon main task.
@@ -1036,6 +1068,10 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
                 log.LogInformation("Restored test cache ({CoverageCount} coverage, {ResultCount} results)",
                   cachedState.TestCoverageBitmaps.Count, cachedState.LastResults.Count)
                 elmRuntime.Dispatch(SageFsMsg.RestoreTestCache cachedState)
+                let (Features.LiveTesting.RunGeneration gen) = cachedState.LastGeneration
+                match gen > lastSavedGeneration with
+                | true -> lastSavedGeneration <- gen
+                | false -> ()
               | Error msg -> log.LogDebug("No test cache available: {Reason}", msg)
           with ex ->
             log.LogWarning("Session resume failed: {Error}", ex.Message)
@@ -1063,6 +1099,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
 
   // Graceful shutdown: stop test cycle timer, file watcher, and all sessions
   testCycleTimer.Dispose()
+  cacheSaveTimer.Dispose()
   liveTestDebounceTimer.Dispose()
   liveTestWatcher.EnableRaisingEvents <- false
   liveTestWatcher.Dispose()

@@ -153,6 +153,12 @@ module Instrumentation =
   let devReloadConnectedClients =
     mcpMeter.CreateUpDownCounter<int64>("sagefs.devreload.connected_clients", description = "Currently connected SSE reload clients")
 
+  // Binary cache persistence
+  let cacheSaveCount =
+    sessionMeter.CreateCounter<int64>("sagefs.cache.periodic_saves_total", description = "Total periodic test cache saves")
+  let cacheSaveMs =
+    sessionMeter.CreateHistogram<float>("sagefs.cache.save_ms", "ms", "Periodic test cache save duration")
+
   /// SSE/long-lived paths to suppress in ASP.NET Core HTTP span instrumentation.
   let sseFilterPaths =
     [ "/events"; "/diagnostics"; "/__sagefs__/reload"; "/sse"; "/dashboard/stream"; "/health" ]
