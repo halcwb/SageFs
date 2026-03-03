@@ -43,7 +43,12 @@ jobs:
 
     - name: Build shared library
       working-directory: ts-fsharp
-      run: make
+      run: |
+        # Makefile globs grammars/*/src/*.c but repo uses fsharp/src/ — compile directly
+        SOURCES=$(find fsharp/src fsharp_signature/src -name '*.c')
+        echo "Compiling: $SOURCES"
+        cc -shared -fPIC -o ${{ matrix.lib }} $SOURCES -Ifsharp/src -Ifsharp_signature/src
+        ls -la ${{ matrix.lib }}
 
     - name: Copy to runtimes
       run: |
