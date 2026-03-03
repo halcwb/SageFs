@@ -89,7 +89,6 @@ type CliCommand =
   | Stop
   | Status
   | Worker of workerArgs: string list
-  | Connect of remainingArgs: string array
   | Tui of remainingArgs: string array
   | Gui of remainingArgs: string array
   | Daemon of args: string array
@@ -103,10 +102,32 @@ module CliCommand =
     | _ when args.Length > 0 && args.[0] = "stop" -> Stop
     | _ when args.Length > 0 && args.[0] = "status" -> Status
     | _ when args.Length > 0 && args.[0] = "worker" -> Worker (args.[1..] |> Array.toList)
-    | _ when args.Length > 0 && args.[0] = "connect" -> Connect args
     | _ when args.Length > 0 && args.[0] = "tui" -> Tui args
     | _ when args.Length > 0 && args.[0] = "gui" -> Gui args
     | _ -> Daemon args
+
+/// Start daemon in background, wait for it to be ready.
+let startDaemonInBackground (daemonArgs: string) =
+  let psi = System.Diagnostics.ProcessStartInfo()
+  psi.FileName <- "sagefs"
+  psi.Arguments <- sprintf "-d %s" daemonArgs
+  psi.UseShellExecute <- false
+  psi.CreateNoWindow <- true
+  let proc = System.Diagnostics.Process.Start(psi)
+  match isNull proc with
+  | true ->
+    Error (SageFsError.DaemonStartFailed "Failed to start daemon")
+  | false ->
+    let mutable attempts = 0
+    let mutable found = false
+    while attempts < 30 && not found do
+      System.Threading.Thread.Sleep(500)
+      match DaemonState.read () with
+      | Some _ -> found <- true
+      | None -> attempts <- attempts + 1
+    match found with
+    | true -> Ok ()
+    | false -> Error (SageFsError.DaemonStartFailed "Daemon started but did not become ready in 15s")
 
 /// Run daemon mode (default behavior).
 let runDaemon (args: string array) =
@@ -147,7 +168,6 @@ let main args =
     printfn ""
     printfn "Usage: SageFs [options]                Start daemon (default mode)"
     printfn "       SageFs --supervised [options]   Start with watchdog auto-restart"
-    printfn "       SageFs connect                  Connect to running daemon (REPL)"
     printfn "       SageFs tui                      Terminal UI client for running daemon"
     printfn "       SageFs gui                      GPU-rendered Raylib GUI client"
     printfn "       SageFs stop                     Stop running daemon"
@@ -192,7 +212,6 @@ let main args =
     printfn "  SageFs --proj MyProject.fsproj      Start daemon with project"
     printfn "  SageFs --mcp-port 47700 --proj X    Start daemon on custom port"
     printfn "  SageFs --supervised                 Start with auto-restart"
-    printfn "  SageFs connect                      Connect REPL to running daemon"
     printfn "  SageFs tui                          Terminal UI (starts daemon if needed)"
     printfn "  SageFs gui                          Raylib GUI (starts daemon if needed)"
     printfn "  SageFs status                       Show daemon status"
@@ -276,30 +295,6 @@ let main args =
     |> Async.RunSynchronously
     0
 
-  | Connect _ ->
-    match DaemonState.read () with
-    | Some info ->
-      ClientMode.run info
-      |> _.GetAwaiter() |> _.GetResult()
-    | None ->
-      printfn "No SageFs daemon running. Starting one..."
-      let daemonArgs =
-        args.[1..]
-        |> Array.filter (fun a -> a <> "connect")
-        |> String.concat " "
-      match ClientMode.startDaemonInBackground daemonArgs with
-      | Ok () ->
-        match DaemonState.read () with
-        | Some info ->
-          ClientMode.run info
-          |> _.GetAwaiter() |> _.GetResult()
-        | None ->
-          printfn "Daemon started but connection failed."
-          1
-      | Error err ->
-        printfn "Failed to start daemon: %A" err
-        1
-
   | Tui _ ->
     match DaemonState.read () with
     | Some info ->
@@ -311,7 +306,7 @@ let main args =
         args.[1..]
         |> Array.filter (fun a -> a <> "tui")
         |> String.concat " "
-      match ClientMode.startDaemonInBackground daemonArgs with
+      match startDaemonInBackground daemonArgs with
       | Ok () ->
         match DaemonState.read () with
         | Some info ->
@@ -336,7 +331,7 @@ let main args =
         args.[1..]
         |> Array.filter (fun a -> a <> "gui")
         |> String.concat " "
-      match ClientMode.startDaemonInBackground daemonArgs with
+      match startDaemonInBackground daemonArgs with
       | Ok () -> launchGui ()
       | Error err ->
         printfn "Failed to start daemon: %A" err

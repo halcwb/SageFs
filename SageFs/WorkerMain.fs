@@ -3,6 +3,7 @@ module SageFs.Server.WorkerMain
 open System
 open System.Threading
 open SageFs
+open SageFs.Utils
 open SageFs.WorkerProtocol
 open SageFs.AppState
 
@@ -72,15 +73,15 @@ let handleMessage
           | _ -> acc) Map.empty
       // Capture RunTest closure from the latest discovery
       let metaKeys = response.Metadata |> Map.toList |> List.map fst |> String.concat ", "
-      eprintfn "[WorkerMain] Metadata keys after eval: [%s]" metaKeys
+      Log.debug "[WorkerMain] Metadata keys after eval: [%s]" metaKeys
       match response.Metadata |> Map.tryFind "liveTestRunTest" with
       | Some (:? (Features.LiveTesting.TestCase -> Async<Features.LiveTesting.TestResult>) as runTest) ->
-        eprintfn "[WorkerMain] ✅ RunTest captured from eval metadata"
+        Log.debug "[WorkerMain] RunTest captured from eval metadata"
         setRunTest runTest
       | Some v ->
-        eprintfn "[WorkerMain] ⚠️ liveTestRunTest found but wrong type: %s" (v.GetType().FullName)
+        Log.warn "[WorkerMain] liveTestRunTest found but wrong type: %s" (v.GetType().FullName)
       | None ->
-        eprintfn "[WorkerMain] ❌ liveTestRunTest NOT found in metadata"
+        Log.debug "[WorkerMain] liveTestRunTest NOT found in metadata"
       return WorkerResponse.EvalResult(replyId, result |> Result.mapError SageFsError.EvalFailed, diags, metadata)
 
     | WorkerMessage.CheckCode(code, replyId) ->
@@ -164,10 +165,10 @@ let handleMessage
 let run (sessionId: string) (port: int) (args: Args.Arguments list) = async {
   let logger =
     { new Utils.ILogger with
-        member _.LogInfo msg = eprintfn "[worker] %s" msg
-        member _.LogDebug _ = ()
-        member _.LogWarning msg = eprintfn "[worker] ⚠️ %s" msg
-        member _.LogError msg = eprintfn "[worker] ❌ %s" msg }
+        member _.LogInfo msg = Log.info "%s" msg
+        member _.LogDebug msg = Log.debug "%s" msg
+        member _.LogWarning msg = Log.warn "%s" msg
+        member _.LogError msg = Log.error "%s" msg }
   let onEvent (evt: Features.Events.SageFsEvent) =
     match evt with
     | Features.Events.SageFsEvent.SessionWarmUpProgress p ->
@@ -306,13 +307,13 @@ let run (sessionId: string) (port: int) (args: Args.Arguments list) = async {
               let fileName = IO.Path.GetFileName filePath
               match List.isEmpty reloaded with
               | false ->
-                eprintfn "🔥 Hot reloaded %s: %s" fileName (String.Join(", ", reloaded))
+                Log.info "Hot reloaded %s: %s" fileName (String.Join(", ", reloaded))
               | true ->
-                eprintfn "📄 Reloaded %s" fileName
+                Log.info "Reloaded %s" fileName
             | Error ex ->
-              eprintfn "⚠️ Reload failed for %s: %s" (IO.Path.GetFileName filePath) (ex.Message)
+              Log.warn "Reload failed for %s: %s" (IO.Path.GetFileName filePath) (ex.Message)
           | FileWatcher.FileChangeAction.SoftReset ->
-            eprintfn "📦 Project file changed — soft reset needed"
+            Log.info "Project file changed — soft reset needed"
             let! _ = actor.PostAndAsyncReply(fun rc -> ResetSession rc)
             ()
           | FileWatcher.FileChangeAction.Ignore -> ()
@@ -374,7 +375,7 @@ let run (sessionId: string) (port: int) (args: Args.Arguments list) = async {
   with
   | :? OperationCanceledException -> ()
   | ex ->
-    eprintfn "Worker %s error: %s" sessionId (ex.ToString())
+    Log.error "Worker %s error: %s" sessionId (ex.ToString())
 
   // Clean up file watcher
   fileWatcher |> Option.iter (fun w -> w.Dispose())

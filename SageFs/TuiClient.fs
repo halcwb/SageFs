@@ -4,6 +4,7 @@ open System
 open System.Net.Http
 open System.Threading
 open SageFs
+open SageFs.Utils
 
 /// Convert an InputEvent (from VT parser) to a TerminalCommand via KeyMap lookup
 let mapInputEvent (keyMap: KeyMap) (ev: InputEvent) : TerminalCommand option =
@@ -31,7 +32,7 @@ let run (daemonInfo: DaemonInfo) = task {
 
   match connError with
   | Some msg ->
-    eprintfn "%s" msg
+    Log.error "%s" msg
     return 1
   | None ->
 

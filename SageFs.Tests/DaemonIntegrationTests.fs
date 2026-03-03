@@ -268,17 +268,6 @@ let daemonLifecycleTests =
         with _ -> ()
   ]
 
-// ─── ClientMode unit tests ─────────────────────────────────────────
-
-[<Tests>]
-let clientModeTests =
-  testList "ClientMode" [
-    ptestCase "tryConnect returns None when no daemon" <| fun _ ->
-      // Skipped: depends on no daemon running, fails when SageFs is active
-      ClientMode.tryConnect ()
-      |> Expect.isNone "should be None with no daemon"
-  ]
-
 // ─── SessionManager lifecycle: spawn, eval, stop ───────────────────
 
 /// Helper to clean up a session in a finally block.

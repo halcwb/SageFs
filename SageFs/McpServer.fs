@@ -20,6 +20,7 @@ open OpenTelemetry.Trace
 open Microsoft.AspNetCore.ResponseCompression
 open SageFs.AppState
 open SageFs.McpTools
+open SageFs.Utils
 
 // ---------------------------------------------------------------------------
 // MCP Push Notifications — tracks active connections and broadcasts events
@@ -185,7 +186,7 @@ type McpServerTracker() =
           with
           | :? System.IO.IOException | :? ObjectDisposedException -> dead.Add(kvp.Key)
           | ex ->
-            eprintfn "[MCP] NotifyLog error for %s: %s" kvp.Key ex.Message
+            Log.error "[MCP] NotifyLog error for %s: %s" kvp.Key ex.Message
             dead.Add(kvp.Key)
         for id in dead do servers.TryRemove(id) |> ignore
     }
@@ -722,7 +723,7 @@ let startMcpServer (cfg: McpServerConfig) =
                     | false -> ()
                   with
                   | :? System.IO.IOException | :? ObjectDisposedException -> ()
-                  | ex -> eprintfn "[SSE] Session snapshot replay error: %s" ex.Message
+                  | ex -> Log.error "[SSE] Session snapshot replay error: %s" ex.Message
                 }
               | _ -> task { () }
 
@@ -768,7 +769,7 @@ let startMcpServer (cfg: McpServerConfig) =
                       | false -> ()
                   | false -> ()
                 with ex ->
-                  eprintfn "SSE replay error: %s" ex.Message
+                  Log.error "[SSE] replay error: %s" ex.Message
               })
 
             // Detect hotreload mutations and push typed session events
@@ -796,11 +797,11 @@ let startMcpServer (cfg: McpServerConfig) =
                       | false -> ()
                     with
                     | :? System.IO.IOException -> ()
-                    | ex -> eprintfn "[SSE] HotReload push error: %s" ex.Message
+                    | ex -> Log.error "[SSE] HotReload push error: %s" ex.Message
                   }
                   |> fun t -> t.ContinueWith(fun (t: Threading.Tasks.Task) ->
                     match t.IsFaulted with
-                    | true -> eprintfn "[SSE] HotReload push fault: %s" t.Exception.InnerException.Message
+                    | true -> Log.error "[SSE] HotReload push fault: %s" t.Exception.InnerException.Message
                     | false -> ())
                   |> ignore
                 | DaemonStateChange.SessionReady sid ->
@@ -826,11 +827,11 @@ let startMcpServer (cfg: McpServerConfig) =
                       | false -> ()
                     with
                     | :? System.IO.IOException -> ()
-                    | ex -> eprintfn "[SSE] SessionReady push error: %s" ex.Message
+                    | ex -> Log.error "[SSE] SessionReady push error: %s" ex.Message
                   }
                   |> fun t -> t.ContinueWith(fun (t: Threading.Tasks.Task) ->
                     match t.IsFaulted with
-                    | true -> eprintfn "[SSE] SessionReady push fault: %s" t.Exception.InnerException.Message
+                    | true -> Log.error "[SSE] SessionReady push fault: %s" t.Exception.InnerException.Message
                     | false -> ())
                   |> ignore
                 | _ -> ()) |> ignore
@@ -992,12 +993,12 @@ let startMcpServer (cfg: McpServerConfig) =
                             | _ -> return 0, 0.0, "Unknown"
                           with
                           | :? System.Net.Http.HttpRequestException as ex ->
-                            eprintfn "[MCP] Session status HTTP error for %s: %s" sess.Id ex.Message
+                            Log.error "[MCP] Session status HTTP error for %s: %s" sess.Id ex.Message
                             return 0, 0.0, "Error"
                           | :? System.Threading.Tasks.TaskCanceledException ->
                             return 0, 0.0, "Timeout"
                           | ex ->
-                            eprintfn "[MCP] Session status unexpected error for %s: %s (%s)" sess.Id ex.Message (ex.GetType().Name)
+                            Log.error "[MCP] Session status unexpected error for %s: %s (%s)" sess.Id ex.Message (ex.GetType().Name)
                             return 0, 0.0, "Error"
                         | None -> return 0, 0.0, "Disconnected"
                       }
@@ -1368,10 +1369,10 @@ let startMcpServer (cfg: McpServerConfig) =
                                       Running = summary.Running; Stale = summary.Stale |} |}, sseJsonOpts)
                   with
                   | :? System.Text.Json.JsonException as ex ->
-                    eprintfn "[MCP] Test trace serialization error: %s" ex.Message
+                    Log.error "[MCP] Test trace serialization error: %s" ex.Message
                     ""
                   | ex ->
-                    eprintfn "[MCP] Test trace unexpected error: %s (%s)" ex.Message (ex.GetType().Name)
+                    Log.error "[MCP] Test trace unexpected error: %s (%s)" ex.Message (ex.GetType().Name)
                     ""
                 match traceJson.Length > 0 && traceJson <> lastTestTraceJson with
                 | true ->
@@ -1504,7 +1505,7 @@ let startMcpServer (cfg: McpServerConfig) =
                       | false -> ()
                     with
                     | :? System.IO.IOException | :? ObjectDisposedException -> ()
-                    | ex -> eprintfn "[MCP] State change handler error: %s" ex.Message
+                    | ex -> Log.error "[MCP] State change handler error: %s" ex.Message
                   | _ -> ()))
 
             // Get logger from DI for structured logging (flows to OTEL)
@@ -1531,5 +1532,5 @@ let startMcpServer (cfg: McpServerConfig) =
             
             do! app.RunAsync()
         with ex ->
-            eprintfn "MCP server failed to start: %s" ex.Message
+            Log.error "MCP server failed to start: %s" ex.Message
     }

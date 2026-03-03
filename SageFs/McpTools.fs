@@ -6,6 +6,7 @@ open ModelContextProtocol.Server
 open Microsoft.Extensions.Logging
 open SageFs.AppState
 open SageFs.McpTools
+open SageFs.Utils
 
 /// Emoji per tool category — printed once as a header, not per-line
 /// Echo MCP tool results to the SageFs console for visibility
@@ -18,8 +19,8 @@ let withEcho (toolName: string) (t: Task<string>) : Task<string> =
       let! result = t
       SageFs.Instrumentation.mcpToolSuccesses.Add(1L, System.Collections.Generic.KeyValuePair("mcp.tool.name", box toolName))
       let normalized = result.Replace("\r\n", "\n").Replace("\n", "\r\n")
-      eprintfn "\u001b[90m>> %s\u001b[0m" toolName
-      eprintfn "\u001b[90m%s\u001b[0m" normalized
+      Log.info ">> %s" toolName
+      Log.debug "%s" normalized
       SageFs.Instrumentation.succeedSpan span
       return result
     with ex ->

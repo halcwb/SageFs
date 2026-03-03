@@ -14,9 +14,11 @@ open Microsoft.AspNetCore.Hosting.Server.Features
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.AspNetCore.ResponseCompression
 open Microsoft.Extensions.Logging
+open OpenTelemetry.Logs
 open OpenTelemetry.Metrics
 open OpenTelemetry.Resources
 open OpenTelemetry.Trace
+open SageFs.Utils
 open SageFs.WorkerProtocol
 
 module WorkerHttpTransport =
@@ -66,6 +68,10 @@ module WorkerHttpTransport =
       let builder = WebApplication.CreateBuilder([||])
       builder.WebHost.UseUrls(sprintf "http://127.0.0.1:%d" port) |> ignore
       builder.Logging.ClearProviders() |> ignore
+      // Silence ASP.NET plumbing but allow SageFs logs
+      builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning) |> ignore
+      builder.Logging.AddFilter("Microsoft.Hosting", LogLevel.Warning) |> ignore
+      builder.Logging.AddFilter("SageFs", LogLevel.Information) |> ignore
 
       // Response compression: Brotli at fastest level for all responses
       builder.Services.AddResponseCompression(fun opts ->
@@ -82,6 +88,10 @@ module WorkerHttpTransport =
         Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT")
         |> Option.ofObj
         |> Option.filter (fun s -> not (String.IsNullOrEmpty s))
+      let otelConfigured =
+        match otelEndpoint with
+        | Some _ -> true
+        | None -> false
       match otelEndpoint with
       | Some _ ->
         let svcName =
@@ -112,7 +122,24 @@ module WorkerHttpTransport =
         |> ignore
       | None -> ()
 
+      // Wire ILogger → OTEL structured logs for worker process
+      match otelConfigured with
+      | true ->
+        builder.Logging.AddOpenTelemetry(fun otel ->
+          otel.IncludeFormattedMessage <- true
+          otel.IncludeScopes <- true
+          otel.AddOtlpExporter() |> ignore
+        ) |> ignore
+      | false -> ()
+
       let app = builder.Build()
+
+      // Wire SageFs.Core Log module to OTEL-connected ILogger in worker process
+      let workerLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("SageFs.Worker")
+      SageFs.Utils.Log.logInfo <- fun msg -> workerLogger.LogInformation(msg)
+      SageFs.Utils.Log.logDebug <- fun msg -> workerLogger.LogDebug(msg)
+      SageFs.Utils.Log.logWarn <- fun msg -> workerLogger.LogWarning(msg)
+      SageFs.Utils.Log.logError <- fun msg -> workerLogger.LogError(msg)
 
       app.UseResponseCompression() |> ignore
 
@@ -249,7 +276,7 @@ module WorkerHttpTransport =
               System.Diagnostics.Activity.Current
               |> Option.ofObj
               |> Option.iter (fun a -> a.SetTag("error", ex.Message) |> ignore)
-              eprintfn "[run-tests-stream] execution error: %s" ex.Message
+              Log.error "[run-tests-stream] execution error: %s" ex.Message
           finally
             channel.Writer.TryComplete() |> ignore
         }
@@ -257,7 +284,7 @@ module WorkerHttpTransport =
         // Start execution — don't await, let the channel reader loop drive the SSE stream
         use _ = executionTask.ContinueWith(fun (t: Threading.Tasks.Task) ->
           match t.IsFaulted with
-          | true -> eprintfn "[run-tests-stream] unhandled: %s" t.Exception.Message
+          | true -> Log.error "[run-tests-stream] unhandled: %s" t.Exception.Message
           | false -> ()
         )
 

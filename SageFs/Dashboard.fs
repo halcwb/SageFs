@@ -11,6 +11,7 @@ open Microsoft.AspNetCore.Http
 open System.Text.RegularExpressions
 open SageFs
 open SageFs.Affordances
+open SageFs.Utils
 
 module FalcoResponse = Falco.Response
 
@@ -1714,7 +1715,7 @@ let createStreamHandler
       try
         do! pushState ()
       with ex ->
-        eprintfn "[Dashboard SSE] Initial pushState failed: %s" ex.Message
+        Log.error "[Dashboard SSE] Initial pushState failed: %s" ex.Message
 
       match infra.StateChanged with
       | Some evt ->
@@ -1735,7 +1736,7 @@ let createStreamHandler
             | :? System.IO.IOException -> ()
             | :? System.ObjectDisposedException -> ()
             | :? OperationCanceledException -> ()
-            | ex -> eprintfn "[Dashboard SSE] pushState failed: %s" ex.Message
+            | ex -> Log.error "[Dashboard SSE] pushState failed: %s" ex.Message
           | false -> ()
         }
         use _sub = evt.Subscribe(fun _ ->
@@ -2208,7 +2209,7 @@ let createApiStateHandler
                 |> fun t -> t.ContinueWith(fun (_: Threading.Tasks.Task) -> ctx.Response.Body.FlushAsync()) |> ignore
             with
             | :? System.IO.IOException | :? ObjectDisposedException -> ()
-            | ex -> eprintfn "[dashboard] Heartbeat error: %s" ex.Message), null, 15000, 15000)
+            | ex -> Log.error "[dashboard] Heartbeat error: %s" ex.Message), null, 15000, 15000)
         use _heartbeat = heartbeat
         use _sub = evt.Subscribe(fun _ ->
           Threading.Tasks.Task.Run(fun () ->
@@ -2216,7 +2217,7 @@ let createApiStateHandler
               try do! pushJson ()
               with
               | :? System.IO.IOException | :? ObjectDisposedException -> ()
-              | ex -> eprintfn "[dashboard] Push error: %s" ex.Message
+              | ex -> Log.error "[dashboard] Push error: %s" ex.Message
             } :> Threading.Tasks.Task)
           |> ignore)
         do! tcs.Task

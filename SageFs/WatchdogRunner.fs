@@ -4,6 +4,7 @@ open System
 open System.Diagnostics
 open System.Threading
 open SageFs
+open SageFs.Utils
 open SageFs.Watchdog
 
 /// Impure watchdog runner that monitors and restarts the daemon process.
@@ -38,10 +39,10 @@ let run
     psi.Environment["SAGEFS_SUPERVISED"] <- "1"
     psi.Environment["SAGEFS_RESTART_COUNT"] <- state.RestartState.RestartCount.ToString()
     let proc = Process.Start(psi)
-    eprintfn "[watchdog] Started daemon PID %d" proc.Id
+    Log.info "[watchdog] Started daemon PID %d" proc.Id
     proc.Id
 
-  eprintfn "[watchdog] Supervisor started (check interval: %gs, grace period: %gs)"
+  Log.info "[watchdog] Supervisor started (check interval: %gs, grace period: %gs)"
     config.CheckInterval.TotalSeconds config.GracePeriod.TotalSeconds
 
   while not ct.IsCancellationRequested do
@@ -54,13 +55,13 @@ let run
       let pid = startDaemon ()
       state <- recordStart pid DateTime.UtcNow state
     | Action.RestartDaemon delay ->
-      eprintfn "[watchdog] Daemon crashed. Restarting in %gs..." delay.TotalSeconds
+      Log.warn "[watchdog] Daemon crashed. Restarting in %gs..." delay.TotalSeconds
       do! Threading.Tasks.Task.Delay(delay, ct)
       let pid = startDaemon ()
       state <- recordStart pid DateTime.UtcNow state
     | Action.Wait -> ()
     | Action.GiveUp reason ->
-      eprintfn "[watchdog] Giving up: %s" reason
+      Log.error "[watchdog] Giving up: %s" reason
       return ()
 
     try
