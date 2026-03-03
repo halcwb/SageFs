@@ -862,7 +862,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
     readSnapshot().WarmupProgress |> Map.tryFind sid
 
 
-  let sessionThemes = Dashboard.loadThemes DaemonState.SageFsDir
+  let sessionThemes = DashboardTypes.loadThemes DaemonState.SageFsDir
 
   let dashboardQueries : DashboardQueries = {
     GetSessionState = getSessionState

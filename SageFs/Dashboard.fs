@@ -58,37 +58,6 @@ let dashboardCss =
   reader.ReadToEnd()
 
 
-/// Save theme preferences to ~/.SageFs/themes.json
-let saveThemes (sageFsDir: string) (themes: Collections.Concurrent.ConcurrentDictionary<string, string>) =
-  try
-    match Directory.Exists sageFsDir with
-    | false -> Directory.CreateDirectory sageFsDir |> ignore
-    | true -> ()
-    let path = Path.Combine(sageFsDir, "themes.json")
-    let dict = themes |> Seq.map (fun kv -> kv.Key, kv.Value) |> dict
-    let json = Text.Json.JsonSerializer.Serialize(dict, Text.Json.JsonSerializerOptions(WriteIndented = true))
-    File.WriteAllText(path, json)
-  with ex -> Log.warn "Failed to save themes to %s: %s" sageFsDir ex.Message
-
-/// Load theme preferences from ~/.SageFs/themes.json
-let loadThemes (sageFsDir: string) : Collections.Concurrent.ConcurrentDictionary<string, string> =
-  let result = Collections.Concurrent.ConcurrentDictionary<string, string>()
-  try
-    let path = Path.Combine(sageFsDir, "themes.json")
-    match File.Exists(path) with
-    | true ->
-      let json = File.ReadAllText(path)
-      let dict = Text.Json.JsonSerializer.Deserialize<Collections.Generic.Dictionary<string, string>>(json)
-      match isNull dict with
-      | false ->
-        for kv in dict do
-          result.[kv.Key] <- kv.Value
-      | true -> ()
-    | false -> ()
-  with ex -> Log.warn "Failed to load themes from %s: %s" sageFsDir ex.Message
-  result
-
-
 /// Render keyboard shortcut help as an HTML fragment.
 // ---------------------------------------------------------------------------
 // Inline script blocks — named functions for testability and readability.
@@ -688,88 +657,6 @@ let createClearOutputHandler : HttpHandler =
     do! ssePatchNode ctx emptyOutput
   }
 
-
-/// Helper: resolve which projects to use from signal data.
-/// Priority: manual > .SageFs/config.fsx > auto-discovery
-let resolveSessionProjects (dir: string) (manualProjects: string) =
-  let autoDetectProjects dir =
-    let discovered = discoverProjects dir
-    match discovered.Solutions.IsEmpty with
-    | false -> [ Path.Combine(dir, discovered.Solutions.Head) ]
-    | true ->
-      match discovered.Projects.IsEmpty with
-      | false -> discovered.Projects |> List.map (fun p -> Path.Combine(dir, p))
-      | true -> []
-  match String.IsNullOrWhiteSpace manualProjects with
-  | false ->
-    manualProjects.Split(',')
-    |> Array.map (fun s -> s.Trim())
-    |> Array.filter (fun s -> s.Length > 0)
-    |> Array.map (fun p ->
-      match Path.IsPathRooted p with
-      | true -> p
-      | false -> Path.Combine(dir, p))
-    |> Array.toList
-  | true ->
-    match DirectoryConfig.load dir with
-    | Some config ->
-      match config.Load with
-      | Solution path ->
-        let full = match Path.IsPathRooted path with | true -> path | false -> Path.Combine(dir, path)
-        [ full ]
-      | Projects paths ->
-        paths |> List.map (fun p ->
-          match Path.IsPathRooted p with
-          | true -> p
-          | false -> Path.Combine(dir, p))
-      | NoLoad -> []
-      | AutoDetect -> autoDetectProjects dir
-    | _ -> autoDetectProjects dir
-
-/// Helper: extract a signal by camelCase or kebab-case name.
-let getSignalString (doc: System.Text.Json.JsonDocument) (camelCase: string) (kebab: string) =
-  match doc.RootElement.TryGetProperty(camelCase) with
-  | true, prop -> prop.GetString()
-  | _ ->
-    match doc.RootElement.TryGetProperty(kebab) with
-    | true, prop -> prop.GetString()
-    | _ -> ""
-
-/// Push discover results for a directory.
-let pushDiscoverResults (ctx: HttpContext) (dir: string) = task {
-  let dirConfig = DirectoryConfig.load dir
-  let discovered = discoverProjects dir
-  let configNote =
-    match dirConfig with
-    | Some config ->
-      match config.Load with
-      | Solution path ->
-        Some (Elem.div [ Attr.class' "output-line output-info"; Attr.style "margin-bottom: 4px;" ] [
-          Text.raw (sprintf "⚙️ .SageFs/config.fsx: solution %s" path)
-        ])
-      | Projects paths ->
-        Some (Elem.div [ Attr.class' "output-line output-info"; Attr.style "margin-bottom: 4px;" ] [
-          Text.raw (sprintf "⚙️ .SageFs/config.fsx: %s" (String.Join(", ", paths)))
-        ])
-      | NoLoad ->
-        Some (Elem.div [ Attr.class' "output-line meta"; Attr.style "margin-bottom: 4px;" ] [
-          Text.raw "⚙️ .SageFs/config.fsx: no project loading (bare session)"
-        ])
-      | AutoDetect ->
-        Some (Elem.div [ Attr.class' "output-line meta"; Attr.style "margin-bottom: 4px;" ] [
-          Text.raw "⚙️ .SageFs/config.fsx found (auto-detect projects)"
-        ])
-    | None -> None
-  let mainContent = renderDiscoveredProjects discovered
-  match configNote with
-  | Some note ->
-    let combined = Elem.div [ Attr.id DomIds.DiscoveredProjects; Attr.style "margin-top: 0.5rem;" ] [
-      note; mainContent
-    ]
-    do! ssePatchNode ctx combined
-  | None ->
-    do! ssePatchNode ctx mainContent
-}
 
 /// Create the discover-projects POST handler.
 let createDiscoverHandler : HttpHandler =

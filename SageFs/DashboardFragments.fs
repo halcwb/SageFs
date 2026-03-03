@@ -1069,6 +1069,42 @@ let renderDiscoveredProjects (discovered: DiscoveredProjects) =
       ]
   ]
 
+/// Push discover results for a directory via SSE.
+let pushDiscoverResults (ctx: HttpContext) (dir: string) = task {
+  let dirConfig = DirectoryConfig.load dir
+  let discovered = discoverProjects dir
+  let configNote =
+    match dirConfig with
+    | Some config ->
+      match config.Load with
+      | Solution path ->
+        Some (Elem.div [ Attr.class' "output-line output-info"; Attr.style "margin-bottom: 4px;" ] [
+          Text.raw (sprintf "⚙️ .SageFs/config.fsx: solution %s" path)
+        ])
+      | Projects paths ->
+        Some (Elem.div [ Attr.class' "output-line output-info"; Attr.style "margin-bottom: 4px;" ] [
+          Text.raw (sprintf "⚙️ .SageFs/config.fsx: %s" (String.Join(", ", paths)))
+        ])
+      | NoLoad ->
+        Some (Elem.div [ Attr.class' "output-line meta"; Attr.style "margin-bottom: 4px;" ] [
+          Text.raw "⚙️ .SageFs/config.fsx: no project loading (bare session)"
+        ])
+      | AutoDetect ->
+        Some (Elem.div [ Attr.class' "output-line meta"; Attr.style "margin-bottom: 4px;" ] [
+          Text.raw "⚙️ .SageFs/config.fsx found (auto-detect projects)"
+        ])
+    | None -> None
+  let mainContent = renderDiscoveredProjects discovered
+  match configNote with
+  | Some note ->
+    let combined = Elem.div [ Attr.id DomIds.DiscoveredProjects; Attr.style "margin-top: 0.5rem;" ] [
+      note; mainContent
+    ]
+    do! ssePatchNode ctx combined
+  | None ->
+    do! ssePatchNode ctx mainContent
+}
+
 /// Helper: render an eval-result error fragment.
 let evalResultError (msg: string) =
   Elem.div [ Attr.id DomIds.EvalResult ] [

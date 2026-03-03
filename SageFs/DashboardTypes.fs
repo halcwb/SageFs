@@ -6,6 +6,7 @@ open System
 open System.IO
 open System.Text.RegularExpressions
 open SageFs
+open SageFs.Utils
 open SageFs.Affordances
 open Falco.Markup
 
@@ -415,6 +416,89 @@ let parseEditorAction (actionName: string) (value: string option) : EditorAction
   | "promptConfirm" -> Some EditorAction.PromptConfirm
   | "promptCancel" -> Some EditorAction.PromptCancel
   | _ -> None
+
+// ---------------------------------------------------------------------------
+// Theme persistence helpers
+// ---------------------------------------------------------------------------
+
+/// Save theme preferences to ~/.SageFs/themes.json
+let saveThemes (sageFsDir: string) (themes: Collections.Concurrent.ConcurrentDictionary<string, string>) =
+  try
+    match Directory.Exists sageFsDir with
+    | false -> Directory.CreateDirectory sageFsDir |> ignore
+    | true -> ()
+    let path = Path.Combine(sageFsDir, "themes.json")
+    let dict = themes |> Seq.map (fun kv -> kv.Key, kv.Value) |> dict
+    let json = Text.Json.JsonSerializer.Serialize(dict, Text.Json.JsonSerializerOptions(WriteIndented = true))
+    File.WriteAllText(path, json)
+  with ex -> Log.warn "Failed to save themes to %s: %s" sageFsDir ex.Message
+
+/// Load theme preferences from ~/.SageFs/themes.json
+let loadThemes (sageFsDir: string) : Collections.Concurrent.ConcurrentDictionary<string, string> =
+  let result = Collections.Concurrent.ConcurrentDictionary<string, string>()
+  try
+    let path = Path.Combine(sageFsDir, "themes.json")
+    match File.Exists(path) with
+    | true ->
+      let json = File.ReadAllText(path)
+      let dict = Text.Json.JsonSerializer.Deserialize<Collections.Generic.Dictionary<string, string>>(json)
+      match isNull dict with
+      | false ->
+        for kv in dict do
+          result.[kv.Key] <- kv.Value
+      | true -> ()
+    | false -> ()
+  with ex -> Log.warn "Failed to load themes from %s: %s" sageFsDir ex.Message
+  result
+
+// ---------------------------------------------------------------------------
+// Project resolution helpers
+// ---------------------------------------------------------------------------
+
+/// Resolve session projects from manual input or auto-detection.
+let resolveSessionProjects (dir: string) (manualProjects: string) =
+  let autoDetectProjects dir =
+    let discovered = discoverProjects dir
+    match discovered.Solutions.IsEmpty with
+    | false -> [ Path.Combine(dir, discovered.Solutions.Head) ]
+    | true ->
+      match discovered.Projects.IsEmpty with
+      | false -> discovered.Projects |> List.map (fun p -> Path.Combine(dir, p))
+      | true -> []
+  match String.IsNullOrWhiteSpace manualProjects with
+  | false ->
+    manualProjects.Split(',')
+    |> Array.map (fun s -> s.Trim())
+    |> Array.filter (fun s -> s.Length > 0)
+    |> Array.map (fun p ->
+      match Path.IsPathRooted p with
+      | true -> p
+      | false -> Path.Combine(dir, p))
+    |> Array.toList
+  | true ->
+    match DirectoryConfig.load dir with
+    | Some config ->
+      match config.Load with
+      | Solution path ->
+        let full = match Path.IsPathRooted path with | true -> path | false -> Path.Combine(dir, path)
+        [ full ]
+      | Projects paths ->
+        paths |> List.map (fun p ->
+          match Path.IsPathRooted p with
+          | true -> p
+          | false -> Path.Combine(dir, p))
+      | NoLoad -> []
+      | AutoDetect -> autoDetectProjects dir
+    | _ -> autoDetectProjects dir
+
+/// Helper: extract a signal by camelCase or kebab-case name from JSON signals.
+let getSignalString (doc: System.Text.Json.JsonDocument) (camelCase: string) (kebab: string) =
+  match doc.RootElement.TryGetProperty(camelCase) with
+  | true, prop -> prop.GetString()
+  | _ ->
+    match doc.RootElement.TryGetProperty(kebab) with
+    | true, prop -> prop.GetString()
+    | _ -> ""
 
 /// Parse an app-level message, falling back to EditorAction wrapped in SageFsMsg.Editor.
 let parseAppMsg (actionName: string) (editorAction: EditorAction option) : SageFsMsg option =
