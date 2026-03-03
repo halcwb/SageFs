@@ -147,8 +147,8 @@ let updateTestStatusBar (summary: VscTestSummary) =
 
 let refreshStatus () =
   promise {
-    let c = getClient ()
-    let sb = getStatusBar ()
+    match client, statusBarItem with
+    | Some c, Some sb ->
     try
       let! running = Client.isRunning c
       if not running then
@@ -216,6 +216,7 @@ let refreshStatus () =
     with _ ->
       sb.text <- "$(circle-slash) SageFs: offline"
       sb.show ()
+    | _ -> ()
   } |> promiseIgnore
 
 // ── Daemon Lifecycle ───────────────────────────────────────────
@@ -226,7 +227,11 @@ let rec startDaemon () =
     | true -> ()
     | false ->
     isStarting <- true
-    let c = getClient ()
+    match client with
+    | None ->
+      isStarting <- false
+      Window.showErrorMessage "SageFs not activated." [||] |> ignore
+    | Some c ->
     let! running = Client.isRunning c
     match running with
     | true ->
@@ -297,7 +302,9 @@ let rec startDaemon () =
 
 and ensureRunning () =
   promise {
-    let c = getClient ()
+    match client with
+    | None -> return false
+    | Some c ->
     let! running = Client.isRunning c
     if running then return true
     else
@@ -324,7 +331,9 @@ and ensureRunning () =
 let withClient (action: Client.Client -> JS.Promise<unit>) =
   promise {
     let! ok = ensureRunning ()
-    if ok then do! action (getClient ())
+    match ok, client with
+    | true, Some c -> do! action c
+    | _ -> ()
   }
 
 /// Fire a client action that returns ApiOutcome, show brief status bar flash, then refresh.
@@ -351,7 +360,9 @@ type EvalResult =
 let evalCore (code: string) : JS.Promise<EvalResult> =
   promise {
     try
-      let c = getClient ()
+      match client with
+      | None -> return EvalConnectionError "SageFs not activated"
+      | Some c ->
       let workDir = getWorkingDirectory ()
       let startTime = performanceNow ()
       let! result = Client.evalCode code workDir c
@@ -539,7 +550,9 @@ let stopDaemon () =
   refreshStatus ()
 
 let openDashboard () =
-  let c = getClient ()
+  match client with
+  | None -> ()
+  | Some c ->
   let dashUrl = Client.dashboardUrl c
   match dashboardPanel with
   | Some panel ->
