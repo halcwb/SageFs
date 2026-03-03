@@ -444,8 +444,10 @@ let createFsiSession (logger: ILogger) (outStream: TextWriter) (useAsp: bool) (s
     reflectionAlc.Unload()
     logger.LogInfo (sprintf "  Assembly scan complete in %dms" sw.ElapsedMilliseconds)
     let assemblyPhaseMs = sw.ElapsedMilliseconds
-    onProgress(3, 4, sprintf "Scanned assemblies, opening %d namespaces" namesToOpen.Count)
+    let totalNames = namesToOpen.Count
+    onProgress(3, 4, sprintf "Scanned assemblies, opening %d namespaces" totalNames)
     // Phase 3: Open all collected names with rich diagnostics via iterative retry
+    let mutable openCount = 0
     let opener name isMod =
       ct.ThrowIfCancellationRequested()
       let label = match isMod with | true -> "module" | false -> "namespace"
@@ -453,8 +455,10 @@ let createFsiSession (logger: ILogger) (outStream: TextWriter) (useAsp: bool) (s
       let openSw = System.Diagnostics.Stopwatch.StartNew()
       let result, diagnostics = fsiSession.EvalInteractionNonThrowing(sprintf "open %s;;" name, ct)
       let elapsed = openSw.Elapsed.TotalMilliseconds
+      openCount <- openCount + 1
       match result with
       | Choice1Of2 _ ->
+        onProgress(openCount, totalNames, sprintf "✅ open %s (%.0fms)" name elapsed)
         match isMod with
         | true -> logger.LogInfo (sprintf "✅ Opened module: %s (%.1fms)" name elapsed)
         | false -> ()
@@ -463,9 +467,11 @@ let createFsiSession (logger: ILogger) (outStream: TextWriter) (useAsp: bool) (s
         let allText = sprintf "%s %s" ex.Message (diagnostics |> Array.map (fun d -> d.Message) |> String.concat " ")
         match isBenignOpenError allText with
         | true ->
+          onProgress(openCount, totalNames, sprintf "⏭️ open %s (skipped, %.0fms)" name elapsed)
           logger.LogDebug (sprintf "⏭️ Skipped %s (RequireQualifiedAccess — types accessible via qualified paths)" name)
           WarmUp.OpenSuccess elapsed
         | false ->
+          onProgress(openCount, totalNames, sprintf "✖ open %s — failed (%.0fms)" name elapsed)
           let fcsDiags =
             diagnostics
             |> Array.map (fun d ->
@@ -484,7 +490,6 @@ let createFsiSession (logger: ILogger) (outStream: TextWriter) (useAsp: bool) (s
             |> Array.toList
           WarmUp.OpenFailed (ex.Message, fcsDiags, elapsed)
 
-    let totalNames = namesToOpen.Count
     let namePairs =
       namesToOpen
       |> Seq.map (fun name -> name, moduleNames.Contains(name))

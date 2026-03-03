@@ -31,16 +31,8 @@ module WarmupBanner =
           Timestamp = now; SessionId = sid
         }
     | false -> ()
-    match w.NamespacesOpened.Length > 0 with
-    | true ->
-      for b in w.NamespacesOpened do
-        let kind = match b.IsModule with | true -> "module" | false -> "namespace"
-        lines.Add {
-          Kind = OutputKind.System
-          Text = sprintf "  open %s // %s" b.Name kind
-          Timestamp = now; SessionId = sid
-        }
-    | false -> ()
+    // Per-namespace opens are streamed via WarmupProgress events during warmup.
+    // Banner only shows failures.
     for f in w.FailedOpens do
       let kind = match f.IsModule with | true -> "module" | false -> "namespace"
       lines.Add {

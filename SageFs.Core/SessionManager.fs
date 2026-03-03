@@ -382,7 +382,8 @@ module SessionManager =
     (onStandbyProgressChanged: unit -> unit)
     (onTestDiscovery: SessionId -> Features.LiveTesting.TestCase array -> Features.LiveTesting.ProviderDescription list -> unit)
     (onInstrumentationMaps: SessionId -> Features.LiveTesting.InstrumentationMap array -> unit)
-    (onSessionReady: SessionId -> unit) =
+    (onSessionReady: SessionId -> unit)
+    (onWarmupProgress: SessionId -> string -> unit) =
     let snapshotRef = ref QuerySnapshot.empty
     let mailbox = MailboxProcessor<SessionCommand>.Start((fun inbox ->
       let publishSnapshot (state: ManagerState) =
@@ -897,6 +898,7 @@ module SessionManager =
           let newState =
             { state with WarmupProgress = Map.add id progress state.WarmupProgress }
           onStandbyProgressChanged ()
+          onWarmupProgress id progress
           return! loop newState
 
         | SessionCommand.UpdateSessionStatus(id, newStatus) ->

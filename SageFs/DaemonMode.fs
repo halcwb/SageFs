@@ -172,6 +172,8 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
     fun _ _ _ -> ()
   let mutable onInstrumentationMapsCallback : (WorkerProtocol.SessionId -> Features.LiveTesting.InstrumentationMap array -> unit) =
     fun _ _ -> ()
+  let mutable onWarmupProgressCallback : (string -> string -> unit) =
+    fun _ _ -> ()
 
   // Create SessionManager — the single source of truth for all sessions
   // Returns (mailbox, readSnapshot) — CQRS: reads go to snapshot, writes to mailbox
@@ -181,6 +183,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       (fun sid tests providers -> onTestDiscoveryCallback sid tests providers)
       (fun sid maps -> onInstrumentationMapsCallback sid maps)
       (fun sid -> stateChangedEvent.Trigger (SessionReady sid))
+      (fun sid progress -> onWarmupProgressCallback sid progress)
 
   // Active session ID — REMOVED: No global shared session.
   // Each client (MCP, TUI, dashboard) tracks its own session independently.
@@ -597,6 +600,22 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
   // Wire instrumentation maps from SessionManager → Elm model
   onInstrumentationMapsCallback <- fun sid maps ->
     elmRuntime.Dispatch(SageFsMsg.Event (SageFsEvent.InstrumentationMapsReady (sid, maps)))
+
+  // Wire warmup progress from SessionManager → Elm model (per-namespace granularity)
+  onWarmupProgressCallback <- fun _sid progress ->
+    // Parse "step/total msg" format from WARMUP_PROGRESS= protocol
+    match progress.IndexOf('/') with
+    | slashIdx when slashIdx > 0 ->
+      match progress.IndexOf(' ', slashIdx) with
+      | spaceIdx when spaceIdx > slashIdx ->
+        match System.Int32.TryParse(progress.[..slashIdx-1]),
+              System.Int32.TryParse(progress.[slashIdx+1..spaceIdx-1]) with
+        | (true, step), (true, total) ->
+          let msg = progress.[spaceIdx+1..]
+          elmRuntime.Dispatch(SageFsMsg.Event (SageFsEvent.WarmupProgress (step, total, msg)))
+        | _ -> ()
+      | _ -> ()
+    | _ -> ()
 
   // Start MCP server
   let mcpTask =

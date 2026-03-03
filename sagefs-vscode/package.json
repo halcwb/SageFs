@@ -2,7 +2,7 @@
   "name": "sagefs",
   "displayName": "SageFs — Live F# Development",
   "description": "Send F# code to SageFs for instant evaluation, type-checking, and hot reload.",
-  "version": "0.5.470",
+  "version": "0.5.471",
   "publisher": "sagefs",
   "license": "MIT",
   "icon": "icon.png",
@@ -26,7 +26,9 @@
     "hot-reload",
     "mcp"
   ],
-  "extensionKind": ["workspace"],
+  "extensionKind": [
+    "workspace"
+  ],
   "activationEvents": [
     "onLanguage:fsharp",
     "workspaceContains:**/*.fsproj",
@@ -213,7 +215,11 @@
         },
         "sagefs.logLevel": {
           "type": "string",
-          "enum": ["error", "info", "debug"],
+          "enum": [
+            "error",
+            "info",
+            "debug"
+          ],
           "default": "info",
           "description": "Output channel log level."
         },
