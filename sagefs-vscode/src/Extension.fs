@@ -913,6 +913,19 @@ let activate (context: ExtensionContext) =
         let state = refreshAllDecorations ()
         TestDeco.updateDiagnostics state
         TestLens.updateState state
+        // Auto-focus output on test failure
+        let hasFailure =
+          changes |> List.exists (fun c ->
+            match c with
+            | VscStateChange.TestsCompleted results ->
+              results |> Array.exists (fun r ->
+                match r.Outcome with
+                | VscTestOutcome.Failed _ | VscTestOutcome.Errored _ -> true
+                | _ -> false)
+            | _ -> false)
+        match hasFailure with
+        | true -> match outputChannel with Some out -> out.show true | None -> ()
+        | false -> ()
       OnSummaryUpdate = fun summary -> updateTestStatusBar summary
       OnStatusRefresh = fun () -> refreshStatus ()
       OnBindingsUpdate = fun _ -> ()
