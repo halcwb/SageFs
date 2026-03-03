@@ -2,7 +2,10 @@ module SageFs.Tests.ThemeTests
 
 open Expecto
 open Expecto.Flip
+open FsCheck
+open FsCheck.FSharp
 open SageFs
+open SageFs.Tests.SharedGenerators
 
 [<Tests>]
 let themeTests = testList "Theme" [
@@ -163,5 +166,32 @@ let themeTests = testList "Theme" [
       let result = Theme.parseConfigLines lines
       result |> Map.isEmpty
       |> Expect.isTrue "should be empty"
+  ]
+
+  testList "properties" [
+    testPropertyWithConfig propConfig "hexToRgb decomposes into rgb channels" <|
+      Prop.forAll (Arb.fromGen genRgbComponents) (fun (r, g, b) ->
+        let hex = sprintf "#%02x%02x%02x" r g b
+        let packed = Theme.hexToRgb hex
+        Theme.rgbR packed |> Expect.equal "red channel" r
+        Theme.rgbG packed |> Expect.equal "green channel" g
+        Theme.rgbB packed |> Expect.equal "blue channel" b)
+
+    testPropertyWithConfig propConfig "hexToRgb/rgb roundtrip produces valid uint32" <|
+      Prop.forAll (Arb.fromGen genHexColor) (fun hex ->
+        let packed = Theme.hexToRgb hex
+        (packed, 0x01000000u) |> Expect.isLessThan "fits in 24 bits")
+
+    testPropertyWithConfig propConfig "withOverrides with empty map is identity" <|
+      fun () ->
+        let result = Theme.withOverrides Map.empty Theme.defaults
+        result |> Expect.equal "identity" Theme.defaults
+
+    testPropertyWithConfig propConfig "withOverrides idempotent: applying twice = applying once" <|
+      Prop.forAll (Arb.fromGen genHexColor) (fun hex ->
+        let overrides = Map.ofList [ "fgDefault", hex ]
+        let once = Theme.withOverrides overrides Theme.defaults
+        let twice = Theme.withOverrides overrides once
+        twice |> Expect.equal "idempotent" once)
   ]
 ]

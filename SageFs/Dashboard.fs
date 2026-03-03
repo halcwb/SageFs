@@ -1747,7 +1747,7 @@ let createStreamHandler
         // Fallback: poll every second
         while not ctx.RequestAborted.IsCancellationRequested do
           try
-            do! Threading.Tasks.Task.Delay(TimeSpan.FromSeconds 1.0, ctx.RequestAborted)
+            do! Threading.Tasks.Task.Delay(Timeouts.sseEventInterval, ctx.RequestAborted)
             do! pushState ()
           with
           | :? OperationCanceledException -> ()
@@ -2224,7 +2224,7 @@ let createApiStateHandler
       | None ->
         while not ctx.RequestAborted.IsCancellationRequested do
           try
-            do! Threading.Tasks.Task.Delay(TimeSpan.FromSeconds 1.0, ctx.RequestAborted)
+            do! Threading.Tasks.Task.Delay(Timeouts.sseEventInterval, ctx.RequestAborted)
             do! pushJson ()
           with
           | :? OperationCanceledException -> ()

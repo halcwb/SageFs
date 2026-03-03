@@ -499,7 +499,7 @@ let startMcpServer (cfg: McpServerConfig) =
                 )
                 .WithHttpTransport(fun opts ->
                     // SSE connections are long-lived — only cull if we hit thousands
-                    opts.IdleTimeout <- System.TimeSpan.FromHours(24.0)
+                    opts.IdleTimeout <- SageFs.Timeouts.sseKeepAlive
                     opts.MaxIdleSessionCount <- 1000
                 )
                 .WithTools<SageFs.Server.McpTools.SageFsTools>()

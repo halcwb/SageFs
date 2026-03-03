@@ -489,7 +489,7 @@ module TestOrchestrator =
         activity.SetTag("test.framework", testCase.Framework) |> ignore
       | true -> ()
       let sw = Stopwatch.StartNew()
-      let perTestTimeout = TimeSpan.FromSeconds 5.0
+      let perTestTimeout = Timeouts.perTestDefault
       let stdoutCapture = new IO.StringWriter()
       // Install per-thread capture — no global SetOut calls needed
       threadCapture.SetCapture(stdoutCapture)
@@ -576,7 +576,7 @@ module TestOrchestrator =
     : Async<unit> =
     async {
       use globalCts = Threading.CancellationTokenSource.CreateLinkedTokenSource(ct)
-      globalCts.CancelAfter(TimeSpan.FromMinutes 2.0)
+      globalCts.CancelAfter(Timeouts.globalTestRun)
       let totalSw = Stopwatch.StartNew()
       let totalChunks = (tests.Length + maxParallelism - 1) / maxParallelism
       let mutable chunkIndex = 0

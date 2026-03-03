@@ -3,8 +3,11 @@ module SageFs.Tests.RestartPolicyTests
 open System
 open Expecto
 open Expecto.Flip
+open FsCheck
+open FsCheck.FSharp
 open SageFs.RestartPolicy
 open SageFs
+open SageFs.Tests.SharedGenerators
 
 let now = DateTime(2026, 2, 14, 12, 0, 0)
 
@@ -102,8 +105,52 @@ let decideTests = testList "decide" [
   }
 ]
 
+let propertyTests = testList "properties" [
+  testPropertyWithConfig propConfig "nextBackoff is monotonically non-decreasing" <|
+    fun (PositiveInt a) (PositiveInt b) ->
+      let lo = min a b
+      let hi = max a b
+      let loDelay = nextBackoff defaultPolicy lo
+      let hiDelay = nextBackoff defaultPolicy hi
+      (hiDelay, loDelay) |> Expect.isGreaterThanOrEqual "higher count => higher or equal delay"
+
+  testPropertyWithConfig propConfig "nextBackoff never exceeds BackoffMax" <|
+    fun (NonNegativeInt count) ->
+      let delay = nextBackoff defaultPolicy count
+      (defaultPolicy.BackoffMax, delay) |> Expect.isGreaterThanOrEqual "capped at max"
+
+  testPropertyWithConfig propConfig "nextBackoff is always positive" <|
+    fun (NonNegativeInt count) ->
+      let delay = nextBackoff defaultPolicy count
+      (delay.TotalMilliseconds, 0.0) |> Expect.isGreaterThan "positive delay"
+
+  testPropertyWithConfig propConfig "decide: restart count increases monotonically" <|
+    fun (PositiveInt n) ->
+      let steps = min n 4
+      let mutable state = emptyState
+      for i in 1..steps do
+        let _, s = decide defaultPolicy state (now.AddSeconds(float i))
+        (s.RestartCount, state.RestartCount) |> Expect.isGreaterThan "count increases"
+        state <- s
+
+  testPropertyWithConfig propConfig "decide: window reset allows fresh restarts" <|
+    fun (PositiveInt extraMinutes) ->
+      let mutable state = emptyState
+      for i in 1..defaultPolicy.MaxRestarts do
+        let _, s = decide defaultPolicy state (now.AddSeconds(float i))
+        state <- s
+      let afterWindow = now.AddMinutes(float (defaultPolicy.ResetWindow.TotalMinutes + float extraMinutes))
+      let decision, newState = decide defaultPolicy state afterWindow
+      match decision with
+      | Decision.Restart _ ->
+        newState.RestartCount |> Expect.equal "reset to 1" 1
+      | Decision.GiveUp _ ->
+        failtest "should have reset window"
+]
+
 [<Tests>]
 let tests = testList "RestartPolicy" [
   nextBackoffTests
   decideTests
+  propertyTests
 ]

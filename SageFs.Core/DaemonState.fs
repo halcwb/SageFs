@@ -34,7 +34,7 @@ module DaemonState =
     | :? ArgumentException -> false
     | :? InvalidOperationException -> false
 
-  let httpClient = new System.Net.Http.HttpClient(Timeout = TimeSpan.FromSeconds(2.0))
+  let httpClient = new System.Net.Http.HttpClient(Timeout = Timeouts.healthCheck)
 
   /// Probe the daemon's /api/daemon-info endpoint on the dashboard port.
   /// Falls back to probing /dashboard if /api/daemon-info isn't available
@@ -118,7 +118,7 @@ module DaemonState =
   let readOnPort (mcpPort: int) = probeDaemonHttp mcpPort
 
   /// Request graceful shutdown via the dashboard API.
-  let shutdownClient = new System.Net.Http.HttpClient(Timeout = TimeSpan.FromSeconds(5.0))
+  let shutdownClient = new System.Net.Http.HttpClient(Timeout = Timeouts.shutdownHttpClient)
 
   let requestShutdownAsync (mcpPort: int) = async {
     let dashboardPort = mcpPort + 1

@@ -722,7 +722,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
     match SessionManager.QuerySnapshot.tryGetSession sid snapshot, Map.tryFind sid snapshot.WorkerBaseUrls with
     | Some _, Some baseUrl when baseUrl.Length > 0 ->
       try
-        use cts = new Threading.CancellationTokenSource(TimeSpan.FromSeconds(2.0))
+        use cts = new Threading.CancellationTokenSource(Timeouts.healthCheck)
         let! resp = httpClient.GetStringAsync(sprintf "%s/status?replyId=dash" baseUrl, cts.Token)
         use doc = Text.Json.JsonDocument.Parse(resp)
         let root = doc.RootElement
@@ -781,7 +781,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
     match Map.tryFind sid snapshot.WorkerBaseUrls with
     | Some baseUrl when baseUrl.Length > 0 ->
       try
-        use cts = new Threading.CancellationTokenSource(TimeSpan.FromSeconds(2.0))
+        use cts = new Threading.CancellationTokenSource(Timeouts.healthCheck)
         let! resp = httpClient.GetStringAsync(sprintf "%s/status?replyId=dash-stats" baseUrl, cts.Token)
         use doc = Text.Json.JsonDocument.Parse(resp)
         let root = doc.RootElement
@@ -1261,7 +1261,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       sessionManager.PostAndAsyncReply(fun reply ->
         SessionManager.SessionCommand.StopAll reply)
       |> Async.StartAsTask
-    match stopTask.Wait(TimeSpan.FromSeconds(3.0)) with
+    match stopTask.Wait(Timeouts.processNormalExit) with
     | false -> log.LogWarning("StopAll timed out — some workers may not have stopped cleanly")
     | true -> ()
   with ex ->

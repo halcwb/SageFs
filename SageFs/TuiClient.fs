@@ -20,7 +20,7 @@ let run (daemonInfo: DaemonInfo) = task {
   let baseUrl = sprintf "http://localhost:%d" dashboardPort
   use handler = new HttpClientHandler(AutomaticDecompression = System.Net.DecompressionMethods.All)
   use client = new HttpClient(handler)
-  client.Timeout <- TimeSpan.FromHours(24.0)
+  client.Timeout <- Timeouts.sseKeepAlive
 
   // Verify daemon is reachable
   let mutable connError = None

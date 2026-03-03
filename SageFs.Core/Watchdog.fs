@@ -45,9 +45,9 @@ module Watchdog =
     | GiveUp of reason: string
 
   let defaultConfig : Config = {
-    CheckInterval = TimeSpan.FromSeconds 5.0
+    CheckInterval = Timeouts.watchdogInterval
     RestartPolicy = RestartPolicy.defaultPolicy
-    GracePeriod = TimeSpan.FromSeconds 30.0
+    GracePeriod = Timeouts.watchdogGracePeriod
   }
 
   let emptyState (now: DateTime) : State = {

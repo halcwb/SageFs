@@ -3,7 +3,9 @@ module SageFs.Tests.RetryPolicyTests
 open System
 open Expecto
 open Expecto.Flip
+open FsCheck
 open SageFs.RetryPolicy
+open SageFs.Tests.SharedGenerators
 
 let retryPolicyTests =
   testList "RetryPolicy" [
@@ -71,5 +73,40 @@ let retryPolicyTests =
         | GiveUp _ -> ()
         | other -> failwithf "expected GiveUp but got %A" other
       }
+    ]
+
+    testList "properties" [
+      testPropertyWithConfig propConfig "shouldRetry is anti-monotone" <|
+        fun (NonNegativeInt attempt) ->
+          match attempt with
+          | 0 -> ()
+          | a ->
+            match shouldRetry defaults a with
+            | true -> shouldRetry defaults (a - 1) |> Expect.isTrue "anti-monotone"
+            | false -> ()
+
+      testPropertyWithConfig propConfig "attempt < MaxRetries always allowed" <|
+        fun (NonNegativeInt raw) ->
+          let config = { MaxRetries = 5; BaseDelayMs = 100 }
+          let attempt = raw % config.MaxRetries
+          shouldRetry config attempt |> Expect.isTrue "below max"
+
+      testPropertyWithConfig propConfig "attempt >= MaxRetries never allowed" <|
+        fun (NonNegativeInt extra) ->
+          let config = { MaxRetries = 3; BaseDelayMs = 100 }
+          shouldRetry config (config.MaxRetries + extra)
+          |> Expect.isFalse "at or above max"
+
+      testPropertyWithConfig propConfig "backoffMs is always positive" <|
+        fun (NonNegativeInt attempt) ->
+          let delay = backoffMs defaults attempt
+          (delay, 0) |> Expect.isGreaterThan "positive"
+
+      testPropertyWithConfig propConfig "non-version-conflict always gives up" <|
+        fun (NonNegativeInt attempt) ->
+          let ex = exn "not a conflict"
+          match decide defaults attempt ex with
+          | GiveUp _ -> ()
+          | other -> failwithf "expected GiveUp but got %A" other
     ]
   ]

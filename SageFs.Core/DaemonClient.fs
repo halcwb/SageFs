@@ -229,7 +229,7 @@ module DaemonClient =
       try
         use sseHandler = new HttpClientHandler(AutomaticDecompression = System.Net.DecompressionMethods.All)
         use sseClient = new HttpClient(sseHandler)
-        sseClient.Timeout <- TimeSpan.FromHours(24.0)
+        sseClient.Timeout <- Timeouts.sseKeepAlive
         let! stream = sseClient.GetStreamAsync(sprintf "%s/api/state" baseUrl, ct)
         use reader = new IO.StreamReader(stream)
         retryDelay <- 1000

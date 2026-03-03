@@ -107,7 +107,7 @@ module HttpWorkerClient =
         use reader = new IO.StreamReader(stream)
         let mutable keepReading = true
         let mutable isCoverageEvent = false
-        let readTimeout = TimeSpan.FromSeconds(30.0)
+        let readTimeout = Timeouts.workerHttpRead
         while keepReading do
           let readTask = reader.ReadLineAsync()
           let timeoutTask = Threading.Tasks.Task.Delay(readTimeout)
@@ -161,7 +161,7 @@ module HttpWorkerClient =
         use reader = new IO.StreamReader(stream)
         let mutable keepReading = true
         let mutable isCoverageEvent = false
-        let readTimeout = TimeSpan.FromSeconds(30.0)
+        let readTimeout = Timeouts.workerHttpRead
         while keepReading do
           let readTask = reader.ReadLineAsync()
           let timeoutTask = Threading.Tasks.Task.Delay(readTimeout)

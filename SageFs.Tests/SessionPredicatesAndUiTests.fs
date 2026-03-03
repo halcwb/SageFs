@@ -3,9 +3,12 @@ module SageFs.Tests.SessionPredicatesAndUiTests
 open System
 open Expecto
 open Expecto.Flip
+open FsCheck
+open FsCheck.FSharp
 open SageFs
 open SageFs.WorkerProtocol
 open SageFs.Features.AutoCompletion
+open SageFs.Tests.SharedGenerators
 
 /// Tests targeting low-coverage pure functions identified by code coverage analysis.
 /// Covers: SessionStatus predicates, SessionLifecycle decisions, KeyCombo roundtrips,
@@ -343,6 +346,37 @@ let scoreCandidateTests = testList "scoreCandidate" [
   }
 ]
 
+let propertyTests = testList "properties" [
+  testPropertyWithConfig propConfig "SessionStatus label/parse roundtrip" <|
+    Prop.forAll (Arb.fromGen genSessionStatus) (fun status ->
+      SessionStatus.label status
+      |> SessionStatus.parse
+      |> Expect.equal "roundtrip" (Ok status))
+
+  testPropertyWithConfig propConfig "isAlive and isTerminal are complementary" <|
+    Prop.forAll (Arb.fromGen genSessionStatus) (fun status ->
+      let alive = SessionStatus.isAlive status
+      let terminal = match status with SessionStatus.Faulted | SessionStatus.Stopped -> true | _ -> false
+      alive |> Expect.notEqual "alive ≠ terminal" terminal)
+
+  testPropertyWithConfig propConfig "toSessionState is total — never throws" <|
+    Prop.forAll (Arb.fromGen genSessionStatus) (fun status ->
+      let _ = SessionStatus.toSessionState status
+      true |> Expect.isTrue "no exception")
+
+  testPropertyWithConfig propConfig "scoreCandidate is non-negative" <|
+    fun (NonEmptyString candidate) ->
+      let entered = candidate.[..min 2 (candidate.Length - 1)]
+      let score = scoreCandidate entered candidate
+      (score, 0) |> Expect.isGreaterThanOrEqual "non-negative"
+
+  testPropertyWithConfig propConfig "scoreCandidate: exact match >= prefix match" <|
+    fun (NonEmptyString s) ->
+      let exactScore = scoreCandidate s s
+      let prefixScore = scoreCandidate s (s + "Suffix")
+      (exactScore, prefixScore) |> Expect.isGreaterThanOrEqual "exact >= prefix"
+]
+
 [<Tests>]
 let tests = testList "CoverageBoost" [
   sessionStatusPredicateTests
@@ -352,4 +386,5 @@ let tests = testList "CoverageBoost" [
   uiActionTests
   sageFsErrorTests
   scoreCandidateTests
+  propertyTests
 ]

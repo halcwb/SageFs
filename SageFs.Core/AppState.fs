@@ -732,7 +732,7 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
             match isNull (box st.Session) with
             | false -> (st.Session :> System.IDisposable).Dispose()
             | true -> ()
-            let softResetCts = new CancellationTokenSource(TimeSpan.FromMinutes(5.0))
+            let softResetCts = new CancellationTokenSource(Timeouts.softResetCancellation)
             let onProgress (s,t,msg) =
               emit (Events.SageFsEvent.SessionWarmUpProgress {| Step = s; Total = t; Message = msg |})
               queryActor.Post(UpdateSnapshot {
@@ -772,8 +772,8 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
             | false ->
               let disposeTask = System.Threading.Tasks.Task.Run(fun () ->
                 (st.Session :> System.IDisposable).Dispose())
-              match disposeTask.Wait(TimeSpan.FromSeconds(10.0)) with
-              | false -> logger.LogWarning "⚠️ Session dispose timed out after 10s, continuing..."
+              match disposeTask.Wait(Timeouts.sessionDispose) with
+              | false -> logger.LogWarning $"⚠️ Session dispose timed out after {Timeouts.sessionDispose.TotalSeconds}s, continuing..."
               | true -> ()
             | true -> ()
             // Required before dotnet build can overwrite assemblies on Windows
@@ -902,7 +902,7 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
             ShadowCopy.cleanupStaleDirs ()
 
             logger.LogInfo "  Creating new FSI session..."
-            let warmupTimeout = TimeSpan.FromMinutes(5.0)
+            let warmupTimeout = Timeouts.initSessionCancellation
             let warmupCts = new CancellationTokenSource()
             // Run warmup on a ThreadPool thread so the mailbox isn't blocked
             // if EvalInteractionNonThrowing hangs during namespace opening.
@@ -996,7 +996,7 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
             System.Environment.CurrentDirectory <- projectDir
           | None -> ()
 
-          let initCts = new CancellationTokenSource(TimeSpan.FromMinutes(5.0))
+          let initCts = new CancellationTokenSource(Timeouts.initSessionCancellation)
           let onProgress (s,t,msg) =
             emit (Events.SageFsEvent.SessionWarmUpProgress {| Step = s; Total = t; Message = msg |})
             queryActor.Post(UpdateSnapshot {

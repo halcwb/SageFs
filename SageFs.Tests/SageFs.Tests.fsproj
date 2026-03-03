@@ -17,6 +17,7 @@
         <Compile Include="McpServerIntegrationTests.fs" />
         <Compile Include="McpLlmInteropTests.fs" />
         <Compile Include="SharedSageFsFixture.fs" />
+        <Compile Include="SharedGenerators.fs" />
         <Compile Include="CompExprSimplifierTests.fs" />
         <Compile Include="MethodPatcherTests.fs" />
         <Compile Include="SnapshotTests.fs" />

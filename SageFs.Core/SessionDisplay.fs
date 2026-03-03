@@ -61,7 +61,7 @@ type SessionRegistryView = {
 
 /// Pure functions to build display state from domain state
 module SessionDisplay =
-  let staleDuration = TimeSpan.FromMinutes 10.0
+  let staleDuration = Timeouts.staleSessionThreshold
 
   /// Map internal SessionStatus to display status
   let displayStatus (now: DateTime) (info: SessionInfo) : SessionDisplayStatus =
