@@ -107,6 +107,16 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
 
   log.LogInformation("SageFs daemon v{Version} starting on port {Port}", version, mcpPort)
 
+  // Ensure the thread pool has enough threads to avoid starvation during bursts.
+  // Default min = CPU count, which is too small when SSE/MCP/effects run concurrently.
+  let minWorker, minIO = System.Threading.ThreadPool.GetMinThreads()
+  let desiredMin = max 32 (System.Environment.ProcessorCount * 4)
+  match minWorker < desiredMin with
+  | true ->
+    System.Threading.ThreadPool.SetMinThreads(desiredMin, max minIO desiredMin) |> ignore
+    log.LogInformation("ThreadPool min threads: {Old} → {New}", minWorker, desiredMin)
+  | false -> ()
+
   // Set up persistence: PostgreSQL preferred, binary-only fallback if unavailable
   let persistence =
     match PostgresInfra.getOrStartPostgres () with

@@ -34,19 +34,21 @@ module ElmLoop =
   let private kvp k v = System.Collections.Generic.KeyValuePair(k, v :> obj)
 
   /// Start the Elm loop with an initial model.
-  /// Uses Elmish-style message queue: dispatch enqueues, single drainer
-  /// processes all pending messages then renders ONCE.
+  /// Uses a dedicated drain thread (not thread pool) to avoid starvation.
+  /// Dispatch enqueues + signals; the drain thread wakes, processes all
+  /// pending messages, renders ONCE, then sleeps until signalled again.
   let start (program: ElmProgram<'Model, 'Msg, 'Effect, 'Region>)
             (initialModel: 'Model) : ElmRuntime<'Model, 'Msg, 'Region> =
     let mutable model = initialModel
     let mutable latestRegions = []
     let lockObj = obj ()
     let queue = ConcurrentQueue<'Msg>()
-    let mutable draining = 0
+    // Signal for the dedicated drain thread — Set() wakes it, Wait() sleeps it
+    let signal = new ManualResetEventSlim(false)
 
     /// Drain all queued messages, render once, push once.
-    /// Called by exactly one thread at a time (guarded by Interlocked CAS).
-    let rec drain () =
+    /// Runs exclusively on the dedicated drain thread.
+    let drain () =
       let batchSw = Stopwatch.StartNew()
       let batchTag = kvp "msg_type" "batch"
 
@@ -118,7 +120,6 @@ module ElmLoop =
       match allEffects.IsEmpty with
       | false -> Instrumentation.elmloopEffectsSpawned.Add(int64 allEffects.Length)
       | true -> ()
-      // Capture batch activity context so effects become children of this batch
       let parentCtx =
         match isNull activity with
         | false -> activity.Context
@@ -127,7 +128,6 @@ module ElmLoop =
         parentCtx.TraceId.ToString() <> "00000000000000000000000000000000"
       for effect in allEffects do
         Async.Start (async {
-          // Create an effect child span linked to the batch via explicit parent context
           let effectActivity =
             match hasParent with
             | true ->
@@ -137,7 +137,7 @@ module ElmLoop =
                 parentCtx)
             | false -> null
           try
-            do! program.ExecuteEffect (fun msg -> queue.Enqueue msg; tryDrain()) effect
+            do! program.ExecuteEffect (fun msg -> queue.Enqueue msg; signal.Set()) effect
             Instrumentation.succeedSpan effectActivity
           with ex ->
             Instrumentation.elmloopErrors.Add(1L, kvp "phase" "effect")
@@ -165,34 +165,22 @@ module ElmLoop =
           batchCount totalMs renderSw.Elapsed.TotalMilliseconds cbSw.Elapsed.TotalMilliseconds modelChanged
       | false -> ()
 
-      // If messages arrived during render/callback, drain again
-      match queue.IsEmpty with
-      | false -> drain ()
-      | true -> ()
-
-    /// Try to become the drainer. If another thread is already draining,
-    /// return immediately — our message is in the queue and will be picked up.
-    and tryDrain () =
-      match Interlocked.CompareExchange(&draining, 1, 0) with
-      | 0 ->
-        try drain ()
-        finally
-          Volatile.Write(&draining, 0)
-          // Final check: messages may have arrived after drain() saw empty queue
-          // but before we cleared the flag. One more attempt prevents lost messages.
-          match queue.IsEmpty with
-          | true -> ()
-          | false ->
-            match Interlocked.CompareExchange(&draining, 1, 0) with
-            | 0 ->
-              try drain ()
-              finally Volatile.Write(&draining, 0)
-            | _ -> ()
-      | _ -> () // Another thread is draining; our message will be processed
+    // Dedicated drain thread — runs outside the thread pool so it's never
+    // starved by Kestrel/SSE/effect work saturating the pool.
+    let drainThread = Thread(fun () ->
+      while true do
+        signal.Wait()
+        signal.Reset()
+        // Drain until queue is truly empty (messages may arrive during processing)
+        while not queue.IsEmpty do
+          drain ())
+    drainThread.IsBackground <- true
+    drainThread.Name <- "ElmLoop-Drain"
+    drainThread.Start()
 
     let dispatch (msg: 'Msg) =
       queue.Enqueue msg
-      tryDrain ()
+      signal.Set()
 
     let regions =
       try program.Render initialModel
