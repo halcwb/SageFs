@@ -15,6 +15,7 @@ let mutable currentSessionId: string option = None
 let mutable cachedContext: Client.WarmupContextInfo option = None
 let mutable refreshEmitter: EventEmitter<obj> option = None
 let mutable autoRefreshTimer: obj option = None
+let mutable isLoading: bool = false
 
 // ── Tree item builders ───────────────────────────────────────────
 
@@ -52,6 +53,11 @@ let getChildren (element: obj option) : JS.Promise<obj array> =
   promise {
     match element with
     | None ->
+      match isLoading with
+      | true ->
+        let item = newTreeItem "$(loading~spin) Loading..." TreeItemCollapsibleState.None
+        return [| item :> obj |]
+      | false ->
       match cachedContext with
       | None ->
         let item = newTreeItem "No session context" TreeItemCollapsibleState.None
@@ -147,30 +153,39 @@ let createProvider () =
 let refresh () =
   match currentClient, currentSessionId with
   | Some c, Some sid ->
+    isLoading <- true
+    match refreshEmitter with Some e -> e.fire null | None -> ()
     promise {
       let! ctx = Client.getWarmupContext sid c
       cachedContext <- ctx
+      isLoading <- false
       match refreshEmitter with
       | Some e -> e.fire null
       | None -> ()
     } |> promiseIgnore
   | _ ->
+    isLoading <- false
     cachedContext <- None
     match refreshEmitter with
     | Some e -> e.fire null
     | None -> ()
 
 let setSession (c: Client.Client) (sessionId: string option) =
-  currentClient <- Some c
-  currentSessionId <- sessionId
-  match autoRefreshTimer with
-  | Some t -> jsClearInterval t; autoRefreshTimer <- None
-  | None -> ()
-  match sessionId with
-  | Some _ ->
-    autoRefreshTimer <- Some (jsSetInterval (fun () -> refresh ()) 10000)
-  | None -> ()
-  refresh ()
+  match currentSessionId = sessionId with
+  | true ->
+    currentClient <- Some c
+    ()
+  | false ->
+    currentClient <- Some c
+    currentSessionId <- sessionId
+    match autoRefreshTimer with
+    | Some t -> jsClearInterval t; autoRefreshTimer <- None
+    | None -> ()
+    match sessionId with
+    | Some _ ->
+      autoRefreshTimer <- Some (jsSetInterval (fun () -> refresh ()) 30000)
+    | None -> ()
+    refresh ()
 
 let stopAutoRefresh () =
   match autoRefreshTimer with

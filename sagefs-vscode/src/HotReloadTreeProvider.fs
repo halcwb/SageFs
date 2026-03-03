@@ -24,6 +24,7 @@ let mutable cachedFiles: Client.HotReloadFile array = [||]
 let mutable refreshEmitter: EventEmitter<obj> option = None
 let mutable treeView: TreeView<obj> option = None
 let mutable autoRefreshTimer: obj option = None
+let mutable isLoading: bool = false
 
 // ── Path helpers ─────────────────────────────────────────────────
 
@@ -92,6 +93,11 @@ let getChildren (element: obj option) : JS.Promise<obj array> =
   promise {
     match element with
     | None ->
+      match isLoading with
+      | true ->
+        let item = newTreeItem "$(loading~spin) Loading..." TreeItemCollapsibleState.None
+        return [| item :> obj |]
+      | false ->
       let groups = groupByDirectory cachedFiles
       match groups with
       | [||] ->
@@ -138,32 +144,42 @@ let createProvider () =
 let refresh () =
   match currentClient, currentSessionId with
   | Some c, Some sid ->
+    isLoading <- true
+    match refreshEmitter with Some e -> e.fire null | None -> ()
     promise {
       let! state = Client.getHotReloadState sid c
       match state with
       | Some s -> cachedFiles <- s.files
       | None -> cachedFiles <- [||]
+      isLoading <- false
       match refreshEmitter with
       | Some e -> e.fire null
       | None -> ()
     } |> promiseIgnore
   | _ ->
+    isLoading <- false
     cachedFiles <- [||]
     match refreshEmitter with
     | Some e -> e.fire null
     | None -> ()
 
 let setSession (c: Client.Client) (sessionId: string option) =
-  currentClient <- Some c
-  currentSessionId <- sessionId
-  match autoRefreshTimer with
-  | Some t -> jsClearInterval t; autoRefreshTimer <- None
-  | None -> ()
-  match sessionId with
-  | Some _ ->
-    autoRefreshTimer <- Some (jsSetInterval (fun () -> refresh ()) 5000)
-  | None -> ()
-  refresh ()
+  // Skip redundant calls — avoids timer churn from periodic refreshStatus
+  match currentSessionId = sessionId with
+  | true ->
+    currentClient <- Some c
+    ()
+  | false ->
+    currentClient <- Some c
+    currentSessionId <- sessionId
+    match autoRefreshTimer with
+    | Some t -> jsClearInterval t; autoRefreshTimer <- None
+    | None -> ()
+    match sessionId with
+    | Some _ ->
+      autoRefreshTimer <- Some (jsSetInterval (fun () -> refresh ()) 30000)
+    | None -> ()
+    refresh ()
 
 let stopAutoRefresh () =
   match autoRefreshTimer with

@@ -39,6 +39,7 @@ let mutable typeExplorer: TypeExpl.TypeExplorer option = None
 // Crash detection: track connected→offline transitions
 let mutable wasRunning = false
 let mutable crashPromptShown = false
+let mutable staleDebounceTimer: obj option = None
 
 // FSI bindings and test trace — maintained by SSE events (server-side CQRS)
 // No client-side parsing; server pushes snapshots via SSE bindings_snapshot/test_trace events
@@ -76,10 +77,20 @@ let mutable onDaemonReady: (Client.Client -> unit) option = None
 // ── Helpers ────────────────────────────────────────────────────
 
 let getOutput () =
-  match outputChannel with Some o -> o | None -> failwith "SageFs not activated"
+  match outputChannel with
+  | Some o -> o
+  | None ->
+    let o = Window.createOutputChannel "SageFs"
+    outputChannel <- Some o
+    o
 
 let getStatusBar () =
-  match statusBarItem with Some s -> s | None -> failwith "SageFs not activated"
+  match statusBarItem with
+  | Some s -> s
+  | None ->
+    let s = Window.createStatusBarItem StatusBarAlignment.Left 100.0
+    statusBarItem <- Some s
+    s
 
 let getWorkingDirectory () =
   match Workspace.workspaceFolders () with
@@ -371,15 +382,17 @@ let evalCore (code: string) : JS.Promise<EvalResult> =
       return EvalConnectionError (string err)
   }
 
-/// Log eval result to output channel. Returns the result for further handling.
+/// Log eval result to output channel. Auto-shows output on error.
 let logEvalResult (out: OutputChannel) (result: EvalResult) =
   match result with
   | EvalOk (output, elapsed) ->
     out.appendLine (sprintf "%s  (%s)" output (InlineDeco.formatDuration elapsed))
   | EvalError errMsg ->
     out.appendLine (sprintf "❌ Error:\n%s" errMsg)
+    out.show true
   | EvalConnectionError msg ->
     out.appendLine (sprintf "❌ Connection error: %s" msg)
+    out.show true
   result
 
 /// Get code from selection or code block, append ;; if needed.
@@ -563,6 +576,7 @@ let openDashboard () =
     panel.webview.html <-
       sprintf """<!DOCTYPE html>
 <html style="height:100%%;margin:0;padding:0">
+<head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src http://localhost:*; style-src 'unsafe-inline'"></head>
 <body style="height:100%%;margin:0;padding:0">
 <iframe src="%s" style="width:100%%;height:100%%;border:none"></iframe>
 </body>
@@ -681,13 +695,16 @@ let activate (context: ExtensionContext) =
   diagnosticCollection <- Some dc
   context.subscriptions.Add (dc :> obj :?> Disposable)
 
-  // Mark inline results as stale when F# documents change
+  // Mark inline results as stale when F# documents change (debounced)
   let docChangeSub = Workspace.onDidChangeTextDocument (fun _evt ->
-    match Window.getActiveTextEditor () with
-    | Some ed when ed.document.fileName.EndsWith(".fs") || ed.document.fileName.EndsWith(".fsx") ->
-      if not (Map.isEmpty InlineDeco.blockDecorations) then
-        InlineDeco.markDecorationsStale ed
-    | _ -> ())
+    staleDebounceTimer |> Option.iter jsClearTimeout
+    staleDebounceTimer <- Some (jsSetTimeout (fun () ->
+      match Window.getActiveTextEditor () with
+      | Some ed when ed.document.fileName.EndsWith(".fs") || ed.document.fileName.EndsWith(".fsx") ->
+        if not (Map.isEmpty InlineDeco.blockDecorations) then
+          InlineDeco.markDecorationsStale ed
+      | _ -> ()
+    ) 300))
   context.subscriptions.Add docChangeSub
 
   // Hot Reload TreeView
@@ -958,7 +975,7 @@ let activate (context: ExtensionContext) =
 
   // Status polling
   refreshStatus ()
-  let statusInterval = jsSetInterval refreshStatus 15000
+  let statusInterval = jsSetInterval refreshStatus 60000
   context.subscriptions.Add (
     { new Disposable with member _.dispose () = jsClearInterval statusInterval; null }
   )
