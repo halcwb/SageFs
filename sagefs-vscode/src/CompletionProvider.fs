@@ -28,11 +28,7 @@ let create (getClient: unit -> Client.Client option) (getWorkDir: unit -> string
         | None -> return [||]
         | Some c ->
           let text = doc.getText ()
-          let lines = text.Split('\n')
-          let mutable offset = 0
-          for i in 0 .. int pos.line - 1 do
-            offset <- offset + lines.[i].Length + 1
-          offset <- offset + int pos.character
+          let offset = int (doc.offsetAt pos)
           let! items = Client.getCompletions text offset (getWorkDir ()) c
           return
             items

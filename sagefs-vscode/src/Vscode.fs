@@ -46,6 +46,7 @@ type [<AllowNullLiteral>] TextDocument =
   abstract lineCount: float
   abstract fileName: string
   abstract uri: Uri
+  abstract offsetAt: position: Position -> float
 
 type [<AllowNullLiteral>] TextEditor =
   abstract document: TextDocument

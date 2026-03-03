@@ -75,9 +75,6 @@ let mutable onDaemonReady: (Client.Client -> unit) option = None
 
 // ── Helpers ────────────────────────────────────────────────────
 
-let getClient () =
-  match client with Some c -> c | None -> failwith "SageFs not activated"
-
 let getOutput () =
   match outputChannel with Some o -> o | None -> failwith "SageFs not activated"
 
@@ -344,9 +341,8 @@ let simpleCommand (defaultMsg: string) (action: Client.Client -> JS.Promise<Clie
       let msg = result |> Client.ApiOutcome.messageOrDefault defaultMsg
       match statusBarItem with
       | Some sb ->
-        let prev = sb.text
         sb.text <- sprintf "$(check) %s" msg
-        jsSetTimeout (fun () -> sb.text <- prev; refreshStatus () |> ignore) 3000 |> ignore
+        jsSetTimeout (fun () -> refreshStatus () |> ignore) 3000 |> ignore
       | None ->
         Window.showInformationMessage (sprintf "SageFs: %s" msg) [||] |> ignore
       refreshStatus ()
