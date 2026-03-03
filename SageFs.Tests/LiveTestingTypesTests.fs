@@ -3,6 +3,7 @@ module SageFs.Tests.LiveTestingTypesTests
 open System
 open Expecto
 open Expecto.Flip
+open FsCheck
 open SageFs.Features.LiveTesting
 
 [<Tests>]
@@ -613,6 +614,185 @@ let liveTestingTypesTests = testList "LiveTestingTypes" [
       let p = TestResultsBatchPayload.create RunGeneration.zero Fresh (BatchCompletion.Complete(0,0)) LiveTestingActivation.Active [||]
       TestResultsBatchPayload.isEmpty p
       |> Expect.isTrue "should be empty"
+    }
+  ]
+
+  testList "CoverageBitmap roundtrip" [
+    test "empty array" {
+      let input = [||]
+      let result = input |> CoverageBitmap.ofBoolArray |> CoverageBitmap.toBoolArray
+      result |> Expect.equal "empty roundtrip" input
+    }
+    test "single true" {
+      let input = [| true |]
+      let result = input |> CoverageBitmap.ofBoolArray |> CoverageBitmap.toBoolArray
+      result |> Expect.equal "single true" input
+    }
+    test "single false" {
+      let input = [| false |]
+      let result = input |> CoverageBitmap.ofBoolArray |> CoverageBitmap.toBoolArray
+      result |> Expect.equal "single false" input
+    }
+    test "exactly 64 elements (one word boundary)" {
+      let input = Array.init 64 (fun i -> i % 2 = 0)
+      let result = input |> CoverageBitmap.ofBoolArray |> CoverageBitmap.toBoolArray
+      result |> Expect.equal "64 elements" input
+    }
+    test "65 elements (crosses word boundary)" {
+      let input = Array.init 65 (fun i -> i % 3 = 0)
+      let result = input |> CoverageBitmap.ofBoolArray |> CoverageBitmap.toBoolArray
+      result |> Expect.equal "65 elements" input
+    }
+    test "128 elements (two full words)" {
+      let input = Array.init 128 (fun i -> i % 5 = 0)
+      let result = input |> CoverageBitmap.ofBoolArray |> CoverageBitmap.toBoolArray
+      result |> Expect.equal "128 elements" input
+    }
+    test "all true" {
+      let input = Array.create 200 true
+      let result = input |> CoverageBitmap.ofBoolArray |> CoverageBitmap.toBoolArray
+      result |> Expect.equal "all true" input
+    }
+    test "all false" {
+      let input = Array.create 200 false
+      let result = input |> CoverageBitmap.ofBoolArray |> CoverageBitmap.toBoolArray
+      result |> Expect.equal "all false" input
+    }
+  ]
+
+  testList "CoverageBitmap properties" [
+    testProperty "roundtrip preserves all elements" <| fun (bools: bool list) ->
+      let input = bools |> Array.ofList
+      let result = input |> CoverageBitmap.ofBoolArray |> CoverageBitmap.toBoolArray
+      result = input
+
+    testProperty "popCount equals number of true values" <| fun (bools: bool list) ->
+      let input = bools |> Array.ofList
+      let bm = CoverageBitmap.ofBoolArray input
+      let expected = input |> Array.filter id |> Array.length
+      CoverageBitmap.popCount bm = expected
+
+    testProperty "equivalent is reflexive" <| fun (bools: bool list) ->
+      let bm = bools |> Array.ofList |> CoverageBitmap.ofBoolArray
+      CoverageBitmap.equivalent bm bm
+
+    testProperty "equivalent detects differences" <| fun (bools: bool list) ->
+      let arr = bools |> Array.ofList
+      match arr.Length with
+      | 0 -> true
+      | _ ->
+        let bm1 = CoverageBitmap.ofBoolArray arr
+        let flipped = Array.copy arr
+        flipped.[0] <- not flipped.[0]
+        let bm2 = CoverageBitmap.ofBoolArray flipped
+        not (CoverageBitmap.equivalent bm1 bm2)
+
+    testProperty "intersect AND identity: a AND a = a" <| fun (bools: bool list) ->
+      let bm = bools |> Array.ofList |> CoverageBitmap.ofBoolArray
+      match bm.Count with
+      | 0 -> true
+      | _ ->
+        let result = CoverageBitmap.intersect bm bm
+        CoverageBitmap.equivalent result bm
+
+    testProperty "xorDiff self XOR: a XOR a = all zeros" <| fun (bools: bool list) ->
+      let bm = bools |> Array.ofList |> CoverageBitmap.ofBoolArray
+      match bm.Count with
+      | 0 -> true
+      | _ ->
+        let result = CoverageBitmap.xorDiff bm bm
+        CoverageBitmap.popCount result = 0
+  ]
+
+  testList "ILCoverage.computeLineCoverage" [
+    test "empty slots returns empty map" {
+      let state = { Slots = [||]; Hits = [||] }
+      ILCoverage.computeLineCoverage state
+      |> Expect.isEmpty "empty slots"
+    }
+    test "mismatched lengths returns empty map" {
+      let sp = { File = "a.fs"; Line = 1; Column = 0; EndLine = 1; EndColumn = 10; BranchId = 0 }
+      let state = { Slots = [| sp |]; Hits = [||] }
+      ILCoverage.computeLineCoverage state
+      |> Expect.isEmpty "mismatched"
+    }
+    test "single fully covered line" {
+      let sp = { File = "a.fs"; Line = 5; Column = 0; EndLine = 5; EndColumn = 10; BranchId = 0 }
+      let state = { Slots = [| sp |]; Hits = [| true |] }
+      let result = ILCoverage.computeLineCoverage state
+      let line = result |> Map.find "a.fs" |> Map.find 5
+      line |> Expect.equal "fully covered" LineCoverage.FullyCovered
+    }
+    test "single not covered line" {
+      let sp = { File = "a.fs"; Line = 5; Column = 0; EndLine = 5; EndColumn = 10; BranchId = 0 }
+      let state = { Slots = [| sp |]; Hits = [| false |] }
+      let result = ILCoverage.computeLineCoverage state
+      let line = result |> Map.find "a.fs" |> Map.find 5
+      line |> Expect.equal "not covered" LineCoverage.NotCovered
+    }
+    test "partially covered line (branch coverage)" {
+      let sp1 = { File = "a.fs"; Line = 10; Column = 0; EndLine = 10; EndColumn = 20; BranchId = 0 }
+      let sp2 = { File = "a.fs"; Line = 10; Column = 0; EndLine = 10; EndColumn = 20; BranchId = 1 }
+      let state = { Slots = [| sp1; sp2 |]; Hits = [| true; false |] }
+      let result = ILCoverage.computeLineCoverage state
+      let line = result |> Map.find "a.fs" |> Map.find 10
+      line |> Expect.equal "partial" (LineCoverage.PartiallyCovered(1, 2))
+    }
+    test "multiple files grouped correctly" {
+      let sp1 = { File = "a.fs"; Line = 1; Column = 0; EndLine = 1; EndColumn = 10; BranchId = 0 }
+      let sp2 = { File = "b.fs"; Line = 1; Column = 0; EndLine = 1; EndColumn = 10; BranchId = 0 }
+      let state = { Slots = [| sp1; sp2 |]; Hits = [| true; false |] }
+      let result = ILCoverage.computeLineCoverage state
+      result |> Map.count |> Expect.equal "two files" 2
+      result |> Map.find "a.fs" |> Map.find 1 |> Expect.equal "a covered" LineCoverage.FullyCovered
+      result |> Map.find "b.fs" |> Map.find 1 |> Expect.equal "b not covered" LineCoverage.NotCovered
+    }
+    test "multiple probes on same line all covered" {
+      let sp1 = { File = "a.fs"; Line = 7; Column = 0; EndLine = 7; EndColumn = 10; BranchId = 0 }
+      let sp2 = { File = "a.fs"; Line = 7; Column = 11; EndLine = 7; EndColumn = 20; BranchId = 1 }
+      let sp3 = { File = "a.fs"; Line = 7; Column = 21; EndLine = 7; EndColumn = 30; BranchId = 2 }
+      let state = { Slots = [| sp1; sp2; sp3 |]; Hits = [| true; true; true |] }
+      let result = ILCoverage.computeLineCoverage state
+      result |> Map.find "a.fs" |> Map.find 7 |> Expect.equal "all branches covered" LineCoverage.FullyCovered
+    }
+  ]
+
+  testList "InstrumentationMap" [
+    test "merge empty array returns empty" {
+      let result = InstrumentationMap.merge [||]
+      result.TotalProbes |> Expect.equal "zero probes" 0
+      result.Slots |> Expect.isEmpty "no slots"
+    }
+    test "merge single map returns identity" {
+      let sp = { File = "a.fs"; Line = 1; Column = 0; EndLine = 1; EndColumn = 10; BranchId = 0 }
+      let map = { Slots = [| sp |]; TotalProbes = 1; TrackerTypeName = "T"; HitsFieldName = "H" }
+      let result = InstrumentationMap.merge [| map |]
+      result.TotalProbes |> Expect.equal "one probe" 1
+      result.Slots |> Expect.hasLength "one slot" 1
+    }
+    test "merge concatenates slots in order" {
+      let sp1 = { File = "a.fs"; Line = 1; Column = 0; EndLine = 1; EndColumn = 10; BranchId = 0 }
+      let sp2 = { File = "b.fs"; Line = 2; Column = 0; EndLine = 2; EndColumn = 10; BranchId = 0 }
+      let m1 = { Slots = [| sp1 |]; TotalProbes = 1; TrackerTypeName = "T"; HitsFieldName = "H" }
+      let m2 = { Slots = [| sp2 |]; TotalProbes = 1; TrackerTypeName = "T"; HitsFieldName = "H" }
+      let result = InstrumentationMap.merge [| m1; m2 |]
+      result.TotalProbes |> Expect.equal "two probes" 2
+      result.Slots.[0].File |> Expect.equal "first slot file" "a.fs"
+      result.Slots.[1].File |> Expect.equal "second slot file" "b.fs"
+    }
+    test "toCoverageState with matching lengths" {
+      let sp = { File = "a.fs"; Line = 1; Column = 0; EndLine = 1; EndColumn = 10; BranchId = 0 }
+      let map = { Slots = [| sp |]; TotalProbes = 1; TrackerTypeName = "T"; HitsFieldName = "H" }
+      let state = InstrumentationMap.toCoverageState [| true |] map
+      state.Slots |> Expect.hasLength "one slot" 1
+      state.Hits.[0] |> Expect.isTrue "hit"
+    }
+    test "toCoverageState with mismatched lengths returns empty" {
+      let sp = { File = "a.fs"; Line = 1; Column = 0; EndLine = 1; EndColumn = 10; BranchId = 0 }
+      let map = { Slots = [| sp |]; TotalProbes = 1; TrackerTypeName = "T"; HitsFieldName = "H" }
+      let state = InstrumentationMap.toCoverageState [| true; false |] map
+      state.Slots |> Expect.isEmpty "empty on mismatch"
+      state.Hits |> Expect.isEmpty "empty hits on mismatch"
     }
   ]
 ]
