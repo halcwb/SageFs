@@ -9,6 +9,70 @@ open SageFs
 open SageFs.Affordances
 open Falco.Markup
 
+/// Shared DOM element IDs — single source of truth for strings that cross
+/// the F#/JS boundary (used in both Attr.id and getElementById calls).
+[<RequireQualifiedAccess>]
+module DomIds =
+  let [<Literal>] Main = "main"
+  let [<Literal>] OutputPanel = "output-panel"
+  let [<Literal>] SessionsPanel = "sessions-panel"
+  let [<Literal>] EvalResult = "eval-result"
+  let [<Literal>] EvalTextarea = "eval-textarea"
+  let [<Literal>] EvalStats = "eval-stats"
+  let [<Literal>] EvaluateSection = "evaluate-section"
+  let [<Literal>] SessionStatus = "session-status"
+  let [<Literal>] SessionPicker = "session-picker"
+  let [<Literal>] SessionContext = "session-context"
+  let [<Literal>] DiagnosticsPanel = "diagnostics-panel"
+  let [<Literal>] DiscoveredProjects = "discovered-projects"
+  let [<Literal>] HotReloadPanel = "hot-reload-panel"
+  let [<Literal>] TestTrace = "test-trace"
+  let [<Literal>] ThemeVars = "theme-vars"
+  let [<Literal>] ThemePicker = "theme-picker"
+  let [<Literal>] ServerStatus = "server-status"
+  let [<Literal>] CompletionDropdown = "completion-dropdown"
+  let [<Literal>] KeyboardHelp = "keyboard-help"
+  let [<Literal>] KeyboardHelpWrapper = "keyboard-help-wrapper"
+  let [<Literal>] ConnectionCounts = "connection-counts"
+  let [<Literal>] EditorArea = "editor-area"
+  let [<Literal>] OutputSection = "output-section"
+  let [<Literal>] Sidebar = "sidebar"
+  let [<Literal>] SidebarResize = "sidebar-resize"
+
+/// Datastar signal names — shared between Ds.signal init and Ds.bind/Ds.show refs.
+[<RequireQualifiedAccess>]
+module Signals =
+  let [<Literal>] SessionId = "sessionId"
+  let [<Literal>] Code = "code"
+  let [<Literal>] HelpVisible = "helpVisible"
+  let [<Literal>] SidebarOpen = "sidebarOpen"
+  let [<Literal>] NewSessionDir = "newSessionDir"
+  let [<Literal>] ManualProjects = "manualProjects"
+  let [<Literal>] EvalLoading = "evalLoading"
+  let [<Literal>] DiscoverLoading = "discoverLoading"
+  let [<Literal>] CreateLoading = "createLoading"
+  let [<Literal>] TempLoading = "tempLoading"
+
+/// Precomputed syntax-color RGB → CSS class lookup (eliminates 12-branch if/elif chain)
+let syntaxColorLookup =
+  let t = Theme.defaults
+  dict [
+    Theme.hexToRgb t.SynKeyword, "syn-keyword"
+    Theme.hexToRgb t.SynString, "syn-string"
+    Theme.hexToRgb t.SynComment, "syn-comment"
+    Theme.hexToRgb t.SynNumber, "syn-number"
+    Theme.hexToRgb t.SynOperator, "syn-operator"
+    Theme.hexToRgb t.SynType, "syn-type"
+    Theme.hexToRgb t.SynFunction, "syn-function"
+    Theme.hexToRgb t.SynModule, "syn-module"
+    Theme.hexToRgb t.SynAttribute, "syn-attribute"
+    Theme.hexToRgb t.SynPunctuation, "syn-punctuation"
+    Theme.hexToRgb t.SynConstant, "syn-constant"
+    Theme.hexToRgb t.SynProperty, "syn-property"
+  ]
+
+let defaultThemeName = "Kanagawa"
+
 /// Discriminated union for output line kinds — replaces stringly-typed matching.
 type OutputLineKind =
   | ResultLine

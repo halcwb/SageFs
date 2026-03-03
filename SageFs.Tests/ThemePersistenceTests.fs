@@ -7,6 +7,7 @@ open Falco.Markup
 open SageFs
 open SageFs.Server.Dashboard
 open SageFs.Server.DashboardTypes
+open SageFs.Server.DashboardFragments
 open SageFs.DaemonClient
 
 do try VerifyTests.VerifierSettings.DisableRequireUniquePrefix() with _ -> ()

@@ -3,6 +3,7 @@ module SageFs.Tests.DashboardParsingTests
 open Expecto
 open SageFs
 open SageFs.Server.DashboardTypes
+open SageFs.Server.DashboardFragments
 open System.Text.RegularExpressions
 
 /// Dashboard output/diagnostics parsers — mirrors Dashboard.fs logic.
@@ -520,41 +521,41 @@ let dashboardActualParsingTests = testList "Dashboard actual parsing" [
 [<Tests>]
 let captureToCssClassTests = testList "captureToCssClass" [
   testCase "keyword" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "keyword") "syn-keyword" "keyword")
+    Expect.equal (captureToCssClass "keyword") "syn-keyword" "keyword")
   testCase "keyword.control prefix" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "keyword.control") "syn-keyword" "prefix")
+    Expect.equal (captureToCssClass "keyword.control") "syn-keyword" "prefix")
   testCase "string" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "string") "syn-string" "string")
+    Expect.equal (captureToCssClass "string") "syn-string" "string")
   testCase "string.special prefix" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "string.special") "syn-string" "prefix")
+    Expect.equal (captureToCssClass "string.special") "syn-string" "prefix")
   testCase "comment" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "comment") "syn-comment" "comment")
+    Expect.equal (captureToCssClass "comment") "syn-comment" "comment")
   testCase "number" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "number") "syn-number" "number")
+    Expect.equal (captureToCssClass "number") "syn-number" "number")
   testCase "operator" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "operator") "syn-operator" "operator")
+    Expect.equal (captureToCssClass "operator") "syn-operator" "operator")
   testCase "type" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "type") "syn-type" "type")
+    Expect.equal (captureToCssClass "type") "syn-type" "type")
   testCase "type.builtin prefix" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "type.builtin") "syn-type" "prefix")
+    Expect.equal (captureToCssClass "type.builtin") "syn-type" "prefix")
   testCase "function" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "function") "syn-function" "function")
+    Expect.equal (captureToCssClass "function") "syn-function" "function")
   testCase "variable" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "variable") "syn-variable" "variable")
+    Expect.equal (captureToCssClass "variable") "syn-variable" "variable")
   testCase "punctuation" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "punctuation") "syn-punctuation" "punctuation")
+    Expect.equal (captureToCssClass "punctuation") "syn-punctuation" "punctuation")
   testCase "constant" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "constant") "syn-constant" "constant")
+    Expect.equal (captureToCssClass "constant") "syn-constant" "constant")
   testCase "module" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "module") "syn-module" "module")
+    Expect.equal (captureToCssClass "module") "syn-module" "module")
   testCase "attribute" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "attribute") "syn-attribute" "attribute")
+    Expect.equal (captureToCssClass "attribute") "syn-attribute" "attribute")
   testCase "property" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "property") "syn-property" "property")
+    Expect.equal (captureToCssClass "property") "syn-property" "property")
   testCase "boolean maps to syn-constant" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "boolean") "syn-constant" "boolean→constant")
+    Expect.equal (captureToCssClass "boolean") "syn-constant" "boolean→constant")
   testCase "unknown returns empty" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "whatever") "" "unknown")
+    Expect.equal (captureToCssClass "whatever") "" "unknown")
   testCase "empty returns empty" (fun () ->
-    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "") "" "empty")
+    Expect.equal (captureToCssClass "") "" "empty")
 ]

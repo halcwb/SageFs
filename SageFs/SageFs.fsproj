@@ -32,6 +32,7 @@
     <ItemGroup>
         <Compile Include="DaemonState.fs" />
         <Compile Include="DashboardTypes.fs" />
+    <Compile Include="DashboardFragments.fs" />
         <Compile Include="Dashboard.fs" />
         <Compile Include="PostgresInfra.fs" />
         <Compile Include="McpTools.fs" />
