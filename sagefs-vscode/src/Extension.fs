@@ -36,6 +36,10 @@ let mutable testAdapter: TestCtrl.TestAdapter option = None
 let mutable dashboardPanel: WebviewPanel option = None
 let mutable typeExplorer: TypeExpl.TypeExplorer option = None
 
+// Crash detection: track connected→offline transitions
+let mutable wasRunning = false
+let mutable crashPromptShown = false
+
 // FSI bindings and test trace — maintained by SSE events (server-side CQRS)
 // No client-side parsing; server pushes snapshots via SSE bindings_snapshot/test_trace events
 
@@ -148,6 +152,18 @@ let refreshStatus () =
     try
       let! running = Client.isRunning c
       if not running then
+        // Detect daemon crash: was running, now offline
+        match wasRunning && not crashPromptShown with
+        | true ->
+          crashPromptShown <- true
+          let! choice = Window.showWarningMessage "SageFs daemon has stopped." [| "Restart"; "Dismiss" |]
+          match choice with
+          | Some "Restart" ->
+            crashPromptShown <- false
+            Commands.executeCommand "sagefs.start" |> promiseIgnore
+          | _ -> ()
+        | false -> ()
+        wasRunning <- false
         sb.text <- "$(circle-slash) SageFs: offline"
         sb.backgroundColor <- None
         sb.show ()
@@ -155,6 +171,8 @@ let refreshStatus () =
         HotReload.setSession c None
         SessionCtx.setSession c None
       else
+        wasRunning <- true
+        crashPromptShown <- false
         let! status = Client.getStatus c
         let! sys = Client.getSystemStatus c
         let supervised =
