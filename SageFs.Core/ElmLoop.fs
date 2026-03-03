@@ -33,6 +33,21 @@ module ElmLoop =
 
   let private kvp k v = System.Collections.Generic.KeyValuePair(k, v :> obj)
 
+  /// Label a DU value for diagnostics. Unwraps one level for nested DUs:
+  /// SageFsMsg.Event(SageFsEvent.EvalCompleted _) → "Event.EvalCompleted"
+  /// SageFsMsg.CycleTheme → "CycleTheme"
+  let private msgLabel (msg: obj) : string =
+    let t = msg.GetType()
+    match Microsoft.FSharp.Reflection.FSharpType.IsUnion(t) with
+    | true ->
+      let case, fields = Microsoft.FSharp.Reflection.FSharpValue.GetUnionFields(msg, t)
+      match fields.Length = 1 && Microsoft.FSharp.Reflection.FSharpType.IsUnion(fields.[0].GetType()) with
+      | true ->
+        let inner, _ = Microsoft.FSharp.Reflection.FSharpValue.GetUnionFields(fields.[0], fields.[0].GetType())
+        sprintf "%s.%s" case.Name inner.Name
+      | false -> case.Name
+    | false -> t.Name
+
   /// Start the Elm loop with an initial model.
   /// Uses a dedicated drain thread (not thread pool) to avoid starvation.
   /// Dispatch enqueues + signals; the drain thread wakes, processes all
@@ -70,7 +85,7 @@ module ElmLoop =
           while queue.TryDequeue(&item) do
             count <- count + 1
             Instrumentation.elmDispatchCount.Add(1L)
-            let typeName = item.GetType().Name
+            let typeName = msgLabel (item :> obj)
             match msgCounts.TryGetValue(typeName) with
             | true, c -> msgCounts.[typeName] <- c + 1
             | false, _ -> msgCounts.[typeName] <- 1

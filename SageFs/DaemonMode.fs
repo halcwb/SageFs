@@ -478,7 +478,10 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
           lastStateJson <- json
           let outputChanged = outputCount <> lastLoggedOutputCount
           let diagChanged = diagCount <> lastLoggedDiagCount
-          match (not TerminalUIState.IsActive) && (outputChanged || diagChanged) with
+          // Rate-limit output logging: only log when output jumps by ≥50 or diags change.
+          // During warmup, FSI produces ~500 output lines → 83 log entries without this.
+          let significantOutputChange = abs (outputCount - lastLoggedOutputCount) >= 50
+          match (not TerminalUIState.IsActive) && (significantOutputChange || diagChanged) with
           | true ->
             lastLoggedOutputCount <- outputCount
             lastLoggedDiagCount <- diagCount
