@@ -1,0 +1,588 @@
+/* ═══════════════════════════════════════════════════════════════════
+   SageFs Dashboard Stylesheet
+   Extracted from inline Elem.style blocks in Dashboard.fs
+   Uses CSS nesting (Baseline 2024) for organization
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Reset & Root ─────────────────────────────────────────────── */
+
+:root {
+  --font-size: 14px;
+  --sidebar-width: 320px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── Base ─────────────────────────────────────────────────────── */
+
+body {
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  background: var(--bg-default);
+  color: var(--fg-default);
+  font-size: var(--font-size);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+h1 {
+  color: var(--fg-blue);
+  font-size: 1.4rem;
+}
+
+/* ── Layout ───────────────────────────────────────────────────── */
+
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border-normal);
+  flex-shrink: 0;
+}
+
+.app-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────── */
+
+.sidebar {
+  width: var(--sidebar-width);
+  border-left: 1px solid var(--border-normal);
+  background: var(--bg-panel);
+  overflow-y: auto;
+  flex-shrink: 0;
+  transition: width 0.2s, padding 0.2s;
+
+  &.collapsed {
+    width: 0;
+    padding: 0;
+    overflow: hidden;
+    border-left: none;
+  }
+}
+
+.sidebar-inner {
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: var(--sidebar-width);
+}
+
+.sidebar-toggle {
+  background: none;
+  border: 1px solid var(--border-normal);
+  color: var(--fg-default);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-family: inherit;
+
+  &:hover {
+    background: var(--border-normal);
+  }
+}
+
+.resize-handle {
+  width: 4px;
+  background: var(--border-normal);
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background 0.15s;
+
+  &:hover, &.dragging {
+    background: var(--border-focus);
+  }
+}
+
+/* ── Panels ───────────────────────────────────────────────────── */
+
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-normal);
+  border-radius: 8px;
+  padding: 0.75rem;
+
+  & h2 {
+    color: var(--fg-blue);
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-normal);
+    padding-bottom: 0.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+}
+
+.panel-header-btn {
+  background: none;
+  border: 1px solid var(--border-normal);
+  color: var(--fg-default);
+  border-radius: 4px;
+  padding: 1px 8px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-family: inherit;
+
+  &:hover {
+    background: var(--border-normal);
+  }
+}
+
+/* ── Output Area ──────────────────────────────────────────────── */
+
+.output-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border-normal);
+}
+
+.output-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  flex-shrink: 0;
+
+  & h2 {
+    color: var(--fg-blue);
+    font-size: 1rem;
+    margin: 0;
+  }
+}
+
+#output-panel {
+  flex: 1;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  background: var(--bg-default);
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 0.85rem;
+  padding: 0.25rem 0;
+}
+
+.output-line {
+  font-size: 0.85rem;
+  padding: 1px 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.output-result { color: var(--fg-green); }
+.output-error { color: var(--fg-red); }
+.output-info { color: var(--fg-blue); }
+.output-system { color: var(--fg-dim); }
+
+/* ── Eval Area ────────────────────────────────────────────────── */
+
+.eval-area {
+  flex-shrink: 0;
+  padding: 0.75rem 1rem;
+
+  & summary {
+    list-style: none;
+    user-select: none;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+
+    & span:first-child::before {
+      content: '';
+    }
+  }
+}
+
+.eval-input {
+  width: 100%;
+  background: var(--bg-editor);
+  color: var(--fg-default);
+  border: 1px solid var(--border-normal);
+  border-radius: 4px;
+  padding: 0.5rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  resize: vertical;
+  min-height: 80px;
+  tab-size: 2;
+
+  &:focus {
+    outline: 1px solid var(--border-focus);
+    border-color: var(--border-focus);
+  }
+}
+
+.eval-btn {
+  background: var(--fg-blue);
+  color: var(--bg-default);
+  border: none;
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: bold;
+  margin-top: 0.5rem;
+  transition: opacity 0.15s;
+
+  &:hover { opacity: 0.85; }
+  &:active { opacity: 0.7; }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
+/* ── Editor ───────────────────────────────────────────────────── */
+
+#editor-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ── Session Picker ───────────────────────────────────────────── */
+
+#session-picker {
+  &:empty {
+    display: none;
+  }
+
+  &:not(:empty) ~ #editor-area {
+    display: none;
+  }
+}
+
+.picker-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 2rem;
+  gap: 1.5rem;
+
+  & h2 {
+    color: var(--fg-blue);
+    font-size: 1.4rem;
+    margin-bottom: 0.5rem;
+  }
+}
+
+.picker-options {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: 100%;
+  max-width: 900px;
+}
+
+.picker-card {
+  flex: 1;
+  min-width: 240px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-normal);
+  border-radius: 8px;
+  padding: 1.25rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+
+  &:hover {
+    border-color: var(--fg-blue);
+    background: var(--bg-focus);
+  }
+
+  & h3 {
+    color: var(--fg-blue);
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+  }
+
+  & p {
+    color: var(--fg-dim);
+    font-size: 0.85rem;
+    line-height: 1.4;
+  }
+}
+
+.picker-form {
+  width: 100%;
+  max-width: 500px;
+
+  & .eval-input {
+    min-height: auto;
+    height: 2rem;
+    margin-bottom: 0.5rem;
+  }
+}
+
+.picker-previous {
+  width: 100%;
+  max-width: 600px;
+}
+
+.picker-session-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border-normal);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.1s;
+
+  &:hover {
+    background: var(--bg-focus);
+  }
+}
+
+/* ── Status Badges ────────────────────────────────────────────── */
+
+.status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+.status-ready { background: var(--fg-green); color: var(--bg-default); }
+.status-warming { background: var(--fg-yellow); color: var(--bg-default); }
+.status-faulted { background: var(--fg-red); color: white; }
+
+/* ── Session Controls ─────────────────────────────────────────── */
+
+.session-btn {
+  background: var(--border-normal);
+  color: var(--fg-default);
+  border: none;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--fg-blue);
+    color: var(--bg-default);
+  }
+}
+
+.session-btn-danger:hover {
+  background: var(--fg-red);
+  color: white;
+}
+
+.session-selected {
+  background: var(--bg-selection);
+  border-left: 3px solid var(--border-focus);
+}
+
+.session-row:hover {
+  background: var(--bg-selection);
+}
+
+/* ── Diagnostics ──────────────────────────────────────────────── */
+
+.diag {
+  font-size: 0.85rem;
+  padding: 1px 0.5rem;
+  line-height: 1.5;
+}
+
+.diag-error { color: var(--fg-red); }
+.diag-warning { color: var(--fg-yellow); }
+
+.diag-location {
+  font-family: monospace;
+  background: var(--bg-selection);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.8rem;
+  margin-right: 0.25rem;
+}
+
+/* ── Meta & Utility ───────────────────────────────────────────── */
+
+.meta {
+  color: var(--fg-dim);
+  font-size: 0.8rem;
+}
+
+.log-box {
+  background: var(--bg-default);
+  border: 1px solid var(--border-normal);
+  border-radius: 4px;
+  padding: 0.5rem 0;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 0.85rem;
+}
+
+/* ── Connection Banner ────────────────────────────────────────── */
+
+.conn-banner {
+  padding: 4px 1rem;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: bold;
+  border-radius: 0;
+  transition: all 0.3s;
+  flex-shrink: 0;
+}
+
+.conn-connected { background: var(--fg-green); color: var(--bg-default); }
+.conn-disconnected { background: var(--fg-red); color: white; animation: pulse 1.5s infinite; }
+.conn-reconnecting { background: var(--fg-yellow); color: var(--bg-default); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* ── Theme Picker ─────────────────────────────────────────────── */
+
+.theme-select {
+  width: 100%;
+  background: var(--bg-editor);
+  color: var(--fg-default);
+  border: 1px solid var(--border-normal);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+
+  &:focus {
+    outline: 1px solid var(--border-focus);
+    border-color: var(--border-focus);
+  }
+}
+
+/* ── Syntax Highlighting ──────────────────────────────────────── */
+
+.syn-keyword { color: var(--syn-keyword); }
+.syn-string { color: var(--syn-string); }
+.syn-comment { color: var(--syn-comment); font-style: italic; }
+.syn-number { color: var(--syn-number); }
+.syn-operator { color: var(--syn-operator); }
+.syn-type { color: var(--syn-type); }
+.syn-function { color: var(--syn-function); }
+.syn-variable { color: var(--syn-variable); }
+.syn-punctuation { color: var(--syn-punctuation); }
+.syn-constant { color: var(--syn-constant); }
+.syn-module { color: var(--syn-module); }
+.syn-attribute { color: var(--syn-attribute); }
+.syn-directive { color: var(--syn-directive); }
+.syn-property { color: var(--syn-property); }
+
+/* ── Responsive ───────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 10;
+
+    &.collapsed {
+      width: 0;
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Semantic Utility Classes
+   Replace repeated inline Attr.style patterns
+   ═══════════════════════════════════════════════════════════════════ */
+
+.flex-row {
+  display: flex;
+  align-items: center;
+}
+
+.flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.badge {
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.meta-text {
+  font-size: 0.75rem;
+  color: var(--fg-dim);
+}
+
+.text-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diag-code {
+  background: rgba(0,0,0,0.1);
+  padding: 0.1em 0.3em;
+  border-radius: 2px;
+  font-size: 0.65rem;
+}
+
+/* Diagnostic error block — failed opens, warmup errors */
+.diag-error-block {
+  margin: 0.4em 0;
+  padding: 0.4em;
+  background: color-mix(in oklch, var(--fg-red) 8%, transparent);
+  border-left: 3px solid var(--fg-red);
+  border-radius: 3px;
+}
+
+/* Progress bar track */
+.progress-track {
+  height: 8px;
+  background: rgba(0,0,0,0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+/* Small progress bar for test trace */
+.progress-track-sm {
+  height: 4px;
+  background: var(--bg-selection);
+  border-radius: 2px;
+  overflow: hidden;
+}

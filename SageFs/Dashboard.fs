@@ -47,6 +47,14 @@ open SageFs.Utils
 
 module FalcoResponse = Falco.Response
 
+/// Dashboard CSS — loaded from embedded resource at startup.
+/// Served via GET /dashboard/dashboard.css with proper caching.
+let dashboardCss =
+  let asm = System.Reflection.Assembly.GetExecutingAssembly()
+  use stream = asm.GetManifestResourceStream("SageFs.dashboard.css")
+  use reader = new StreamReader(stream)
+  reader.ReadToEnd()
+
 let defaultThemeName = "Kanagawa"
 
 /// Precomputed syntax-color RGB → CSS class lookup (eliminates 12-branch if/elif chain)
@@ -194,7 +202,7 @@ let discoverProjects (workingDir: string) : DiscoveredProjects =
 let renderKeyboardHelp () =
   let shortcut key desc =
     Elem.tr [] [
-      Elem.td [ Attr.style "padding: 2px 8px; font-family: monospace; color: var(--accent);" ] [ Text.raw key ]
+      Elem.td [ Attr.style "padding: 2px 8px; font-family: monospace; color: var(--fg-blue);" ] [ Text.raw key ]
       Elem.td [ Attr.style "padding: 2px 8px;" ] [ Text.raw desc ]
     ]
   Elem.div [ Attr.id "keyboard-help"; Attr.style "margin-top: 0.5rem;" ] [
@@ -283,102 +291,7 @@ let renderShell (version: string) =
         })();
       """ ]
       Ds.cdnScript
-      Elem.style [] [ Text.raw """
-        :root { --font-size: 14px; --sidebar-width: 320px; }
-        * { box-sizing: border-box; margin: 0; padding: 0; }""" ]
-      Elem.style [] [ Text.raw """
-        body { font-family: 'Cascadia Code', 'Fira Code', monospace; background: var(--bg-default); color: var(--fg-default); font-size: var(--font-size); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-        h1 { color: var(--fg-blue); font-size: 1.4rem; }
-        .app-header { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 1rem; border-bottom: 1px solid var(--border-normal); flex-shrink: 0; }
-        .app-layout { display: flex; flex: 1; overflow: hidden; }
-        .main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
-        .sidebar { width: var(--sidebar-width); border-left: 1px solid var(--border-normal); background: var(--bg-panel); overflow-y: auto; flex-shrink: 0; transition: width 0.2s, padding 0.2s; }
-        .sidebar.collapsed { width: 0; padding: 0; overflow: hidden; border-left: none; }
-        .sidebar-inner { padding: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem; min-width: var(--sidebar-width); }
-        .panel { background: var(--bg-panel); border: 1px solid var(--border-normal); border-radius: 8px; padding: 0.75rem; }
-        .panel h2 { color: var(--fg-blue); font-size: 0.9rem; margin-bottom: 0.5rem; border-bottom: 1px solid var(--border-normal); padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; }
-        .output-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; border-bottom: 1px solid var(--border-normal); }
-        .output-header { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 1rem; flex-shrink: 0; }
-        .output-header h2 { color: var(--fg-blue); font-size: 1rem; margin: 0; }
-        #output-panel { flex: 1; overflow-y: auto; scroll-behavior: smooth; background: var(--bg-default); font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.85rem; padding: 0.25rem 0; }
-        .eval-area { flex-shrink: 0; padding: 0.75rem 1rem; }
-        .eval-area summary { list-style: none; user-select: none; }
-        .eval-area summary::-webkit-details-marker { display: none; }
-        .eval-area[open] summary span:first-child { }
-        .eval-area summary span:first-child::before { content: ''; }
-        #editor-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-        #session-picker:empty { display: none; }
-        #session-picker:not(:empty) ~ #editor-area { display: none; }
-        .picker-container { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; padding: 2rem; gap: 1.5rem; }
-        .picker-container h2 { color: var(--fg-blue); font-size: 1.4rem; margin-bottom: 0.5rem; }
-        .picker-options { display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center; width: 100%; max-width: 900px; }
-        .picker-card { flex: 1; min-width: 240px; background: var(--bg-panel); border: 1px solid var(--border-normal); border-radius: 8px; padding: 1.25rem; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
-        .picker-card:hover { border-color: var(--fg-blue); background: var(--bg-highlight); }
-        .picker-card h3 { color: var(--fg-blue); font-size: 1rem; margin-bottom: 0.5rem; }
-        .picker-card p { color: var(--fg-dim); font-size: 0.85rem; line-height: 1.4; }
-        .picker-form { width: 100%; max-width: 500px; }
-        .picker-form .eval-input { min-height: auto; height: 2rem; margin-bottom: 0.5rem; }
-        .picker-previous { width: 100%; max-width: 600px; }
-        .picker-session-row { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border-normal); cursor: pointer; border-radius: 4px; transition: background 0.1s; }
-        .picker-session-row:hover { background: var(--bg-highlight); }
-        .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; }
-        .status-ready { background: var(--fg-green); color: var(--bg-default); }
-        .status-warming { background: var(--fg-yellow); color: var(--bg-default); }
-        .status-faulted { background: var(--fg-red); color: white; }
-        .output-line { font-size: 0.85rem; padding: 1px 0.5rem; white-space: pre-wrap; word-break: break-all; line-height: 1.5; }
-        .output-result { color: var(--fg-green); }
-        .output-error { color: var(--fg-red); }
-        .output-info { color: var(--fg-blue); }
-        .output-system { color: var(--fg-dim); }
-        .diag { font-size: 0.85rem; padding: 1px 0.5rem; line-height: 1.5; }
-        .diag-error { color: var(--fg-red); }
-        .diag-warning { color: var(--fg-yellow); }
-        .diag-location { font-family: monospace; background: var(--bg-selection); padding: 1px 4px; border-radius: 3px; font-size: 0.8rem; margin-right: 0.25rem; }
-        .meta { color: var(--fg-dim); font-size: 0.8rem; }
-        .eval-input { width: 100%; background: var(--bg-editor); color: var(--fg-default); border: 1px solid var(--border-normal); border-radius: 4px; padding: 0.5rem; font-family: inherit; font-size: 0.9rem; resize: vertical; min-height: 80px; tab-size: 2; }
-        .eval-input:focus { outline: 1px solid var(--border-focus); border-color: var(--border-focus); }
-        .eval-btn { background: var(--fg-blue); color: var(--bg-default); border: none; border-radius: 4px; padding: 0.5rem 1rem; cursor: pointer; font-family: inherit; font-weight: bold; margin-top: 0.5rem; transition: opacity 0.15s; }
-        .eval-btn:hover { opacity: 0.85; }
-        .eval-btn:active { opacity: 0.7; }
-        .session-btn { background: var(--border-normal); color: var(--fg-default); border: none; border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 0.8rem; transition: background 0.15s; }
-        .session-btn:hover { background: var(--fg-blue); color: var(--bg-default); }
-        .session-btn-danger:hover { background: var(--fg-red); color: white; }
-        .session-selected { background: var(--bg-selection); border-left: 3px solid var(--border-focus); }
-        .session-row:hover { background: var(--bg-selection); }
-        .panel-header-btn { background: none; border: 1px solid var(--border-normal); color: var(--fg-default); border-radius: 4px; padding: 1px 8px; cursor: pointer; font-size: 0.75rem; font-family: inherit; }
-        .panel-header-btn:hover { background: var(--border-normal); }
-        .log-box { background: var(--bg-default); border: 1px solid var(--border-normal); border-radius: 4px; padding: 0.5rem 0; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.85rem; }
-        .conn-banner { padding: 4px 1rem; text-align: center; font-size: 0.8rem; font-weight: bold; border-radius: 0; transition: all 0.3s; flex-shrink: 0; }
-        .conn-connected { background: var(--fg-green); color: var(--bg-default); }
-        .conn-disconnected { background: var(--fg-red); color: white; animation: pulse 1.5s infinite; }
-        .conn-reconnecting { background: var(--fg-yellow); color: var(--bg-default); }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
-        .eval-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .sidebar-toggle { background: none; border: 1px solid var(--border-normal); color: var(--fg-default); border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 0.85rem; font-family: inherit; }
-        .sidebar-toggle:hover { background: var(--border-normal); }
-        .resize-handle { width: 4px; background: var(--border-normal); cursor: col-resize; flex-shrink: 0; transition: background 0.15s; }
-        .resize-handle:hover, .resize-handle.dragging { background: var(--border-focus); }
-        .theme-select { width: 100%; background: var(--bg-editor); color: var(--fg-default); border: 1px solid var(--border-normal); border-radius: 4px; padding: 4px 8px; font-family: inherit; font-size: 0.85rem; cursor: pointer; }
-        .theme-select:focus { outline: 1px solid var(--border-focus); border-color: var(--border-focus); }
-        .syn-keyword { color: var(--syn-keyword); }
-        .syn-string { color: var(--syn-string); }
-        .syn-comment { color: var(--syn-comment); font-style: italic; }
-        .syn-number { color: var(--syn-number); }
-        .syn-operator { color: var(--syn-operator); }
-        .syn-type { color: var(--syn-type); }
-        .syn-function { color: var(--syn-function); }
-        .syn-variable { color: var(--syn-variable); }
-        .syn-punctuation { color: var(--syn-punctuation); }
-        .syn-constant { color: var(--syn-constant); }
-        .syn-module { color: var(--syn-module); }
-        .syn-attribute { color: var(--syn-attribute); }
-        .syn-directive { color: var(--syn-directive); }
-        .syn-property { color: var(--syn-property); }
-        @media (max-width: 768px) {
-          .sidebar { position: fixed; right: 0; top: 0; bottom: 0; z-index: 10; }
-          .sidebar.collapsed { width: 0; }
-        }
-      """ ]
+      Elem.link [ Attr.rel "stylesheet"; Attr.href "/dashboard/dashboard.css" ]
     ]
     Elem.body [ Ds.safariStreamingFix ] [
       // Dedicated init element: connects to SSE stream, defines Datastar signals.
@@ -647,6 +560,7 @@ type ParsedSession = {
   Uptime: string
   WorkingDir: string
   LastActivity: string
+  StandbyLabel: string
 }
 
 let parseSessionLines (content: string) =
@@ -678,7 +592,8 @@ let parseSessionLines (content: string) =
         EvalCount = match evalsMatch.Success with | true -> int evalsMatch.Groups.[1].Value | false -> 0
         Uptime = extractTag "up:" m.Groups.[7].Value
         WorkingDir = extractTag "dir:" m.Groups.[8].Value
-        LastActivity = extractTag "last:" m.Groups.[9].Value }
+        LastActivity = extractTag "last:" m.Groups.[9].Value
+        StandbyLabel = "" }
     | false ->
       { Id = l.Trim()
         Status = "unknown"
@@ -689,7 +604,8 @@ let parseSessionLines (content: string) =
         EvalCount = 0
         Uptime = ""
         WorkingDir = ""
-        LastActivity = "" })
+        LastActivity = ""
+        StandbyLabel = "" })
   |> Array.toList
 
 let isCreatingSession (content: string) =
@@ -714,6 +630,7 @@ type DashboardQueries = {
   GetPreviousSessions: unit -> Threading.Tasks.Task<PreviousSession list>
   GetAllSessions: unit -> Threading.Tasks.Task<WorkerProtocol.SessionInfo list>
   GetStandbyInfo: unit -> Threading.Tasks.Task<StandbyInfo>
+  GetSessionStandbyInfo: string -> StandbyInfo
   GetHotReloadState: string -> Threading.Tasks.Task<{| files: {| path: string; watched: bool |} list; watchedCount: int |} option>
   GetWarmupContext: string -> Threading.Tasks.Task<WarmupContext option>
   GetWarmupProgress: string -> string
@@ -817,7 +734,7 @@ let renderSessionPicker (previous: PreviousSession list) =
               [ Attr.class' "picker-session-row"
                 Ds.onClick (Ds.post (sprintf "/dashboard/session/resume/%s" s.Id)) ]
               [ Elem.div [ Attr.style "flex: 1; min-width: 0;" ] [
-                  Elem.div [ Attr.style "display: flex; align-items: center; gap: 0.5rem;" ] [
+                  Elem.div [ Attr.class' "flex-row"; Attr.style "gap: 0.5rem;" ] [
                     Elem.span [ Attr.style "font-weight: bold;" ] [ Text.raw s.Id ]
                     Elem.span [ Attr.class' "meta" ] [ Text.raw age ]
                   ]
@@ -833,7 +750,7 @@ let renderSessionPicker (previous: PreviousSession list) =
                     Elem.div [ Attr.style "display: flex; gap: 4px; margin-top: 2px; flex-wrap: wrap;" ] [
                       yield! s.Projects |> List.map (fun p ->
                         Elem.span
-                          [ Attr.style "font-size: 0.65rem; padding: 1px 5px; border-radius: 3px; background: var(--bg-highlight); color: var(--fg-dim);" ]
+                          [ Attr.class' "badge"; Attr.style "background: var(--bg-focus); color: var(--fg-dim);" ]
                           [ Text.raw (Path.GetFileName p) ])
                     ]
                   | true -> ()
@@ -850,12 +767,12 @@ let renderSessionPickerEmpty =
   Elem.div [ Attr.id "session-picker" ] []
 
 /// Render sessions as an HTML fragment with action buttons.
-let renderSessions (sessions: ParsedSession list) (creating: bool) (standbyLabel: string) =
+let renderSessions (sessions: ParsedSession list) (creating: bool) =
   Elem.div [ Attr.id "sessions-panel" ] [
     match creating with
     | true ->
       Elem.div
-        [ Attr.style "padding: 8px; text-align: center; color: var(--accent); font-size: 0.85rem;" ]
+        [ Attr.style "padding: 8px; text-align: center; color: var(--fg-blue); font-size: 0.85rem;" ]
         [ Text.raw "⏳ Creating session..." ]
     | false -> ()
     match sessions.IsEmpty && not creating with
@@ -874,17 +791,16 @@ let renderSessions (sessions: ParsedSession list) (creating: bool) (standbyLabel
           | false, true -> "output-result"
           | false, false -> ""
         Elem.div
-          [ Attr.class' (sprintf "session-row %s" cls)
-            Attr.style "display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); cursor: pointer;"
+          [ Attr.class' (sprintf "session-row flex-between %s" cls)
+            Attr.style "padding: 8px 0; border-bottom: 1px solid var(--border-normal); cursor: pointer;"
             Ds.onEvent ("click", sprintf "fetch('/api/dispatch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'sessionSetIndex',value:'%d'})}).then(function(){fetch('/api/dispatch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'sessionSelect'})})})" i) ]
           [
             Elem.div [ Attr.style "flex: 1; min-width: 0;" ] [
               // Row 1: session ID + status + active indicator
-              Elem.div [ Attr.style "display: flex; align-items: center; gap: 0.5rem;" ] [
+              Elem.div [ Attr.class' "flex-row"; Attr.style "gap: 0.5rem;" ] [
                 Elem.span [ Attr.style "font-weight: bold;" ] [ Text.raw s.Id ]
                 Elem.span
-                  [ Attr.class' (sprintf "status %s" statusClass)
-                    Attr.style "font-size: 0.7rem; padding: 1px 6px; border-radius: 3px;" ]
+                  [ Attr.class' (sprintf "status badge %s" statusClass) ]
                   [ Text.raw s.Status ]
                 match s.StatusMessage with
                 | Some msg ->
@@ -894,7 +810,20 @@ let renderSessions (sessions: ParsedSession list) (creating: bool) (standbyLabel
                 | None -> ()
                 match s.IsActive with
                 | true ->
-                  Elem.span [ Attr.style "color: var(--green);" ] [ Text.raw "● active" ]
+                  Elem.span [ Attr.style "color: var(--fg-green);" ] [ Text.raw "● active" ]
+                | false -> ()
+                // Per-session standby indicator
+                match s.StandbyLabel.Length > 0 with
+                | true ->
+                  let color =
+                    match s.StandbyLabel with
+                    | l when l.Contains "✓" -> "var(--fg-green)"
+                    | l when l.Contains "⏳" -> "var(--fg-yellow)"
+                    | l when l.Contains "⚠" -> "var(--fg-red)"
+                    | _ -> "var(--fg-dim)"
+                  Elem.span
+                    [ Attr.class' "badge"; Attr.style (sprintf "color: %s;" color) ]
+                    [ Text.raw s.StandbyLabel ]
                 | false -> ()
                 match s.Uptime.Length > 0 with
                 | true ->
@@ -912,7 +841,7 @@ let renderSessions (sessions: ParsedSession list) (creating: bool) (standbyLabel
                   [ Text.raw (sprintf "📁 %s" s.WorkingDir) ]
               | false -> ()
               // Row 3: projects as tags + evals + last activity
-              Elem.div [ Attr.style "display: flex; align-items: center; gap: 0.5rem; margin-top: 2px; flex-wrap: wrap;" ] [
+              Elem.div [ Attr.class' "flex-row"; Attr.style "gap: 0.5rem; margin-top: 2px; flex-wrap: wrap;" ] [
                 match s.ProjectsText.Length > 0 with
                 | true ->
                   let projNames =
@@ -922,7 +851,7 @@ let renderSessions (sessions: ParsedSession list) (creating: bool) (standbyLabel
                     |> Array.filter (fun p -> p.Length > 0)
                   yield! projNames |> Array.map (fun pName ->
                     Elem.span
-                      [ Attr.style "font-size: 0.65rem; padding: 1px 5px; border-radius: 3px; background: var(--bg-highlight); color: var(--fg-dim);" ]
+                      [ Attr.class' "badge"; Attr.style "background: var(--bg-focus); color: var(--fg-dim);" ]
                       [ Text.raw pName ])
                 | false -> ()
                 match s.EvalCount > 0 with
@@ -958,18 +887,6 @@ let renderSessions (sessions: ParsedSession list) (creating: bool) (standbyLabel
       [
         Elem.span [] [
           Text.raw "⇄ switch · ■ stop · X stop others"
-          match standbyLabel.Length > 0 with
-          | true ->
-            let color =
-              match standbyLabel with
-              | s when s.Contains "✓" -> "var(--green)"
-              | s when s.Contains "⏳" -> "var(--fg-yellow)"
-              | s when s.Contains "⚠" -> "var(--red)"
-              | _ -> "var(--fg-dim)"
-            Elem.span
-              [ Attr.style (sprintf " · font-size: 0.65rem; color: %s;" color) ]
-              [ Text.raw (sprintf " · %s" standbyLabel) ]
-          | false -> ()
         ]
         match sessions.Length > 1 with
         | true ->
@@ -1084,7 +1001,7 @@ let renderMainContent (snap: DashboardSnapshot) : XmlNode =
     // App header — version, status, stats, sidebar toggle
     Elem.div [ Attr.class' "app-header" ] [
       Elem.h1 [] [ Text.raw (sprintf "🧙 SageFs v%s" snap.Version) ]
-      Elem.div [ Attr.style "display: flex; align-items: center; gap: 0.75rem;" ] [
+      Elem.div [ Attr.class' "flex-row"; Attr.style "gap: 0.75rem;" ] [
         renderSessionStatus snap.SessionState snap.SessionId snap.WorkingDir snap.WarmupProgress
         renderEvalStats snap.EvalStats
         Elem.button
@@ -1112,17 +1029,18 @@ let renderMainContent (snap: DashboardSnapshot) : XmlNode =
           ]
           // Eval area — collapsed by default via <details>
           Elem.create "details" [ Attr.id "evaluate-section"; Attr.class' "eval-area" ] [
-            Elem.create "summary" [ Attr.style "cursor: pointer; display: flex; align-items: center; justify-content: space-between;" ] [
-              Elem.span [ Attr.style "color: var(--accent); font-weight: bold; font-size: 0.9rem;" ] [ Text.raw "▸ Evaluate" ]
-              Elem.div [ Attr.style "display: flex; align-items: center; gap: 0.5rem;" ] [
-                Elem.span [ Attr.class' "meta"; Attr.style "font-size: 0.75rem;" ] [
-                  Elem.span [ Ds.text """$code ? ($code.split('\\n').length + 'L ' + $code.length + 'c') : ''""" ] []
-                ]
-                Elem.button
-                  [ Attr.class' "panel-header-btn"
-                    Ds.onEvent ("click", "event.stopPropagation(); $helpVisible = !$helpVisible") ]
-                  [ Text.raw "⌨" ]
+            Elem.create "summary" [ Attr.class' "flex-between"; Attr.style "cursor: pointer;" ] [
+              Elem.span [ Attr.style "color: var(--fg-blue); font-weight: bold; font-size: 0.9rem;" ] [ Text.raw "▸ Evaluate" ]
+              Elem.span [ Attr.class' "meta"; Attr.style "font-size: 0.75rem;" ] [
+                Elem.span [ Ds.text """$code ? ($code.split('\\n').length + 'L ' + $code.length + 'c') : ''""" ] []
               ]
+            ]
+            // Keyboard help toggle — outside <summary> to avoid a11y issues (interactive inside summary)
+            Elem.div [ Attr.style "display: flex; justify-content: flex-end; padding: 2px 0;" ] [
+              Elem.button
+                [ Attr.class' "panel-header-btn"
+                  Ds.onEvent ("click", "$helpVisible = !$helpVisible") ]
+                [ Text.raw "⌨" ]
             ]
             Elem.div [ Attr.id "keyboard-help-wrapper"; Ds.show "$helpVisible" ] [
               renderKeyboardHelp ()
@@ -1135,12 +1053,12 @@ let renderMainContent (snap: DashboardSnapshot) : XmlNode =
                   Ds.bind "code"
                   Attr.create "placeholder" "Enter F# code... (Alt+Enter to eval, ;; auto-appended)"
                   Ds.onEvent ("keydown", "if(event.altKey && event.key === 'Enter') { event.preventDefault(); @post('/dashboard/eval') } if(event.ctrlKey && event.key === 'l') { event.preventDefault(); @post('/dashboard/clear-output') } if(event.key === 'Tab') { event.preventDefault(); var s=this.selectionStart; var e=this.selectionEnd; this.value=this.value.substring(0,s)+'  '+this.value.substring(e); this.selectionStart=this.selectionEnd=s+2; this.dispatchEvent(new Event('input')) } if(event.key === 'Escape') { document.getElementById('completion-dropdown').style.display='none' }")
-                  Ds.onEvent ("input", "clearTimeout(window._compTimer); var ta=this; window._compTimer=setTimeout(function(){ var code=ta.value; var pos=ta.selectionStart; if(pos>0 && (code[pos-1]==='.' || (code[pos-1]>='a' && code[pos-1]<='z') || (code[pos-1]>='A' && code[pos-1]<='Z'))) { var sid=document.querySelector('[data-signal-sessionId]'); var sidVal=sid?sid.value:''; fetch('/dashboard/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code,cursorPos:pos,sessionId:sidVal})}).then(r=>r.json()).then(d=>{ var dd=document.getElementById('completion-dropdown'); if(d.completions && d.completions.length>0){ dd.innerHTML=d.completions.map(function(c,i){return '<div class=\"comp-item\" data-insert=\"'+c.insertText+'\" style=\"padding:2px 6px;cursor:pointer;\"'+(i===0?' style=\"background:var(--selection)\"':'')+'>'+c.label+' <span style=\"opacity:0.5;font-size:0.8em\">('+c.kind+')</span></div>'}).join(''); dd.style.display='block'; dd.querySelectorAll('.comp-item').forEach(function(el){ el.onclick=function(){ var ins=el.dataset.insert; var before=ta.value.substring(0,pos); var wordStart=before.search(/[a-zA-Z0-9_]*$/); ta.value=ta.value.substring(0,wordStart)+ins+ta.value.substring(pos); ta.selectionStart=ta.selectionEnd=wordStart+ins.length; ta.dispatchEvent(new Event('input')); dd.style.display='none'; ta.focus(); }}) } else { dd.style.display='none' } }).catch(function(){}) } }, 300)")
+                  Ds.onEvent ("input", "clearTimeout(window._compTimer); var ta=this; window._compTimer=setTimeout(function(){ var code=ta.value; var pos=ta.selectionStart; if(pos>0 && (code[pos-1]==='.' || (code[pos-1]>='a' && code[pos-1]<='z') || (code[pos-1]>='A' && code[pos-1]<='Z'))) { var sid=document.querySelector('[data-signal-sessionId]'); var sidVal=sid?sid.value:''; fetch('/dashboard/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code,cursorPos:pos,sessionId:sidVal})}).then(r=>r.json()).then(d=>{ var dd=document.getElementById('completion-dropdown'); if(d.completions && d.completions.length>0){ dd.innerHTML=d.completions.map(function(c,i){return '<div class=\"comp-item\" data-insert=\"'+c.insertText+'\" style=\"padding:2px 6px;cursor:pointer;'+(i===0?'background:var(--bg-selection)':'')+'\">'+c.label+' <span style=\"opacity:0.5;font-size:0.8em\">('+c.kind+')</span></div>'}).join(''); dd.style.display='block'; dd.querySelectorAll('.comp-item').forEach(function(el){ el.onclick=function(){ var ins=el.dataset.insert; var before=ta.value.substring(0,pos); var wordStart=before.search(/[a-zA-Z0-9_]*$/); ta.value=ta.value.substring(0,wordStart)+ins+ta.value.substring(pos); ta.selectionStart=ta.selectionEnd=wordStart+ins.length; ta.dispatchEvent(new Event('input')); dd.style.display='none'; ta.focus(); }}) } else { dd.style.display='none' } }).catch(function(){}) } }, 300)")
                   Attr.create "spellcheck" "false" ]
                 []
               Elem.div
                 [ Attr.id "completion-dropdown"
-                  Attr.style "display:none; position:absolute; bottom:100%; left:0; max-height:200px; overflow-y:auto; background:var(--bg); border:1px solid var(--selection); border-radius:4px; z-index:100; min-width:200px; font-size:0.85em; box-shadow:0 -2px 8px rgba(0,0,0,0.3);" ]
+                  Attr.style "display:none; position:absolute; bottom:100%; left:0; max-height:200px; overflow-y:auto; background:var(--bg-default); border:1px solid var(--bg-selection); border-radius:4px; z-index:100; min-width:200px; font-size:0.85em; box-shadow:0 -2px 8px rgba(0,0,0,0.3);" ]
                 []
             ]
             Elem.div [ Attr.style "display: flex; gap: 0.5rem; margin-top: 0.5rem; align-items: center;" ] [
@@ -1154,17 +1072,17 @@ let renderMainContent (snap: DashboardSnapshot) : XmlNode =
                   Text.raw "Eval" ]
               Elem.button
                 [ Attr.class' "eval-btn"
-                  Attr.style "background: var(--green);"
+                  Attr.style "background: var(--fg-green);"
                   Ds.onClick (Ds.post "/dashboard/reset") ]
                 [ Text.raw "↻ Reset" ]
               Elem.button
                 [ Attr.class' "eval-btn"
-                  Attr.style "background: var(--red);"
+                  Attr.style "background: var(--fg-red);"
                   Ds.onClick (Ds.post "/dashboard/hard-reset") ]
                 [ Text.raw "⟳ Hard Reset" ]
               Elem.label
                 [ Attr.class' "eval-btn"
-                  Attr.style "background: var(--accent); cursor: pointer; display: inline-flex; align-items: center;" ]
+                  Attr.style "background: var(--fg-blue); cursor: pointer; display: inline-flex; align-items: center;" ]
                 [ Elem.input
                     [ Attr.type' "file"
                       Attr.accept ".fs,.fsx,.fsi"
@@ -1245,14 +1163,19 @@ let renderMainContent (snap: DashboardSnapshot) : XmlNode =
     ]
   ]
 
-let renderRegionForSse (getSessionState: string -> SessionState) (getStatusMsg: string -> string option) (standbyLabel: string) (region: RenderRegion) =
+let renderRegionForSse (getSessionState: string -> SessionState) (getStatusMsg: string -> string option) (getSessionStandbyInfo: string -> StandbyInfo) (region: RenderRegion) =
   match region.Id with
   | "output" -> Some (renderOutput (parseOutputLines region.Content))
   | "sessions" ->
     let parsed = parseSessionLines region.Content
     let corrected = overrideSessionStatuses getSessionState getStatusMsg parsed
-    let visible = corrected |> List.filter (fun s -> s.Status <> "stopped")
-    Some (renderSessions visible (isCreatingSession region.Content) standbyLabel)
+    let visible =
+      corrected
+      |> List.filter (fun s -> s.Status <> "stopped")
+      |> List.map (fun s ->
+        let info = getSessionStandbyInfo s.Id
+        { s with StandbyLabel = StandbyInfo.label info })
+    Some (renderSessions visible (isCreatingSession region.Content))
   | _ -> None
 
 let pushRegions
@@ -1261,10 +1184,10 @@ let pushRegions
   (getPreviousSessions: unit -> Threading.Tasks.Task<PreviousSession list>)
   (getSessionState: string -> SessionState)
   (getStatusMsg: string -> string option)
-  (standbyLabel: string)
+  (getSessionStandbyInfo: string -> StandbyInfo)
   = task {
     for region in regions do
-      match renderRegionForSse getSessionState getStatusMsg standbyLabel region with
+      match renderRegionForSse getSessionState getStatusMsg getSessionStandbyInfo region with
       | Some html -> do! ssePatchNode ctx html
       | None -> ()
       // When sessions region is pushed, also push picker visibility
@@ -1344,7 +1267,7 @@ let renderHotReloadPanel (sessionId: string) (files: {| path: string; watched: b
         let dirWatchedCount = dirFiles |> List.filter (fun f -> f.watched) |> List.length
         let allWatched = dirWatchedCount = List.length dirFiles
         let dirIcon = match allWatched, dirWatchedCount > 0 with | true, _ -> "●" | false, true -> "◐" | false, false -> "○"
-        let dirColor = match allWatched || dirWatchedCount > 0 with | true -> "var(--accent, #7aa2f7)" | false -> "var(--fg-dim, #565f89)"
+        let dirColor = match allWatched || dirWatchedCount > 0 with | true -> "var(--fg-blue, #7aa2f7)" | false -> "var(--fg-dim, #565f89)"
         let dirAction = match allWatched with | true -> "unwatch-directory" | false -> "watch-directory"
         let dirKey = "directory"
         [
@@ -1360,7 +1283,7 @@ let renderHotReloadPanel (sessionId: string) (files: {| path: string; watched: b
               | -1 -> n
               | idx -> n.[idx + 1..]
             let icon = match f.watched with | true -> "●" | false -> "○"
-            let color = match f.watched with | true -> "var(--accent, #7aa2f7)" | false -> "var(--fg-dim, #565f89)"
+            let color = match f.watched with | true -> "var(--fg-blue, #7aa2f7)" | false -> "var(--fg-dim, #565f89)"
             Elem.div
               [ Attr.style "cursor: pointer; padding: 1px 4px; display: flex; align-items: center; gap: 4px;"
                 Attr.create "onclick" (sprintf "fetch('/api/sessions/%s/hotreload/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:'%s'})})" sessionId (f.path.Replace("\\", "\\\\"))) ]
@@ -1411,7 +1334,7 @@ let renderSessionContextPanel (ctx: SessionContext) =
               Elem.code [] [ Text.raw (SessionContext.openLine b) ]
               match b.DurationMs > 0.0 with
               | true ->
-                Elem.span [ Attr.style "color: #888; margin-left: 0.5em;" ] [
+                Elem.span [ Attr.style "color: var(--fg-dim); margin-left: 0.5em;" ] [
                   Text.raw (sprintf "(%.1fms)" b.DurationMs)
                 ]
               | false -> ()
@@ -1420,41 +1343,41 @@ let renderSessionContextPanel (ctx: SessionContext) =
         match List.isEmpty failed with
         | false ->
           Elem.details [ Attr.create "open" ""; Attr.style "margin-top: 0.5em;" ] [
-            Elem.summary [ Attr.style "color: #e74c3c; cursor: pointer; font-weight: bold;" ] [
+            Elem.summary [ Attr.style "color: var(--fg-red); cursor: pointer; font-weight: bold;" ] [
               Text.raw (sprintf "⚠️ %d Failed Opens (expanded)" failed.Length)
             ]
             Elem.div [ Attr.style "padding-left: 0.5em;" ] [
               for f in failed do
-                Elem.div [ Attr.style "margin: 0.4em 0; padding: 0.4em; background: rgba(231,76,60,0.08); border-left: 3px solid #e74c3c; border-radius: 3px;" ] [
-                  Elem.div [ Attr.style "font-weight: bold; color: #e74c3c;" ] [
+                Elem.div [ Attr.class' "diag-error-block" ] [
+                  Elem.div [ Attr.style "font-weight: bold; color: var(--fg-red);" ] [
                     let kind = match f.IsModule with | true -> "module" | false -> "namespace"
                     Text.raw (sprintf "✖ %s (%s)" f.Name kind)
                     match f.RetryCount > 1 with
                     | true ->
-                      Elem.span [ Attr.style "color: #888; font-weight: normal; margin-left: 0.5em;" ] [
+                      Elem.span [ Attr.style "color: var(--fg-dim); font-weight: normal; margin-left: 0.5em;" ] [
                         Text.raw (sprintf "(%d retries)" f.RetryCount)
                       ]
                     | false -> ()
                   ]
-                  Elem.div [ Attr.style "color: #c0392b; margin-top: 0.2em;" ] [
+                  Elem.div [ Attr.style "color: var(--fg-red); margin-top: 0.2em;" ] [
                     Text.raw f.ErrorMessage
                   ]
                   match List.isEmpty f.Diagnostics with
                   | false ->
                     Elem.ul [ Attr.style "margin: 0.2em 0; padding-left: 1.2em; list-style: none;" ] [
                       for d in f.Diagnostics do
-                        let sevColor =
+                        let sevClass =
                           match d.Severity with
-                          | "error" -> "#e74c3c"
-                          | "warning" -> "#f39c12"
-                          | _ -> "#3498db"
-                        Elem.li [ Attr.style (sprintf "color: %s; margin: 0.15em 0;" sevColor) ] [
-                          Elem.code [ Attr.style "background: rgba(0,0,0,0.1); padding: 0.1em 0.3em; border-radius: 2px; font-size: 0.65rem;" ] [
+                          | "error" -> "diag-error"
+                          | "warning" -> "diag-warning"
+                          | _ -> "diag"
+                        Elem.li [ Attr.class' sevClass; Attr.style "margin: 0.15em 0;" ] [
+                          Elem.code [ Attr.class' "diag-code" ] [
                             Text.raw (sprintf "FS%04d" d.ErrorNumber)
                           ]
                           match d.FileName with
                           | Some fn ->
-                            Elem.span [ Attr.style "margin-left: 0.4em; color: #888;" ] [
+                            Elem.span [ Attr.style "margin-left: 0.4em; color: var(--fg-dim);" ] [
                               Text.raw (sprintf "%s:%d:%d" fn d.StartLine d.StartColumn)
                             ]
                           | None -> ()
@@ -1487,12 +1410,12 @@ let renderSessionContextPanel (ctx: SessionContext) =
         for (label, ms) in phases do
           let pct = float ms / float maxMs * 100.0
           Elem.div [ Attr.style "margin: 0.2em 0;" ] [
-            Elem.div [ Attr.style "display: flex; align-items: center; gap: 0.5em;" ] [
+            Elem.div [ Attr.class' "flex-row"; Attr.style "gap: 0.5em;" ] [
               Elem.span [ Attr.style "min-width: 120px;" ] [ Text.raw label ]
-              Elem.div [ Attr.style "flex: 1; height: 8px; background: rgba(0,0,0,0.1); border-radius: 4px; overflow: hidden;" ] [
-                Elem.div [ Attr.style (sprintf "width: %.1f%%; height: 100%%; background: #3498db; border-radius: 4px;" pct) ] []
+              Elem.div [ Attr.class' "progress-track" ] [
+                Elem.div [ Attr.style (sprintf "width: %.1f%%; height: 100%%; background: var(--fg-blue); border-radius: 4px;" pct) ] []
               ]
-              Elem.span [ Attr.style "min-width: 50px; text-align: right; color: #888;" ] [
+              Elem.span [ Attr.style "min-width: 50px; text-align: right; color: var(--fg-dim);" ] [
                 Text.raw (sprintf "%dms" ms)
               ]
             ]
@@ -1513,10 +1436,10 @@ let renderSessionContextPanel (ctx: SessionContext) =
         for f in ctx.FileStatuses do
           let color =
             match f.Readiness with
-            | Loaded -> "#2ecc71"
-            | Stale -> "#f39c12"
-            | LoadFailed -> "#e74c3c"
-            | NotLoaded -> "#95a5a6"
+            | Loaded -> "var(--fg-green)"
+            | Stale -> "var(--fg-yellow)"
+            | LoadFailed -> "var(--fg-red)"
+            | NotLoaded -> "var(--fg-dim)"
           Elem.li [ Attr.style (sprintf "color: %s" color) ] [
             Text.raw (SessionContext.fileLine f)
           ]
@@ -1551,15 +1474,15 @@ let private renderTestPhase (label: string) (ms: float) (maxMs: float) (icon: st
   let pct = match maxMs > 0.0 with | true -> min 100.0 (ms / maxMs * 100.0) | false -> 0.0
   let color =
     match ms with
-    | ms when ms < 50.0 -> "var(--green, #27ae60)"
-    | ms when ms < 500.0 -> "var(--yellow, #f39c12)"
-    | _ -> "var(--red, #e74c3c)"
+    | ms when ms < 50.0 -> "var(--fg-green, #27ae60)"
+    | ms when ms < 500.0 -> "var(--fg-yellow, #f39c12)"
+    | _ -> "var(--fg-red, #e74c3c)"
   Elem.div [ Attr.style "margin-bottom: 4px;" ] [
     Elem.div [ Attr.style "display: flex; justify-content: space-between; font-size: 0.75rem;" ] [
       Elem.span [] [ Text.raw (sprintf "%s %s" icon label) ]
       Elem.span [] [ Text.raw (sprintf "%.0fms" ms) ]
     ]
-    Elem.div [ Attr.style "height: 4px; background: var(--bg-alt, #2a2a2a); border-radius: 2px; overflow: hidden;" ] [
+    Elem.div [ Attr.class' "progress-track-sm" ] [
       Elem.div [ Attr.style (sprintf "width: %.0f%%; height: 100%%; background: %s; border-radius: 2px;" pct color) ] []
     ]
   ]
@@ -1575,20 +1498,20 @@ let renderTestTracePanel
     | true, true -> "⏳ running"
     | true, false -> "✅ idle"
   let summaryParts = [
-    yield Elem.span [ Attr.style "color: var(--green, #27ae60);" ] [
+    yield Elem.span [ Attr.style "color: var(--fg-green, #27ae60);" ] [
       Text.raw (sprintf "✓ %d" summary.Passed) ]
-    yield Elem.span [ Attr.style "color: var(--red, #e74c3c);" ] [
+    yield Elem.span [ Attr.style "color: var(--fg-red, #e74c3c);" ] [
       Text.raw (sprintf "✗ %d" summary.Failed) ]
     yield Elem.span [ Attr.style "opacity: 0.6;" ] [
       Text.raw (sprintf "/ %d" summary.Total) ]
     match summary.Stale > 0 with
     | true ->
-      yield Elem.span [ Attr.style "color: var(--yellow, #f39c12);" ] [
+      yield Elem.span [ Attr.style "color: var(--fg-yellow, #f39c12);" ] [
         Text.raw (sprintf "⟳ %d stale" summary.Stale) ]
     | false -> ()
     match summary.Running > 0 with
     | true ->
-      yield Elem.span [ Attr.style "color: var(--cyan, #3498db);" ] [
+      yield Elem.span [ Attr.style "color: var(--fg-cyan, #3498db);" ] [
         Text.raw (sprintf "⏳ %d" summary.Running) ]
     | false -> ()
   ]
@@ -1761,11 +1684,14 @@ let createStreamHandler
           | Some r ->
             let parsed = parseSessionLines r.Content
             let corrected = overrideSessionStatuses q.GetSessionState q.GetStatusMsg parsed
-            let visible = corrected |> List.filter (fun s -> s.Status <> "stopped")
+            let visible =
+              corrected
+              |> List.filter (fun s -> s.Status <> "stopped")
+              |> List.map (fun s ->
+                let info = q.GetSessionStandbyInfo s.Id
+                { s with StandbyLabel = StandbyInfo.label info })
             let creating = isCreatingSession r.Content
-            let! standby = q.GetStandbyInfo ()
-            let sLabel = StandbyInfo.label standby
-            let sess = renderSessions visible creating sLabel
+            let sess = renderSessions visible creating
             let! pick =
               match visible.IsEmpty && not creating with
               | true ->
@@ -1776,9 +1702,9 @@ let createStreamHandler
               | false -> task { return renderSessionPickerEmpty }
             return (outNode, sess, pick)
           | None ->
-            return (outNode, renderSessions [] false "", renderSessionPickerEmpty)
+            return (outNode, renderSessions [] false, renderSessionPickerEmpty)
         | None ->
-          return (renderOutput [], renderSessions [] false "", renderSessionPickerEmpty)
+          return (renderOutput [], renderSessions [] false, renderSessionPickerEmpty)
       }
       // Compose everything into one snapshot and push ONE morph
       let snap : DashboardSnapshot = {
@@ -2453,6 +2379,12 @@ let createEndpoints
   (infra: DashboardInfra)
   : HttpEndpoint list =
   [
+    // Static CSS — served from embedded resource with aggressive caching
+    yield get "/dashboard/dashboard.css" (fun ctx -> task {
+      ctx.Response.ContentType <- "text/css; charset=utf-8"
+      ctx.Response.Headers.["Cache-Control"] <- Microsoft.Extensions.Primitives.StringValues "public, max-age=31536000, immutable"
+      do! ctx.Response.WriteAsync(dashboardCss)
+    })
     yield get "/dashboard" (FalcoResponse.ofHtml (renderShell infra.Version))
     yield get "/dashboard/stream" (createStreamHandler q infra)
     yield post "/dashboard/eval" (createEvalHandler a.EvalCode)
