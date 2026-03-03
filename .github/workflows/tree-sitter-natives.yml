@@ -56,38 +56,22 @@ jobs:
         name: tree-sitter-fsharp-${{ matrix.rid }}
         path: runtimes/${{ matrix.rid }}/native/${{ matrix.lib }}
 
+  # NOTE: Auto-commit is blocked by branch protection. After a successful run,
+  # download artifacts with: gh run download <run-id> --dir native-artifacts
+  # Then copy to runtimes/ and commit locally.
   commit-natives:
     needs: build-native
     if: always() && !cancelled()
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-    - uses: actions/checkout@v5
-
-    - name: Download all artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: native-artifacts
-
-    - name: Place natives in runtimes
+    - name: Summary
       run: |
-        for rid in linux-x64 linux-arm64 osx-arm64 osx-x64; do
-          mkdir -p "runtimes/$rid/native"
-          cp native-artifacts/tree-sitter-fsharp-$rid/* "runtimes/$rid/native/" || true
-          ls -la "runtimes/$rid/native/" 2>/dev/null || echo "No files for $rid"
-        done
-
-    - name: Commit natives
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git add runtimes/
-        git diff --cached --quiet && echo "No changes" && exit 0
-        git commit -m "build(natives): add cross-platform tree-sitter-fsharp libraries
-
-        Built from ionide/tree-sitter-fsharp for linux-x64, linux-arm64, osx-arm64, osx-x64.
-
-        Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
-        git push
+        echo "## Native Library Build Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Download artifacts with:" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "gh run download ${{ github.run_id }} --dir native-artifacts" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Then copy to runtimes/ and commit locally." >> $GITHUB_STEP_SUMMARY
