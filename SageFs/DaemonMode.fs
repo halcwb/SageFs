@@ -210,16 +210,46 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
     let startupSw = System.Diagnostics.Stopwatch.StartNew()
     let startupSpan = Instrumentation.startSpan Instrumentation.sessionSource "sagefs.daemon.startup" []
 
-    // Replay phase
-    let replaySpan = Instrumentation.startSpan Instrumentation.sessionSource "sagefs.daemon.event_replay" []
-    let! daemonEvents = persistence.FetchStream daemonStreamId
-    let daemonState = Features.Replay.DaemonReplayState.replayStream daemonEvents
-    let eventCount = daemonEvents.Length
-    Instrumentation.daemonReplayEventCount.Add(int64 eventCount)
-    match isNull replaySpan with
-    | false -> replaySpan.SetTag("event_count", eventCount) |> ignore
+    // Binary-first: try loading session manifest before Marten
+    let binarySpan = Instrumentation.startSpan Instrumentation.sessionSource "sagefs.daemon.binary_manifest_load" []
+    let binarySw = System.Diagnostics.Stopwatch.StartNew()
+    let manifestResult = Features.DaemonPersistence.loadManifest DaemonState.SageFsDir
+    binarySw.Stop()
+    match isNull binarySpan with
+    | false -> binarySpan.SetTag("binary_load_ms", binarySw.Elapsed.TotalMilliseconds) |> ignore
     | true -> ()
-    Instrumentation.succeedSpan replaySpan
+
+    // Determine session state: prefer binary manifest, fall back to Marten replay
+    let! daemonState =
+      match manifestResult with
+      | Ok state ->
+        log.LogInformation("Loaded session manifest from binary ({Count} sessions, {Ms:F1}ms)",
+          state.Sessions.Count, binarySw.Elapsed.TotalMilliseconds)
+        match isNull binarySpan with
+        | false -> binarySpan.SetTag("source", "binary") |> ignore
+        | true -> ()
+        Instrumentation.succeedSpan binarySpan
+        System.Threading.Tasks.Task.FromResult(state)
+      | Error binaryErr ->
+        log.LogDebug("No binary manifest ({Error}), falling back to Marten replay", binaryErr)
+        match isNull binarySpan with
+        | false -> binarySpan.SetTag("source", "marten_fallback") |> ignore
+        | true -> ()
+        Instrumentation.succeedSpan binarySpan
+
+        // Replay phase (Marten fallback)
+        task {
+          let replaySpan = Instrumentation.startSpan Instrumentation.sessionSource "sagefs.daemon.event_replay" []
+          let! daemonEvents = persistence.FetchStream daemonStreamId
+          let state = Features.Replay.DaemonReplayState.replayStream daemonEvents
+          let eventCount = daemonEvents.Length
+          Instrumentation.daemonReplayEventCount.Add(int64 eventCount)
+          match isNull replaySpan with
+          | false -> replaySpan.SetTag("event_count", eventCount) |> ignore
+          | true -> ()
+          Instrumentation.succeedSpan replaySpan
+          return state
+        }
 
     let aliveSessions = Features.Replay.DaemonReplayState.aliveSessions daemonState
 
@@ -558,7 +588,22 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
           lastSavedGeneration <- gen
         | false -> ()
       with ex ->
-        log.LogWarning("Periodic cache save error: {Error}", ex.Message)),
+        log.LogWarning("Periodic cache save error: {Error}", ex.Message)
+      // Periodic manifest save (binary session resume)
+      try
+        let activeSessions = SessionManager.QuerySnapshot.allSessions (readSnapshot())
+        let toRecord (s: WorkerProtocol.SessionInfo) : Features.Replay.DaemonSessionRecord =
+          { SessionId = s.Id; Projects = s.Projects; WorkingDir = s.WorkingDirectory
+            CreatedAt = DateTimeOffset.UtcNow; StoppedAt = None }
+        let replayState : Features.Replay.DaemonReplayState = {
+          Sessions = activeSessions |> List.map (fun s -> s.Id, toRecord s) |> Map.ofList
+          ActiveSessionId = activeSessions |> List.tryHead |> Option.map (fun s -> s.Id)
+        }
+        match Features.DaemonPersistence.saveManifest DaemonState.SageFsDir replayState with
+        | Ok path -> log.LogDebug("Periodic manifest save to {Path}", path)
+        | Error err -> log.LogWarning("Periodic manifest save failed: {Error}", err)
+      with ex ->
+        log.LogWarning("Periodic manifest save error: {Error}", ex.Message)),
     null, 60_000, 60_000)
 
   // Live testing file watcher — monitors *.fs and *.fsx changes, dispatches FileContentChanged.
@@ -1119,6 +1164,18 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       match Features.DaemonPersistence.saveTestCache DaemonState.SageFsDir projects testState with
       | Ok path -> log.LogInformation("Saved test cache to {Path}", path)
       | Error err -> log.LogWarning("Failed to save test cache: {Error}", err)
+
+    // Persist session manifest for binary-first resume
+    let toShutdownRecord (s: WorkerProtocol.SessionInfo) : Features.Replay.DaemonSessionRecord =
+      { SessionId = s.Id; Projects = s.Projects; WorkingDir = s.WorkingDirectory
+        CreatedAt = DateTimeOffset.UtcNow; StoppedAt = None }
+    let shutdownReplayState : Features.Replay.DaemonReplayState = {
+      Sessions = activeSessions |> List.map (fun s -> s.Id, toShutdownRecord s) |> Map.ofList
+      ActiveSessionId = activeSessions |> List.tryHead |> Option.map (fun s -> s.Id)
+    }
+    match Features.DaemonPersistence.saveManifest DaemonState.SageFsDir shutdownReplayState with
+    | Ok path -> log.LogInformation("Saved session manifest to {Path}", path)
+    | Error err -> log.LogWarning("Failed to save session manifest: {Error}", err)
 
     for info in activeSessions do
       let! _ = persistence.AppendEvents daemonStreamId [
