@@ -10,6 +10,7 @@
         <Compile Include="EventStoreTests.fs" />
         <Compile Include="TestInfrastructure.fs" />
         <Compile Include="FalcoTests.fs" />
+        <Compile Include="PushEventTests.fs" />
         <Compile Include="McpAdapterTests.fs" />
         <Compile Include="McpCollaborationTests.fs" />
         <Compile Include="McpServerE2ETests.fs" />

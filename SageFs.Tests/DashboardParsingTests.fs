@@ -449,3 +449,109 @@ let stoppedSessionFilterTests =
       let visible = corrected |> List.filter (fun s -> s.Status <> "stopped")
       Expect.isEmpty visible "all stopped = empty list")
   ]
+
+[<Tests>]
+let dashboardActualParsingTests = testList "Dashboard actual parsing" [
+  testList "parseOutputLines" [
+    testCase "timestamp + kind line" (fun () ->
+      let result = SageFs.Server.Dashboard.parseOutputLines "[12:34:56] [result] val x = 42"
+      Expect.equal result.Length 1 "one line"
+      Expect.equal result.[0].Timestamp (Some "12:34:56") "timestamp"
+      Expect.equal result.[0].Kind SageFs.Server.Dashboard.ResultLine "kind"
+      Expect.equal result.[0].Text "val x = 42" "text")
+    testCase "kind-only line" (fun () ->
+      let result = SageFs.Server.Dashboard.parseOutputLines "[error] Something went wrong"
+      Expect.equal result.[0].Timestamp None "no timestamp"
+      Expect.equal result.[0].Kind SageFs.Server.Dashboard.ErrorLine "kind"
+      Expect.equal result.[0].Text "Something went wrong" "text")
+    testCase "plain text falls back to ResultLine" (fun () ->
+      let result = SageFs.Server.Dashboard.parseOutputLines "just some output"
+      Expect.equal result.[0].Kind SageFs.Server.Dashboard.ResultLine "fallback kind")
+    testCase "empty input returns empty list" (fun () ->
+      let result = SageFs.Server.Dashboard.parseOutputLines ""
+      Expect.isEmpty result "empty input")
+    testCase "multiple lines parsed" (fun () ->
+      let input = "[12:00:00] [result] line1\n[error] line2\nplain line3"
+      let result = SageFs.Server.Dashboard.parseOutputLines input
+      Expect.equal result.Length 3 "three lines"
+      Expect.equal result.[0].Kind SageFs.Server.Dashboard.ResultLine "first"
+      Expect.equal result.[1].Kind SageFs.Server.Dashboard.ErrorLine "second"
+      Expect.equal result.[2].Kind SageFs.Server.Dashboard.ResultLine "third")
+    testCase "info line kind" (fun () ->
+      let result = SageFs.Server.Dashboard.parseOutputLines "[info] Loading..."
+      Expect.equal result.[0].Kind SageFs.Server.Dashboard.InfoLine "info")
+    testCase "system line kind" (fun () ->
+      let result = SageFs.Server.Dashboard.parseOutputLines "[system] Startup"
+      Expect.equal result.[0].Kind SageFs.Server.Dashboard.SystemLine "system")
+  ]
+
+  testList "parseDiagLines" [
+    testCase "standard diagnostic format" (fun () ->
+      let result = SageFs.Server.Dashboard.parseDiagLines "[error] (10,5) Something is wrong"
+      Expect.equal result.Length 1 "one diag"
+      Expect.equal result.[0].Severity SageFs.Server.Dashboard.DiagError "error"
+      Expect.equal result.[0].Line 10 "line"
+      Expect.equal result.[0].Col 5 "col"
+      Expect.equal result.[0].Message "Something is wrong" "msg")
+    testCase "warning diagnostic" (fun () ->
+      let result = SageFs.Server.Dashboard.parseDiagLines "[warning] (3,1) Unused variable"
+      Expect.equal result.[0].Severity SageFs.Server.Dashboard.DiagWarning "warning")
+    testCase "unstructured line with [error] falls back to DiagError" (fun () ->
+      let result = SageFs.Server.Dashboard.parseDiagLines "Some text with [error] in it"
+      Expect.equal result.[0].Severity SageFs.Server.Dashboard.DiagError "error fallback"
+      Expect.equal result.[0].Line 0 "line 0")
+    testCase "unstructured line without error falls back to DiagWarning" (fun () ->
+      let result = SageFs.Server.Dashboard.parseDiagLines "Some random diagnostic text"
+      Expect.equal result.[0].Severity SageFs.Server.Dashboard.DiagWarning "warning fallback")
+    testCase "empty input returns empty list" (fun () ->
+      let result = SageFs.Server.Dashboard.parseDiagLines ""
+      Expect.isEmpty result "empty")
+    testCase "multiple diagnostics" (fun () ->
+      let result = SageFs.Server.Dashboard.parseDiagLines "[error] (1,1) first\n[warning] (2,2) second"
+      Expect.equal result.Length 2 "two diags"
+      Expect.equal result.[0].Severity SageFs.Server.Dashboard.DiagError "first error"
+      Expect.equal result.[1].Severity SageFs.Server.Dashboard.DiagWarning "second warning")
+  ]
+]
+
+[<Tests>]
+let captureToCssClassTests = testList "captureToCssClass" [
+  testCase "keyword" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "keyword") "syn-keyword" "keyword")
+  testCase "keyword.control prefix" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "keyword.control") "syn-keyword" "prefix")
+  testCase "string" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "string") "syn-string" "string")
+  testCase "string.special prefix" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "string.special") "syn-string" "prefix")
+  testCase "comment" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "comment") "syn-comment" "comment")
+  testCase "number" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "number") "syn-number" "number")
+  testCase "operator" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "operator") "syn-operator" "operator")
+  testCase "type" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "type") "syn-type" "type")
+  testCase "type.builtin prefix" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "type.builtin") "syn-type" "prefix")
+  testCase "function" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "function") "syn-function" "function")
+  testCase "variable" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "variable") "syn-variable" "variable")
+  testCase "punctuation" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "punctuation") "syn-punctuation" "punctuation")
+  testCase "constant" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "constant") "syn-constant" "constant")
+  testCase "module" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "module") "syn-module" "module")
+  testCase "attribute" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "attribute") "syn-attribute" "attribute")
+  testCase "property" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "property") "syn-property" "property")
+  testCase "boolean maps to syn-constant" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "boolean") "syn-constant" "boolean→constant")
+  testCase "unknown returns empty" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "whatever") "" "unknown")
+  testCase "empty returns empty" (fun () ->
+    Expect.equal (SageFs.Server.Dashboard.captureToCssClass "") "" "empty")
+]
