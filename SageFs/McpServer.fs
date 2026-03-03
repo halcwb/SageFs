@@ -1472,19 +1472,8 @@ let startMcpServer (cfg: McpServerConfig) =
               cfg.StateChanged |> Option.map (fun evt ->
                 evt.Subscribe(fun change ->
                   match change with
-                  | DaemonStateChange.ModelChanged json ->
+                  | DaemonStateChange.ModelChanged (outputCount, diagCount) ->
                     try
-                      use doc = JsonDocument.Parse(json)
-                      let root = doc.RootElement
-                      let diagCount =
-                        match root.TryGetProperty("diagCount") with
-                        | true, v -> v.GetInt32()
-                        | _ -> 0
-                      let outputCount =
-                        match root.TryGetProperty("outputCount") with
-                        | true, v -> v.GetInt32()
-                        | _ -> 0
-
                       serverTracker.AccumulateEvent(
                         PushEvent.StateChanged(outputCount, diagCount))
 

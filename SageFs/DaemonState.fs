@@ -6,12 +6,13 @@ type DaemonStateChange =
   | StandbyProgress
   | SessionReady of sessionId: string
   | HotReloadChanged
-  | ModelChanged of json: string
+  | ModelChanged of outputCount: int * diagCount: int
 
 module DaemonStateChange =
   /// Serialize to JSON for SSE wire format. Single source of truth — used by bridge and SSE stream.
   let toJson = function
-    | ModelChanged j -> j
+    | ModelChanged (outputCount, diagCount) ->
+      sprintf """{"outputCount":%d,"diagCount":%d}""" outputCount diagCount
     | SessionReady sid -> sprintf """{"sessionReady":"%s"}""" sid
     | HotReloadChanged -> """{"hotReloadChanged":true}"""
     | StandbyProgress -> """{"standbyProgress":true}"""

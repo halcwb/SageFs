@@ -1391,7 +1391,7 @@ module SseDedupKey =
   /// Returns a string that changes when any user-visible state changes.
   let fromModel (model: SageFsModel) : string =
     let sb = System.Text.StringBuilder(128)
-    sb.Append(model.RecentOutput.ActiveCount(model.Sessions.ActiveSessionId)).Append('|') |> ignore
+    sb.Append(model.RecentOutput.ActiveVersion(model.Sessions.ActiveSessionId)).Append('|') |> ignore
     let diagCount =
       model.Diagnostics |> Map.values |> Seq.sumBy List.length
     sb.Append(diagCount).Append('|') |> ignore

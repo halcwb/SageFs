@@ -411,7 +411,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
           // Subscribers (MCP, Dashboard) do JSON parsing + SSE writes that took 50-90ms
           // when run synchronously on the drain thread.
           System.Threading.ThreadPool.QueueUserWorkItem(fun _ ->
-            stateChangedEvent.Trigger (ModelChanged json)) |> ignore
+            stateChangedEvent.Trigger (ModelChanged (outputCount, diagCount))) |> ignore
         | false -> ()
       with ex -> Log.error "[elm] State change propagation error: %s (%s)" ex.Message (ex.GetType().Name))
 

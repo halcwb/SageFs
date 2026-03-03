@@ -223,6 +223,9 @@ type SessionOutputStore(bufferCapacity: int) =
   /// Count of lines in the active session's buffer.
   member this.ActiveCount(active: ActiveSession) = this.GetActiveBuffer(active).Count
 
+  /// Monotonic version of the active session's buffer (changes on every Add/Clear).
+  member this.ActiveVersion(active: ActiveSession) = this.GetActiveBuffer(active).Version
+
   /// Create from list of lines (newest-first convention). Routes each to its session.
   static member ofLines (lines: OutputLine list) =
     let store = SessionOutputStore(500)
