@@ -53,26 +53,40 @@ module ElmLoop =
       let batchTag = kvp "msg_type" "batch"
 
       // Phase 1: Drain queue — apply all updates under model lock
-      let prevModel, snapshot, allEffects, batchCount =
+      let lockSw = Stopwatch.StartNew()
+      let prevModel, snapshot, allEffects, batchCount, updateMs, msgTypes =
         lock lockObj (fun () ->
+          lockSw.Stop()
+          let lockWaitMs = lockSw.Elapsed.TotalMilliseconds
+          match lockWaitMs > 1.0 with
+          | true -> Instrumentation.elmloopLockWaitMs.Record(lockWaitMs, batchTag)
+          | false -> ()
+          let updateSw = Stopwatch.StartNew()
           let prev = model
           let mutable effs = []
           let mutable count = 0
           let mutable item = Unchecked.defaultof<'Msg>
+          let msgCounts = System.Collections.Generic.Dictionary<string, int>()
           while queue.TryDequeue(&item) do
             count <- count + 1
             Instrumentation.elmDispatchCount.Add(1L)
-            let updateSw = Stopwatch.StartNew()
+            let typeName = item.GetType().Name
+            match msgCounts.TryGetValue(typeName) with
+            | true, c -> msgCounts.[typeName] <- c + 1
+            | false, _ -> msgCounts.[typeName] <- 1
+            let perMsgSw = Stopwatch.StartNew()
             try
               let m, msgEffs = program.Update item model
               model <- m
               effs <- msgEffs @ effs
             with ex ->
               Instrumentation.elmloopErrors.Add(1L, kvp "phase" "update")
-              Log.error "[ElmLoop] Update threw for %s: %s" (item.GetType().Name) ex.Message
-            updateSw.Stop()
-            Instrumentation.elmloopUpdateMs.Record(updateSw.Elapsed.TotalMilliseconds, kvp "msg_type" (item.GetType().Name))
-          prev, model, List.rev effs, count)
+              Log.error "[ElmLoop] Update threw for %s: %s" typeName ex.Message
+            perMsgSw.Stop()
+            Instrumentation.elmloopUpdateMs.Record(perMsgSw.Elapsed.TotalMilliseconds, kvp "msg_type" typeName)
+          updateSw.Stop()
+          prev, model, List.rev effs, count, updateSw.Elapsed.TotalMilliseconds,
+          msgCounts |> Seq.map (fun kv -> sprintf "%s×%d" kv.Key kv.Value) |> String.concat ",")
 
       match batchCount with
       | 0 -> ()
@@ -85,6 +99,8 @@ module ElmLoop =
       | false ->
         activity.SetTag("elm.batch_size", batchCount) |> ignore
         activity.SetTag("elm.model_changed", modelChanged) |> ignore
+        activity.SetTag("elm.update_ms", updateMs) |> ignore
+        activity.SetTag("elm.msg_types", msgTypes) |> ignore
       | true -> ()
 
       // Phase 2: Render once for entire batch (outside model lock)
@@ -151,18 +167,20 @@ module ElmLoop =
 
       match isNull activity with
       | false ->
+        activity.SetTag("elm.update_ms", updateMs) |> ignore
         activity.SetTag("elm.render_ms", renderSw.Elapsed.TotalMilliseconds) |> ignore
         activity.SetTag("elm.callback_ms", cbSw.Elapsed.TotalMilliseconds) |> ignore
         activity.SetTag("elm.total_ms", totalMs) |> ignore
         activity.SetTag("elm.effects_count", allEffects.Length) |> ignore
+        activity.SetTag("elm.msg_types", msgTypes) |> ignore
         activity.Stop()
         activity.Dispose()
       | true -> ()
 
       match totalMs > 50.0 with
       | true ->
-        Log.warn "[ElmLoop] SLOW batch (%d msgs): %.1fms (render=%.1fms cb=%.1fms changed=%b)"
-          batchCount totalMs renderSw.Elapsed.TotalMilliseconds cbSw.Elapsed.TotalMilliseconds modelChanged
+        Log.warn "[ElmLoop] SLOW batch (%d msgs): %.1fms (update=%.1fms render=%.1fms cb=%.1fms changed=%b) msgs=[%s]"
+          batchCount totalMs updateMs renderSw.Elapsed.TotalMilliseconds cbSw.Elapsed.TotalMilliseconds modelChanged msgTypes
       | false -> ()
 
     // Dedicated drain thread — runs outside the thread pool so it's never
