@@ -84,7 +84,7 @@ module VscodeFixture =
         if (DateTime.Now - p.StartTime).TotalMinutes < 30.0 then
           p.Kill(true)
       with _ -> ()
-    Threading.Thread.Sleep(2000)
+    Threading.Thread.Sleep(500)
 
   /// Launch VSCode via ShellExecute to detach from parent job object.
   let launchVscode (workspaceDir: string) (disableExtensions: bool) =

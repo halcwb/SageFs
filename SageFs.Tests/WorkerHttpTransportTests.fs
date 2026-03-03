@@ -117,8 +117,8 @@ let testHandler (msg: WorkerMessage) : Async<WorkerResponse> = async {
 let slowEvalHandler (msg: WorkerMessage) : Async<WorkerResponse> = async {
   match msg with
   | WorkerMessage.EvalCode(_, rid) ->
-    // Simulate a long-running eval
-    do! Async.Sleep 3000
+    // Simulate a long-running eval (500ms is enough to test concurrency)
+    do! Async.Sleep 500
     return WorkerResponse.EvalResult(rid, Ok "done", [], Map.empty)
   | WorkerMessage.GetStatus rid ->
     // Status is always instant
@@ -215,9 +215,9 @@ let concurrencyTests =
         let! statusResp = proxy (WorkerMessage.GetStatus "s1") |> Async.StartAsTask
         sw.Stop()
 
-        // Status should complete in under 1 second (eval takes 3s)
-        (sw.ElapsedMilliseconds < 1000L)
-        |> Expect.isTrue "status should complete in under 1 second"
+        // Status should complete in under 200ms (eval takes 500ms)
+        (sw.ElapsedMilliseconds < 200L)
+        |> Expect.isTrue "status should complete in under 200ms"
 
         match statusResp with
         | WorkerResponse.StatusResult(rid, snap) ->

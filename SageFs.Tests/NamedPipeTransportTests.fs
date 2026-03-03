@@ -96,7 +96,7 @@ let pipeIntegrationTests =
           Async.StartAsTask(listen name handler ct, cancellationToken = ct)
 
         // Give server a moment to start listening
-        do! Async.Sleep 200
+        do! Async.Sleep 50
 
         // Connect client
         let! proxy, disposable = connect name ct
@@ -144,7 +144,7 @@ let pipeIntegrationTests =
 
         let serverTask =
           Async.StartAsTask(listen name handler ct, cancellationToken = ct)
-        do! Async.Sleep 200
+        do! Async.Sleep 50
 
         let! proxy, disposable = connect name ct
         use _d = disposable
@@ -183,7 +183,7 @@ let pipeIntegrationTests =
 
         let serverTask =
           Async.StartAsTask(listen name handler ct, cancellationToken = ct)
-        do! Async.Sleep 200
+        do! Async.Sleep 50
 
         let! proxy, disposable = connect name ct
         use _d = disposable
