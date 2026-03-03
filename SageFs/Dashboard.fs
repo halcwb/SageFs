@@ -287,159 +287,171 @@ let renderThemePicker (selectedTheme: string) =
         ([ Attr.value name ] @ (match name = selectedTheme with | true -> [ Attr.create "selected" "selected" ] | false -> []))
         [ Text.raw name ]))
 
+// ---------------------------------------------------------------------------
+// Inline script blocks — named functions for testability and readability.
+// Each returns an XmlNode (Elem.script) for embedding in the shell <head>/<body>.
+// ---------------------------------------------------------------------------
+
+/// SSE connection monitor — intercepts fetch to detect stream lifecycle.
+/// Shows a banner on failure, polls for recovery.
+let connectionMonitorScript () =
+  Elem.script [] [ Text.raw (sprintf """
+    (function() {
+      var origFetch = window.fetch, pollTimer = null;
+      function showProblem(text) {
+        var b = document.getElementById('%s');
+        if (b) { b.className = 'conn-banner conn-disconnected'; b.textContent = text; b.style.display = ''; }
+        startPolling();
+      }
+      function hideBanner() {
+        var b = document.getElementById('%s');
+        if (b) { b.style.display = 'none'; }
+        stopPolling();
+      }
+      function startPolling() {
+        if (pollTimer) return;
+        pollTimer = setInterval(function() {
+          origFetch('/api/daemon-info').then(function(r) {
+            if (r.ok) hideBanner();
+          }).catch(function() {});
+        }, 2000);
+      }
+      function stopPolling() {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      }
+      window.fetch = function(url) {
+        var isStream = typeof url === 'string' && url.indexOf('/dashboard/stream') !== -1;
+        var p = origFetch.apply(this, arguments);
+        if (isStream) {
+          p.then(function(resp) {
+            if (resp.ok) hideBanner();
+            else showProblem('\u274c Server error (' + resp.status + ')');
+          }).catch(function() {
+            showProblem('\u274c Server disconnected \u2014 waiting for reconnect...');
+          });
+        }
+        return p;
+      };
+    })();
+  """ DomIds.ServerStatus DomIds.ServerStatus) ]
+
+/// Auto-scroll output panel to bottom when new content arrives via SSE morph.
+let autoScrollScript () =
+  Elem.script [] [ Text.raw (sprintf """
+    new MutationObserver(function() {
+      var panel = document.getElementById('%s');
+      if (panel) panel.scrollTop = panel.scrollHeight;
+    }).observe(document.getElementById('%s') || document.body, { childList: true, subtree: true });
+  """ DomIds.OutputPanel DomIds.Main) ]
+
+/// Theme picker — update style element on selection change, notify server.
+/// Uses event delegation so handler survives Datastar DOM morphing.
+let themeSwitcherScript () =
+  Elem.script [] [ Text.raw (sprintf """
+    (function() {
+      var themes = %s;
+      document.addEventListener('change', function(e) {
+        if (e.target.id !== '%s') return;
+        var css = themes[e.target.value];
+        if (!css) return;
+        var styleEl = document.getElementById('%s');
+        if (styleEl) styleEl.textContent = ':root { ' + css + ' }';
+        fetch('/dashboard/set-theme', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({theme: e.target.value})
+        });
+      });
+    })();
+  """ (themePresetsJs ()) DomIds.ThemePicker DomIds.ThemeVars) ]
+
+/// Details toggle — update arrow indicator when eval section opens/closes.
+let detailsToggleScript () =
+  Elem.script [] [ Text.raw (sprintf """
+    document.addEventListener('toggle', function(e) {
+      if (e.target.id !== '%s') return;
+      var label = e.target.querySelector('summary span:first-child');
+      if (label) label.textContent = e.target.open ? '\u25be Evaluate' : '\u25b8 Evaluate';
+    }, true);
+  """ DomIds.EvaluateSection) ]
+
+/// Keyboard shortcuts, font-size adjustment, session navigation, sidebar resize.
+let keyboardHandlerScript () =
+  Elem.script [] [ Text.raw (sprintf """
+    (function() {
+      var sizes = [10, 12, 14, 16, 18, 20, 24];
+      var idx = 2;
+      document.addEventListener('keydown', function(e) {
+        if (e.ctrlKey && (e.key === '=' || e.key === '+')) { e.preventDefault(); idx = Math.min(sizes.length - 1, idx + 1); document.documentElement.style.setProperty('--font-size', sizes[idx] + 'px'); }
+        if (e.ctrlKey && e.key === '-') { e.preventDefault(); idx = Math.max(0, idx - 1); document.documentElement.style.setProperty('--font-size', sizes[idx] + 'px'); }
+        if (e.ctrlKey && e.key === 'Tab') {
+          e.preventDefault();
+          var body = {action: e.shiftKey ? 'sessionCyclePrev' : 'sessionCycleNext'};
+          fetch('/api/dispatch', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+          return;
+        }
+        var tag = (e.target.tagName || '').toLowerCase();
+        if (tag !== 'input' && tag !== 'textarea') {
+          var action = null;
+          var value = null;
+          if (e.key === 'j' || e.key === 'ArrowDown') { action = 'sessionNavDown'; }
+          if (e.key === 'k' || e.key === 'ArrowUp') { action = 'sessionNavUp'; }
+          if (e.key === 'Enter') { action = 'sessionSelect'; }
+          if (e.key === 'x' || e.key === 'Delete') { action = 'sessionDelete'; }
+          if (e.key === 'X') { action = 'sessionStopOthers'; }
+          if (e.key === 'n') { e.preventDefault(); fetch('/dashboard/session/create', {method:'POST'}); return; }
+          if (e.key >= '1' && e.key <= '9') { action = 'sessionSetIndex'; value = String(parseInt(e.key) - 1); }
+          if (action) {
+            e.preventDefault();
+            var body = value ? {action: action, value: value} : {action: action};
+            fetch('/api/dispatch', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+          }
+        }
+      });
+      var handle = document.getElementById('%s');
+      var sidebar = document.getElementById('%s');
+      if (handle && sidebar) {
+        var dragging = false;
+        handle.addEventListener('mousedown', function(e) {
+          dragging = true; handle.classList.add('dragging');
+          e.preventDefault();
+        });
+        document.addEventListener('mousemove', function(e) {
+          if (!dragging) return;
+          var w = Math.max(200, Math.min(600, window.innerWidth - e.clientX));
+          sidebar.style.width = w + 'px';
+        });
+        document.addEventListener('mouseup', function() {
+          if (dragging) { dragging = false; handle.classList.remove('dragging'); }
+        });
+      }
+    })();
+  """ DomIds.SidebarResize DomIds.Sidebar) ]
+
 /// Render the dashboard HTML shell.
 /// Datastar initializes and connects to the /dashboard/stream SSE endpoint.
 let renderShell (version: string) =
   Elem.html [] [
     Elem.head [] [
       Elem.title [] [ Text.raw "SageFs Dashboard" ]
-      // Connection monitor: intercept fetch to detect SSE stream lifecycle.
-      // Banner is ONLY for problems — hidden by default, shown on failure.
-      Elem.script [] [ Text.raw """
-        (function() {
-          var origFetch = window.fetch, pollTimer = null;
-          function showProblem(text) {
-            var b = document.getElementById('server-status');
-            if (b) { b.className = 'conn-banner conn-disconnected'; b.textContent = text; b.style.display = ''; }
-            startPolling();
-          }
-          function hideBanner() {
-            var b = document.getElementById('server-status');
-            if (b) { b.style.display = 'none'; }
-            stopPolling();
-          }
-          function startPolling() {
-            if (pollTimer) return;
-            pollTimer = setInterval(function() {
-              origFetch('/api/daemon-info').then(function(r) {
-                if (r.ok) hideBanner();
-              }).catch(function() {});
-            }, 2000);
-          }
-          function stopPolling() {
-            if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-          }
-          window.fetch = function(url) {
-            var isStream = typeof url === 'string' && url.indexOf('/dashboard/stream') !== -1;
-            var p = origFetch.apply(this, arguments);
-            if (isStream) {
-              p.then(function(resp) {
-                if (resp.ok) hideBanner();
-                else showProblem('\u274c Server error (' + resp.status + ')');
-              }).catch(function() {
-                showProblem('\u274c Server disconnected \u2014 waiting for reconnect...');
-              });
-            }
-            return p;
-          };
-        })();
-      """ ]
+      connectionMonitorScript ()
       Ds.cdnScript
       Elem.link [ Attr.rel "stylesheet"; Attr.href "/dashboard/dashboard.css" ]
     ]
     Elem.body [ Ds.safariStreamingFix ] [
-      // Dedicated init element: connects to SSE stream, defines Datastar signals.
-      // This is the ONLY Datastar-aware element in the shell — everything else
-      // arrives via the full-page morph on /dashboard/stream.
       Elem.div [ Ds.onInit (Ds.get "/dashboard/stream"); Ds.signal (Signals.HelpVisible, "false"); Ds.signal (Signals.SidebarOpen, "true"); Ds.signal (Signals.SessionId, ""); Ds.signal (Signals.Code, ""); Ds.signal (Signals.NewSessionDir, ""); Ds.signal (Signals.ManualProjects, "") ] []
-      // Connection status banner — hidden by default, shown only on problems
       Elem.div [ Attr.id DomIds.ServerStatus; Attr.class' "conn-banner conn-disconnected"; Attr.style "display:none" ] [
         Text.raw "⏳ Connecting to server..."
       ]
-      // Full-page morph target — renderMainContent pushes the entire UI here.
-      // Initial load is empty; first SSE push fills it with complete content.
       Elem.div [ Attr.id DomIds.Main ] [
         Elem.div [ Attr.style "display: flex; align-items: center; justify-content: center; height: 100vh; color: var(--fg-dim);" ] [
           Text.raw "⏳ Loading dashboard..."
         ]
       ]
-      // Auto-scroll output panel to bottom when new content arrives
-      Elem.script [] [ Text.raw """
-        new MutationObserver(function() {
-          var panel = document.getElementById('output-panel');
-          if (panel) panel.scrollTop = panel.scrollHeight;
-        }).observe(document.getElementById('main') || document.body, { childList: true, subtree: true });
-      """ ]
-      // Theme picker: update style element on selection change, notify server
-      // Uses event delegation so handler survives Datastar DOM morphing
-      Elem.script [] [ Text.raw (sprintf """
-        (function() {
-          var themes = %s;
-          document.addEventListener('change', function(e) {
-            if (e.target.id !== 'theme-picker') return;
-            var css = themes[e.target.value];
-            if (!css) return;
-            var styleEl = document.getElementById('theme-vars');
-            if (styleEl) styleEl.textContent = ':root { ' + css + ' }';
-            fetch('/dashboard/set-theme', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({theme: e.target.value})
-            });
-          });
-        })();
-      """ (themePresetsJs ())) ]
-      // Details toggle: update arrow indicator when eval section opens/closes
-      Elem.script [] [ Text.raw """
-        document.addEventListener('toggle', function(e) {
-          if (e.target.id !== 'evaluate-section') return;
-          var label = e.target.querySelector('summary span:first-child');
-          if (label) label.textContent = e.target.open ? '\u25be Evaluate' : '\u25b8 Evaluate';
-        }, true);
-      """ ]
-      // Font size adjustment: Ctrl+= / Ctrl+- changes --font-size CSS variable
-      Elem.script [] [ Text.raw """
-        (function() {
-          var sizes = [10, 12, 14, 16, 18, 20, 24];
-          var idx = 2;
-          document.addEventListener('keydown', function(e) {
-            if (e.ctrlKey && (e.key === '=' || e.key === '+')) { e.preventDefault(); idx = Math.min(sizes.length - 1, idx + 1); document.documentElement.style.setProperty('--font-size', sizes[idx] + 'px'); }
-            if (e.ctrlKey && e.key === '-') { e.preventDefault(); idx = Math.max(0, idx - 1); document.documentElement.style.setProperty('--font-size', sizes[idx] + 'px'); }
-            if (e.ctrlKey && e.key === 'Tab') {
-              e.preventDefault();
-              var body = {action: e.shiftKey ? 'sessionCyclePrev' : 'sessionCycleNext'};
-              fetch('/api/dispatch', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-              return;
-            }
-            // Session navigation when not typing in an input/textarea
-            var tag = (e.target.tagName || '').toLowerCase();
-            if (tag !== 'input' && tag !== 'textarea') {
-              var action = null;
-              var value = null;
-              if (e.key === 'j' || e.key === 'ArrowDown') { action = 'sessionNavDown'; }
-              if (e.key === 'k' || e.key === 'ArrowUp') { action = 'sessionNavUp'; }
-              if (e.key === 'Enter') { action = 'sessionSelect'; }
-              if (e.key === 'x' || e.key === 'Delete') { action = 'sessionDelete'; }
-              if (e.key === 'X') { action = 'sessionStopOthers'; }
-              if (e.key === 'n') { e.preventDefault(); fetch('/dashboard/session/create', {method:'POST'}); return; }
-              if (e.key >= '1' && e.key <= '9') { action = 'sessionSetIndex'; value = String(parseInt(e.key) - 1); }
-              if (action) {
-                e.preventDefault();
-                var body = value ? {action: action, value: value} : {action: action};
-                fetch('/api/dispatch', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-              }
-            }
-          });
-          // Sidebar resize drag
-          var handle = document.getElementById('sidebar-resize');
-          var sidebar = document.getElementById('sidebar');
-          if (handle && sidebar) {
-            var dragging = false;
-            handle.addEventListener('mousedown', function(e) {
-              dragging = true; handle.classList.add('dragging');
-              e.preventDefault();
-            });
-            document.addEventListener('mousemove', function(e) {
-              if (!dragging) return;
-              var w = Math.max(200, Math.min(600, window.innerWidth - e.clientX));
-              sidebar.style.width = w + 'px';
-            });
-            document.addEventListener('mouseup', function() {
-              if (dragging) { dragging = false; handle.classList.remove('dragging'); }
-            });
-          }
-        })();
-      """ ]
+      autoScrollScript ()
+      themeSwitcherScript ()
+      detailsToggleScript ()
+      keyboardHandlerScript ()
     ]
   ]
 

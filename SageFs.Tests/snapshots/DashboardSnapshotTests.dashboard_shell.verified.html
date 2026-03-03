@@ -1,49 +1,49 @@
 ﻿<html><head><title>SageFs Dashboard</title><script>
-        (function() {
-          var origFetch = window.fetch, pollTimer = null;
-          function showProblem(text) {
-            var b = document.getElementById('server-status');
-            if (b) { b.className = 'conn-banner conn-disconnected'; b.textContent = text; b.style.display = ''; }
-            startPolling();
-          }
-          function hideBanner() {
-            var b = document.getElementById('server-status');
-            if (b) { b.style.display = 'none'; }
-            stopPolling();
-          }
-          function startPolling() {
-            if (pollTimer) return;
-            pollTimer = setInterval(function() {
-              origFetch('/api/daemon-info').then(function(r) {
-                if (r.ok) hideBanner();
-              }).catch(function() {});
-            }, 2000);
-          }
-          function stopPolling() {
-            if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-          }
-          window.fetch = function(url) {
-            var isStream = typeof url === 'string' && url.indexOf('/dashboard/stream') !== -1;
-            var p = origFetch.apply(this, arguments);
-            if (isStream) {
-              p.then(function(resp) {
-                if (resp.ok) hideBanner();
-                else showProblem('\u274c Server error (' + resp.status + ')');
-              }).catch(function() {
-                showProblem('\u274c Server disconnected \u2014 waiting for reconnect...');
-              });
-            }
-            return p;
-          };
-        })();
-      </script><script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js"></script><link rel="stylesheet" href="/dashboard/dashboard.css" /></head><body data-on:pageshow.window="evt?.persisted && window.location.reload()"><div data-init="@get('/dashboard/stream')" data-signals:help-visible="'false'" data-signals:sidebar-open="'true'" data-signals:session-id="''" data-signals:code="''" data-signals:new-session-dir="''" data-signals:manual-projects="''"></div><div id="server-status" class="conn-banner conn-disconnected" style="display:none">⏳ Connecting to server...</div><div id="main"><div style="display: flex; align-items: center; justify-content: center; height: 100vh; color: var(--fg-dim);">⏳ Loading dashboard...</div></div><script>
-        new MutationObserver(function() {
-          var panel = document.getElementById('output-panel');
-          if (panel) panel.scrollTop = panel.scrollHeight;
-        }).observe(document.getElementById('main') || document.body, { childList: true, subtree: true });
-      </script><script>
-        (function() {
-          var themes = {
+    (function() {
+      var origFetch = window.fetch, pollTimer = null;
+      function showProblem(text) {
+        var b = document.getElementById('server-status');
+        if (b) { b.className = 'conn-banner conn-disconnected'; b.textContent = text; b.style.display = ''; }
+        startPolling();
+      }
+      function hideBanner() {
+        var b = document.getElementById('server-status');
+        if (b) { b.style.display = 'none'; }
+        stopPolling();
+      }
+      function startPolling() {
+        if (pollTimer) return;
+        pollTimer = setInterval(function() {
+          origFetch('/api/daemon-info').then(function(r) {
+            if (r.ok) hideBanner();
+          }).catch(function() {});
+        }, 2000);
+      }
+      function stopPolling() {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      }
+      window.fetch = function(url) {
+        var isStream = typeof url === 'string' && url.indexOf('/dashboard/stream') !== -1;
+        var p = origFetch.apply(this, arguments);
+        if (isStream) {
+          p.then(function(resp) {
+            if (resp.ok) hideBanner();
+            else showProblem('\u274c Server error (' + resp.status + ')');
+          }).catch(function() {
+            showProblem('\u274c Server disconnected \u2014 waiting for reconnect...');
+          });
+        }
+        return p;
+      };
+    })();
+  </script><script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js"></script><link rel="stylesheet" href="/dashboard/dashboard.css" /></head><body data-on:pageshow.window="evt?.persisted && window.location.reload()"><div data-init="@get('/dashboard/stream')" data-signals:help-visible="'false'" data-signals:sidebar-open="'true'" data-signals:session-id="''" data-signals:code="''" data-signals:new-session-dir="''" data-signals:manual-projects="''"></div><div id="server-status" class="conn-banner conn-disconnected" style="display:none">⏳ Connecting to server...</div><div id="main"><div style="display: flex; align-items: center; justify-content: center; height: 100vh; color: var(--fg-dim);">⏳ Loading dashboard...</div></div><script>
+    new MutationObserver(function() {
+      var panel = document.getElementById('output-panel');
+      if (panel) panel.scrollTop = panel.scrollHeight;
+    }).observe(document.getElementById('main') || document.body, { childList: true, subtree: true });
+  </script><script>
+    (function() {
+      var themes = {
   "One Dark": `--fg-default: #ffffff;
   --fg-dim: #8b8b8b;
   --fg-green: #87d787;
@@ -285,74 +285,72 @@
   --syn-directive: #81a1c1;
   --syn-property: #88c0d0;`
 };
-          document.addEventListener('change', function(e) {
-            if (e.target.id !== 'theme-picker') return;
-            var css = themes[e.target.value];
-            if (!css) return;
-            var styleEl = document.getElementById('theme-vars');
-            if (styleEl) styleEl.textContent = ':root { ' + css + ' }';
-            fetch('/dashboard/set-theme', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({theme: e.target.value})
-            });
-          });
-        })();
-      </script><script>
-        document.addEventListener('toggle', function(e) {
-          if (e.target.id !== 'evaluate-section') return;
-          var label = e.target.querySelector('summary span:first-child');
-          if (label) label.textContent = e.target.open ? '\u25be Evaluate' : '\u25b8 Evaluate';
-        }, true);
-      </script><script>
-        (function() {
-          var sizes = [10, 12, 14, 16, 18, 20, 24];
-          var idx = 2;
-          document.addEventListener('keydown', function(e) {
-            if (e.ctrlKey && (e.key === '=' || e.key === '+')) { e.preventDefault(); idx = Math.min(sizes.length - 1, idx + 1); document.documentElement.style.setProperty('--font-size', sizes[idx] + 'px'); }
-            if (e.ctrlKey && e.key === '-') { e.preventDefault(); idx = Math.max(0, idx - 1); document.documentElement.style.setProperty('--font-size', sizes[idx] + 'px'); }
-            if (e.ctrlKey && e.key === 'Tab') {
-              e.preventDefault();
-              var body = {action: e.shiftKey ? 'sessionCyclePrev' : 'sessionCycleNext'};
-              fetch('/api/dispatch', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-              return;
-            }
-            // Session navigation when not typing in an input/textarea
-            var tag = (e.target.tagName || '').toLowerCase();
-            if (tag !== 'input' && tag !== 'textarea') {
-              var action = null;
-              var value = null;
-              if (e.key === 'j' || e.key === 'ArrowDown') { action = 'sessionNavDown'; }
-              if (e.key === 'k' || e.key === 'ArrowUp') { action = 'sessionNavUp'; }
-              if (e.key === 'Enter') { action = 'sessionSelect'; }
-              if (e.key === 'x' || e.key === 'Delete') { action = 'sessionDelete'; }
-              if (e.key === 'X') { action = 'sessionStopOthers'; }
-              if (e.key === 'n') { e.preventDefault(); fetch('/dashboard/session/create', {method:'POST'}); return; }
-              if (e.key >= '1' && e.key <= '9') { action = 'sessionSetIndex'; value = String(parseInt(e.key) - 1); }
-              if (action) {
-                e.preventDefault();
-                var body = value ? {action: action, value: value} : {action: action};
-                fetch('/api/dispatch', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-              }
-            }
-          });
-          // Sidebar resize drag
-          var handle = document.getElementById('sidebar-resize');
-          var sidebar = document.getElementById('sidebar');
-          if (handle && sidebar) {
-            var dragging = false;
-            handle.addEventListener('mousedown', function(e) {
-              dragging = true; handle.classList.add('dragging');
-              e.preventDefault();
-            });
-            document.addEventListener('mousemove', function(e) {
-              if (!dragging) return;
-              var w = Math.max(200, Math.min(600, window.innerWidth - e.clientX));
-              sidebar.style.width = w + 'px';
-            });
-            document.addEventListener('mouseup', function() {
-              if (dragging) { dragging = false; handle.classList.remove('dragging'); }
-            });
+      document.addEventListener('change', function(e) {
+        if (e.target.id !== 'theme-picker') return;
+        var css = themes[e.target.value];
+        if (!css) return;
+        var styleEl = document.getElementById('theme-vars');
+        if (styleEl) styleEl.textContent = ':root { ' + css + ' }';
+        fetch('/dashboard/set-theme', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({theme: e.target.value})
+        });
+      });
+    })();
+  </script><script>
+    document.addEventListener('toggle', function(e) {
+      if (e.target.id !== 'evaluate-section') return;
+      var label = e.target.querySelector('summary span:first-child');
+      if (label) label.textContent = e.target.open ? '\u25be Evaluate' : '\u25b8 Evaluate';
+    }, true);
+  </script><script>
+    (function() {
+      var sizes = [10, 12, 14, 16, 18, 20, 24];
+      var idx = 2;
+      document.addEventListener('keydown', function(e) {
+        if (e.ctrlKey && (e.key === '=' || e.key === '+')) { e.preventDefault(); idx = Math.min(sizes.length - 1, idx + 1); document.documentElement.style.setProperty('--font-size', sizes[idx] + 'px'); }
+        if (e.ctrlKey && e.key === '-') { e.preventDefault(); idx = Math.max(0, idx - 1); document.documentElement.style.setProperty('--font-size', sizes[idx] + 'px'); }
+        if (e.ctrlKey && e.key === 'Tab') {
+          e.preventDefault();
+          var body = {action: e.shiftKey ? 'sessionCyclePrev' : 'sessionCycleNext'};
+          fetch('/api/dispatch', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+          return;
+        }
+        var tag = (e.target.tagName || '').toLowerCase();
+        if (tag !== 'input' && tag !== 'textarea') {
+          var action = null;
+          var value = null;
+          if (e.key === 'j' || e.key === 'ArrowDown') { action = 'sessionNavDown'; }
+          if (e.key === 'k' || e.key === 'ArrowUp') { action = 'sessionNavUp'; }
+          if (e.key === 'Enter') { action = 'sessionSelect'; }
+          if (e.key === 'x' || e.key === 'Delete') { action = 'sessionDelete'; }
+          if (e.key === 'X') { action = 'sessionStopOthers'; }
+          if (e.key === 'n') { e.preventDefault(); fetch('/dashboard/session/create', {method:'POST'}); return; }
+          if (e.key >= '1' && e.key <= '9') { action = 'sessionSetIndex'; value = String(parseInt(e.key) - 1); }
+          if (action) {
+            e.preventDefault();
+            var body = value ? {action: action, value: value} : {action: action};
+            fetch('/api/dispatch', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
           }
-        })();
-      </script></body></html>
+        }
+      });
+      var handle = document.getElementById('sidebar-resize');
+      var sidebar = document.getElementById('sidebar');
+      if (handle && sidebar) {
+        var dragging = false;
+        handle.addEventListener('mousedown', function(e) {
+          dragging = true; handle.classList.add('dragging');
+          e.preventDefault();
+        });
+        document.addEventListener('mousemove', function(e) {
+          if (!dragging) return;
+          var w = Math.max(200, Math.min(600, window.innerWidth - e.clientX));
+          sidebar.style.width = w + 'px';
+        });
+        document.addEventListener('mouseup', function() {
+          if (dragging) { dragging = false; handle.classList.remove('dragging'); }
+        });
+      }
+    })();
+  </script></body></html>
