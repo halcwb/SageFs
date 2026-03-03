@@ -311,7 +311,8 @@ let getWarmupContext (sessionId: string) (c: Client) =
 type CompletionResult =
   { label: string
     kind: string
-    insertText: string }
+    insertText: string
+    detail: string option }
 
 let getCompletions (code: string) (cursorPosition: int) (workingDirectory: string option) (c: Client) =
   promise {
@@ -330,7 +331,8 @@ let getCompletions (code: string) (cursorPosition: int) (workingDirectory: strin
           |> Array.map (fun item ->
             { label = fieldString "label" item |> Option.defaultValue ""
               kind = fieldString "kind" item |> Option.defaultValue ""
-              insertText = fieldString "insertText" item |> Option.defaultValue "" })
+              insertText = fieldString "insertText" item |> Option.defaultValue ""
+              detail = fieldString "detail" item })
       | _ ->
         return [||]
     with ex ->

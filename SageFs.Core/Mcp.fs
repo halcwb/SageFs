@@ -364,8 +364,19 @@ module McpAdapter =
     let jsonItems =
       items
       |> List.map (fun item ->
-        sprintf """{"label":"%s","kind":"%s","insertText":"%s"}"""
-          (escapeJson item.DisplayText) (Features.AutoCompletion.CompletionKind.label item.Kind) (escapeJson item.ReplacementText))
+        let detail =
+          match item.GetDescription with
+          | Some getDesc ->
+            try
+              let tags = getDesc ()
+              let text = tags |> Array.map (fun t -> t.Text) |> String.concat ""
+              match text.Length > 0 with
+              | true -> sprintf ""","detail":"%s" """ (escapeJson text)
+              | false -> ""
+            with _ -> ""
+          | None -> ""
+        sprintf """{"label":"%s","kind":"%s","insertText":"%s"%s}"""
+          (escapeJson item.DisplayText) (Features.AutoCompletion.CompletionKind.label item.Kind) (escapeJson item.ReplacementText) detail)
       |> String.concat ","
     sprintf """{"completions":[%s],"count":%d}""" jsonItems (List.length items)
 
