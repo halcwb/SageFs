@@ -55,6 +55,7 @@ module SessionManager =
     | StandbyExited of StandbyKey * workerPid: int
     | StandbyProgress of StandbyKey * progress: string
     | WorkerWarmupProgress of SessionId * progress: string
+    | UpdateSessionStatus of SessionId * WorkerProtocol.SessionStatus
     | InvalidateStandbys of workingDir: string
     | GetStandbyInfo of AsyncReplyChannel<StandbyInfo>
 
@@ -625,6 +626,27 @@ module SessionManager =
             | false -> ()
             onStandbyProgressChanged ()
             onSessionReady id
+            // Poll worker until it reports Ready, then update snapshot
+            Async.Start(async {
+              let mutable done' = false
+              for _ in 1..30 do
+                match done' with
+                | true -> ()
+                | false ->
+                  do! Async.Sleep 1000
+                  try
+                    let rid = Guid.NewGuid().ToString("N").[..7]
+                    let! resp = proxy (WorkerMessage.GetStatus rid)
+                    match resp with
+                    | WorkerResponse.StatusResult(_, snapshot) ->
+                      match snapshot.Status with
+                      | SessionStatus.Ready ->
+                        inbox.Post(SessionCommand.UpdateSessionStatus(id, SessionStatus.Ready))
+                        done' <- true
+                      | _ -> ()
+                    | _ -> ()
+                  with _ -> ()
+            }, ct)
             // Request initial test discovery from the worker
             Async.Start(async {
               try
@@ -876,6 +898,17 @@ module SessionManager =
             { state with WarmupProgress = Map.add id progress state.WarmupProgress }
           onStandbyProgressChanged ()
           return! loop newState
+
+        | SessionCommand.UpdateSessionStatus(id, newStatus) ->
+          match ManagerState.tryGetSession id state with
+          | Some session ->
+            let updated =
+              { session with Info = { session.Info with Status = newStatus } }
+            let newState = ManagerState.addSession id updated state
+            onStandbyProgressChanged ()
+            return! loop newState
+          | None ->
+            return! loop state
 
         | SessionCommand.InvalidateStandbys workingDir ->
           // Kill and remove standbys matching this working dir

@@ -1500,15 +1500,21 @@ let startMcpServer (cfg: McpServerConfig) =
 
                       match serverTracker.Count > 0 with
                       | true ->
-                        let data =
-                          {| event = "state_changed"
-                             diagCount = diagCount
-                             outputCount = outputCount |}
-                        serverTracker.NotifyLogAsync(
-                          LoggingLevel.Info, "sagefs.state", data) |> ignore
+                        try
+                          let data =
+                            {| event = "state_changed"
+                               diagCount = diagCount
+                               outputCount = outputCount |}
+                          serverTracker.NotifyLogAsync(
+                            LoggingLevel.Info, "sagefs.state", data) |> ignore
+                        with
+                        | :? System.Text.Json.JsonException as jex ->
+                          Log.warn "[MCP] State notification JSON error (non-fatal): %s" jex.Message
                       | false -> ()
                     with
                     | :? System.IO.IOException | :? ObjectDisposedException -> ()
+                    | :? System.Text.Json.JsonException as jex ->
+                      Log.warn "[MCP] State change JSON error (non-fatal): %s" jex.Message
                     | ex -> Log.error "[MCP] State change handler error: %s" ex.Message
                   | _ -> ()))
 
