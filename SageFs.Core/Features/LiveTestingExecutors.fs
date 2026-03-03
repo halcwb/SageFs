@@ -3,6 +3,8 @@ namespace SageFs.Features.LiveTesting
 open System
 open System.Diagnostics
 open System.Reflection
+open SageFs
+open SageFs.Utils
 
 // --- Executor Types (IO side — functions that actually run tests) ---
 
@@ -214,7 +216,10 @@ module BuiltInExecutors =
                 FailedExceptionType = expAsm.GetType("Expecto.FailedException")
                 IgnoreExceptionType = expAsm.GetType("Expecto.IgnoreException")
               }
-      with _ -> None
+      with ex ->
+        Log.warn "[LiveTesting] Expecto reflection cache build failed for %s: %s" asm.FullName ex.Message
+        Instrumentation.liveTestingAssemblyLoadErrors.Add(1L)
+        None
 
     /// Map an exception to TestResult using reflection-resolved Expecto types.
     let mapException (cache: ReflectionCache) (ex: exn) (elapsed: TimeSpan) =
@@ -319,9 +324,14 @@ module BuiltInExecutors =
                   let fullName = sprintf "%s/%s" propertyFullName testPath
                   yield fullName, { TestCodeObj = testCode; Tag = tag } ]
               |> List.toArray
-            with _ -> [||]))
+            with ex ->
+              Log.warn "[LiveTesting] buildLookup property %s.%s failed: %s" t.FullName pi.Name ex.Message
+              [||]))
         |> Map.ofArray
-      with _ -> Map.empty
+      with ex ->
+        Log.warn "[LiveTesting] buildLookup assembly scan failed for %s: %s" asm.FullName ex.Message
+        Instrumentation.liveTestingAssemblyLoadErrors.Add(1L)
+        Map.empty
 
     /// Discover individual leaf-level tests from all [<Tests>] properties.
     let discoverLeafTests (cache: ReflectionCache) (asm: Assembly) : TestCase list =
@@ -351,7 +361,9 @@ module BuiltInExecutors =
                           Framework = TestFramework.Expecto
                           Category = CategoryDetection.categorize [] fullName TestFramework.Expecto [||] } ]
               |> List.toArray
-            with _ -> [||]))
+            with ex ->
+              Log.warn "[LiveTesting] discoverLeafTests property %s.%s failed: %s" t.FullName pi.Name ex.Message
+              [||]))
         |> Array.toList
       with
       | :? ReflectionTypeLoadException -> []
@@ -364,20 +376,25 @@ module BuiltInExecutors =
         AssemblyMarker = "Expecto"
       }
       Discover = fun asm ->
-        match ExpectoExecutor.tryBuildCache asm with
-        | Some cache ->
-          let lookup = ExpectoExecutor.buildLookup cache asm
-          let tests = ExpectoExecutor.discoverLeafTests cache asm
-          { Tests = tests
-            RunTest = fun testCase ->
-              async {
-                let! ct = Async.CancellationToken
-                match Map.tryFind testCase.FullName lookup with
-                | Some rft -> return! ExpectoExecutor.executeReflected cache rft ct
-                | None -> return TestResult.NotRun
-              } }
-        | None ->
-          { Tests = []; RunTest = fun _ -> async { return TestResult.NotRun } }
+        let sw = Stopwatch.StartNew()
+        let result =
+          match ExpectoExecutor.tryBuildCache asm with
+          | Some cache ->
+            let lookup = ExpectoExecutor.buildLookup cache asm
+            let tests = ExpectoExecutor.discoverLeafTests cache asm
+            { Tests = tests
+              RunTest = fun testCase ->
+                async {
+                  let! ct = Async.CancellationToken
+                  match Map.tryFind testCase.FullName lookup with
+                  | Some rft -> return! ExpectoExecutor.executeReflected cache rft ct
+                  | None -> return TestResult.NotRun
+                } }
+          | None ->
+            { Tests = []; RunTest = fun _ -> async { return TestResult.NotRun } }
+        sw.Stop()
+        Instrumentation.liveTestingDiscoveryMs.Record(sw.Elapsed.TotalMilliseconds)
+        result
     }
 
   let builtIn = [ xunit; nunit; mstest; tunit; expecto ]

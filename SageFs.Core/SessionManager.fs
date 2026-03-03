@@ -234,7 +234,7 @@ module SessionManager =
         | None ->
           failwith "Worker process exited before reporting port"
       with ex ->
-        try proc.Kill() with _ -> ()
+        try proc.Kill() with ex2 -> Log.warn "[SessionManager] Kill on spawn failure: %s" ex2.Message
         inbox.Post(
           SessionCommand.WorkerSpawnFailed(
             sessionId, proc.Id,
@@ -248,12 +248,13 @@ module SessionManager =
       let exited = session.Process.WaitForExit(3000)
       match exited with
       | false ->
-        try session.Process.Kill() with _ -> ()
-        try session.Process.WaitForExit(2000) |> ignore with _ -> ()
+        try session.Process.Kill() with ex -> Log.warn "[SessionManager] Kill after timeout: %s" ex.Message
+        try session.Process.WaitForExit(2000) |> ignore with ex -> Log.warn "[SessionManager] WaitForExit after kill: %s" ex.Message
       | true -> ()
-    with _ ->
-      try session.Process.Kill() with _ -> ()
-      try session.Process.WaitForExit(2000) |> ignore with _ -> ()
+    with ex ->
+      Log.warn "[SessionManager] Graceful shutdown failed: %s" ex.Message
+      try session.Process.Kill() with ex2 -> Log.warn "[SessionManager] Force kill failed: %s" ex2.Message
+      try session.Process.WaitForExit(2000) |> ignore with ex2 -> Log.warn "[SessionManager] WaitForExit after force kill: %s" ex2.Message
     session.Process.Dispose()
   }
 
@@ -300,12 +301,12 @@ module SessionManager =
           |> Async.AwaitTask
         match Object.ReferenceEquals(completed, timeoutTask) with
         | true ->
-          try proc.Kill(entireProcessTree = true) with _ -> ()
+          try proc.Kill(entireProcessTree = true) with ex -> Log.warn "[SessionManager] Kill build process on timeout: %s" ex.Message
           proc.Dispose()
           return Error "Build timed out (10 min limit)"
         | false ->
-          try stderrTask.Wait(5000) |> ignore with _ -> ()
-          try stdoutTask.Wait(5000) |> ignore with _ -> ()
+          try stderrTask.Wait(5000) |> ignore with ex -> Log.warn "[SessionManager] stderr wait: %s" ex.Message
+          try stdoutTask.Wait(5000) |> ignore with ex -> Log.warn "[SessionManager] stdout wait: %s" ex.Message
           let exitCode = proc.ExitCode
           proc.Dispose()
           match exitCode <> 0 with
@@ -348,7 +349,7 @@ module SessionManager =
         | None ->
           failwith "Standby worker exited before reporting port"
       with ex ->
-        try proc.Kill() with _ -> ()
+        try proc.Kill() with ex2 -> Log.warn "[SessionManager] Kill standby on spawn failure: %s" ex2.Message
         inbox.Post(
           SessionCommand.StandbySpawnFailed(
             key, proc.Id,
@@ -364,12 +365,13 @@ module SessionManager =
         let exited = standby.Process.WaitForExit(3000)
         match exited with
         | false ->
-          try standby.Process.Kill() with _ -> ()
+          try standby.Process.Kill() with ex -> Log.warn "[SessionManager] Kill standby after timeout: %s" ex.Message
         | true -> ()
       | None ->
-        try standby.Process.Kill() with _ -> ()
-    with _ ->
-      try standby.Process.Kill() with _ -> ()
+        try standby.Process.Kill() with ex -> Log.warn "[SessionManager] Kill standby (no proxy): %s" ex.Message
+    with ex ->
+      Log.warn "[SessionManager] Standby shutdown failed: %s" ex.Message
+      try standby.Process.Kill() with ex2 -> Log.warn "[SessionManager] Force kill standby: %s" ex2.Message
   }
 
   /// Create the supervisor MailboxProcessor.
@@ -586,7 +588,9 @@ module SessionManager =
                             Info = { session.Info with Status = snapshot.Status } }
                       return ManagerState.addSession id updated st
                     | _ -> return st
-                  with _ -> return st
+                  with ex ->
+                    Log.warn "[SessionManager] Status refresh for %s failed: %s" id ex.Message
+                    return st
                 | false -> return st
               }
             ) (async { return state })
