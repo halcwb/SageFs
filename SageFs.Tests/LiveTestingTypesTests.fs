@@ -795,4 +795,32 @@ let liveTestingTypesTests = testList "LiveTestingTypes" [
       state.Hits |> Expect.isEmpty "empty hits on mismatch"
     }
   ]
+
+  testList "SequencePoint.hasRange" [
+    test "valid range on same line" {
+      { File = "a.fs"; Line = 1; Column = 0; EndLine = 1; EndColumn = 10; BranchId = 0 }
+      |> SequencePoint.hasRange
+      |> Expect.isTrue "same line, endCol > col"
+    }
+    test "multi-line range" {
+      { File = "a.fs"; Line = 1; Column = 0; EndLine = 5; EndColumn = 0; BranchId = 0 }
+      |> SequencePoint.hasRange
+      |> Expect.isTrue "endLine > line"
+    }
+    test "degenerate: endLine=0" {
+      { File = "a.fs"; Line = 1; Column = 0; EndLine = 0; EndColumn = 10; BranchId = 0 }
+      |> SequencePoint.hasRange
+      |> Expect.isFalse "endLine=0 is degenerate"
+    }
+    test "degenerate: same line same column" {
+      { File = "a.fs"; Line = 3; Column = 5; EndLine = 3; EndColumn = 5; BranchId = 0 }
+      |> SequencePoint.hasRange
+      |> Expect.isFalse "zero-width range"
+    }
+    test "degenerate: endCol < col on same line" {
+      { File = "a.fs"; Line = 3; Column = 10; EndLine = 3; EndColumn = 5; BranchId = 0 }
+      |> SequencePoint.hasRange
+      |> Expect.isFalse "endCol < col on same line"
+    }
+  ]
 ]
