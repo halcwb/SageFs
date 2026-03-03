@@ -84,7 +84,11 @@ type LiveTestingSubscriber(port: int) =
         if not newCts.Token.IsCancellationRequested then
           do! loop ()
     }
-    Task.Run(fun () -> loop () :> Task) |> ignore
+    Task.Run(fun () ->
+      task {
+        try do! loop ()
+        with :? OperationCanceledException -> ()
+      } :> Task) |> ignore
 
   member _.Summary () = LiveTestState.summary state
 

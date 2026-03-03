@@ -15,7 +15,7 @@ let createActorResult () =
 let actorSplitTests =
   testList "[Integration] Actor split" [
 
-    testCase "GetAppState responds during long eval"
+    testCase "GetSessionPhase responds during long eval"
     <| fun _ ->
       let result = createActorResult ()
 
@@ -34,7 +34,7 @@ let actorSplitTests =
       let queryTask =
         async {
           return!
-            result.Actor.PostAndAsyncReply(fun reply -> GetAppState reply)
+            result.Actor.PostAndAsyncReply(fun reply -> GetSessionPhase reply)
         }
         |> Async.StartAsTask
 
@@ -42,7 +42,7 @@ let actorSplitTests =
       // After the split, this should complete quickly
       let completed = queryTask.Wait(2000)
       completed
-      |> Expect.isTrue "GetAppState should respond during eval"
+      |> Expect.isTrue "GetSessionPhase should respond during eval"
 
       // Clean up — cancel the long eval
       result.CancelEval() |> ignore

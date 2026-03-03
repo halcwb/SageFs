@@ -109,6 +109,33 @@ type EvalResponse = {
 
 type EvalRequest = { Code: string; Args: Map<string, obj> }
 
+/// Whether the active session is idle or currently evaluating code.
+/// Only meaningful when the session is Active — not a top-level lifecycle state.
+type SessionActivity = Idle | Evaluating
+
+/// Rich session lifecycle phase — the source of truth for QuerySnapshot.
+/// Carries domain data only in states where it's meaningful, making
+/// impossible states (e.g., "Faulted with a valid AppState") unrepresentable.
+/// Replaces the old (AppState option × SessionState) pair which could desync.
+type SessionPhase =
+  | Initializing of statusMessage: string option
+  | Active of AppState * SessionActivity
+  | Faulted
+
+module SessionPhase =
+  /// Derive the legacy SessionState for external consumers (MCP, dashboard, etc.)
+  let toSessionState = function
+    | Initializing _ -> SessionState.WarmingUp
+    | Active (_, Idle) -> SessionState.Ready
+    | Active (_, Evaluating) -> SessionState.Evaluating
+    | Faulted -> SessionState.Faulted
+
+  /// Extract the AppState when active, None otherwise.
+  /// Narrow convenience for callers that genuinely don't need phase distinction.
+  let tryAppState = function
+    | Active (st, _) -> Some st
+    | Initializing _ | Faulted -> None
+
 type MiddlewareNext = EvalRequest * AppState -> EvalResponse * AppState
 type Middleware = MiddlewareNext -> EvalRequest * AppState -> EvalResponse * AppState
 
@@ -120,7 +147,7 @@ type Command =
   | AddMiddleware of Middleware list * AsyncReplyChannel<unit>
   | GetDiagnostics of text: string * AsyncReplyChannel<Diagnostics.Diagnostic array>
   | GetTypeCheckWithSymbols of text: string * filePath: string * AsyncReplyChannel<Diagnostics.TypeCheckWithSymbolsResult>
-  | GetAppState of AsyncReplyChannel<AppState>
+  | GetSessionPhase of AsyncReplyChannel<SessionPhase>
   | GetSessionState of AsyncReplyChannel<SessionState>
   | GetStartupConfig of AsyncReplyChannel<StartupConfig option>
   | GetWarmupFailures of AsyncReplyChannel<WarmupFailure list>
@@ -133,19 +160,17 @@ type AppActor = MailboxProcessor<Command>
 
 /// Immutable snapshot published from eval actor to query actor.
 /// Query actor serves reads from this — no shared mutable state.
+/// All fields are derivable from Phase; EvalStats is kept separate
+/// because it's always meaningful (even as empty during Initializing).
 type QuerySnapshot = {
-  AppState: AppState
-  SessionState: SessionState
+  Phase: SessionPhase
   EvalStats: Affordances.EvalStats
-  StartupConfig: StartupConfig option
-  WarmupFailures: WarmupFailure list
-  StatusMessage: string option
 }
 
 /// Internal command for the query actor
 type internal QueryCommand =
   | UpdateSnapshot of QuerySnapshot
-  | QueryGetAppState of AsyncReplyChannel<AppState>
+  | QueryGetSessionPhase of AsyncReplyChannel<SessionPhase>
   | QueryGetSessionState of AsyncReplyChannel<SessionState>
   | QueryGetEvalStats of AsyncReplyChannel<Affordances.EvalStats>
   | QueryGetStartupConfig of AsyncReplyChannel<StartupConfig option>
@@ -543,77 +568,116 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
 
   // Query actor: serves all reads from an immutable snapshot.
   // No mutable state — receives snapshots via UpdateSnapshot message.
+  // Wrapped with ResilientActor.wrapLoop so unhandled exceptions in
+  // diagnostics/completions don't silently kill the query actor.
   let queryActor = MailboxProcessor<QueryCommand>.Start(fun inbox ->
+    let processQuery (snapshot: QuerySnapshot) (cmd: QueryCommand) =
+      async {
+        match cmd with
+        | UpdateSnapshot newSnapshot ->
+          return newSnapshot
+        | QueryGetSessionPhase reply ->
+          reply.Reply snapshot.Phase
+          return snapshot
+        | QueryGetSessionState reply ->
+          reply.Reply (SessionPhase.toSessionState snapshot.Phase)
+          return snapshot
+        | QueryGetEvalStats reply ->
+          reply.Reply snapshot.EvalStats
+          return snapshot
+        | QueryGetStartupConfig reply ->
+          let config =
+            match snapshot.Phase with
+            | Active (st, _) -> st.StartupConfig
+            | _ -> None
+          reply.Reply config
+          return snapshot
+        | QueryGetWarmupFailures reply ->
+          let failures =
+            match snapshot.Phase with
+            | Active (st, _) -> st.WarmupFailures
+            | _ -> []
+          reply.Reply failures
+          return snapshot
+        | QueryGetWarmupContext reply ->
+          let ctx =
+            match snapshot.Phase with
+            | Active (st, _) -> st.WarmupContext
+            | _ -> WarmupContext.empty
+          reply.Reply ctx
+          return snapshot
+        | QueryGetStatusMessage reply ->
+          let msg =
+            match snapshot.Phase with
+            | Initializing msg -> msg
+            | _ -> None
+          reply.Reply msg
+          return snapshot
+        | QueryAutocomplete(text, caret, word, reply) ->
+          match snapshot.Phase with
+          | Active (st, _) ->
+            let res = AutoCompletion.getCompletions st.Session text caret word
+            reply.Reply res
+            return snapshot
+          | _ ->
+            reply.Reply []
+            return snapshot
+        | QueryGetDiagnostics(text, reply) ->
+          match snapshot.Phase with
+          | Active (st, activity) ->
+            let res = Diagnostics.getDiagnostics st.Session text
+            reply.Reply res
+            let newSt = { st with Diagnostics = Features.DiagnosticsStore.add text res st.Diagnostics }
+            diagnosticsChangedEvent.Trigger(newSt.Diagnostics)
+            emit (Events.DiagnosticsChecked {|
+              Code = text
+              Diagnostics = res |> Array.toList |> List.map Events.DiagnosticEvent.fromDiagnostic
+              Source = Events.System
+            |})
+            return { snapshot with Phase = Active (newSt, activity) }
+          | _ ->
+            reply.Reply [||]
+            return snapshot
+        | QueryGetTypeCheckWithSymbols(text, filePath, reply) ->
+          match snapshot.Phase with
+          | Active (st, _) ->
+            let res = Diagnostics.getTypeCheckWithSymbols st.Session filePath text
+            reply.Reply res
+            return snapshot
+          | _ ->
+            reply.Reply { Diagnostics.TypeCheckWithSymbolsResult.Diagnostics = [||]; HasErrors = false; SymbolRefs = [] }
+            return snapshot
+        | QueryGetBoundValue(name, reply) ->
+          match snapshot.Phase with
+          | Active (st, _) ->
+            st.Session.GetBoundValues()
+            |> List.tryFind (fun x -> x.Name = name)
+            |> Option.map (fun v -> v.Value.ReflectionValue)
+            |> Option.bind Option.ofObj
+            |> reply.Reply
+            return snapshot
+          | _ ->
+            reply.Reply None
+            return snapshot
+        | QueryUpdateMcpPort port ->
+          match snapshot.Phase with
+          | Active (st, activity) ->
+            let updatedConfig =
+              match st.StartupConfig with
+              | Some config -> Some { config with McpPort = port }
+              | None -> None
+            return { snapshot with Phase = Active ({ st with StartupConfig = updatedConfig }, activity) }
+          | _ -> return snapshot
+      }
+    let safeProcessQuery = ResilientActor.wrapLoop logger "query-actor" processQuery
     let rec loop (snapshot: QuerySnapshot) = async {
       let! cmd = inbox.Receive()
-      match cmd with
-      | UpdateSnapshot newSnapshot ->
-        return! loop newSnapshot
-      | QueryGetAppState reply ->
-        reply.Reply snapshot.AppState
-        return! loop snapshot
-      | QueryGetSessionState reply ->
-        reply.Reply snapshot.SessionState
-        return! loop snapshot
-      | QueryGetEvalStats reply ->
-        reply.Reply snapshot.EvalStats
-        return! loop snapshot
-      | QueryGetStartupConfig reply ->
-        reply.Reply snapshot.StartupConfig
-        return! loop snapshot
-      | QueryGetWarmupFailures reply ->
-        reply.Reply snapshot.WarmupFailures
-        return! loop snapshot
-      | QueryGetWarmupContext reply ->
-        let ctx =
-          match obj.ReferenceEquals(snapshot.AppState, null) with
-          | true -> WarmupContext.empty
-          | false -> snapshot.AppState.WarmupContext
-        reply.Reply ctx
-        return! loop snapshot
-      | QueryGetStatusMessage reply ->
-        reply.Reply snapshot.StatusMessage
-        return! loop snapshot
-      | QueryAutocomplete(text, caret, word, reply) ->
-        let res = AutoCompletion.getCompletions snapshot.AppState.Session text caret word
-        reply.Reply res
-        return! loop snapshot
-      | QueryGetDiagnostics(text, reply) ->
-        let res = Diagnostics.getDiagnostics snapshot.AppState.Session text
-        reply.Reply res
-        let newAppState = { snapshot.AppState with Diagnostics = Features.DiagnosticsStore.add text res snapshot.AppState.Diagnostics }
-        diagnosticsChangedEvent.Trigger(newAppState.Diagnostics)
-        emit (Events.DiagnosticsChecked {|
-          Code = text
-          Diagnostics = res |> Array.toList |> List.map Events.DiagnosticEvent.fromDiagnostic
-          Source = Events.System
-        |})
-        return! loop { snapshot with AppState = newAppState }
-      | QueryGetTypeCheckWithSymbols(text, filePath, reply) ->
-        let res = Diagnostics.getTypeCheckWithSymbols snapshot.AppState.Session filePath text
-        reply.Reply res
-        return! loop snapshot
-      | QueryGetBoundValue(name, reply) ->
-        snapshot.AppState.Session.GetBoundValues()
-        |> List.tryFind (fun x -> x.Name = name)
-        |> Option.map (fun v -> v.Value.ReflectionValue)
-        |> Option.bind Option.ofObj
-        |> reply.Reply
-        return! loop snapshot
-      | QueryUpdateMcpPort port ->
-        let updatedConfig =
-          match snapshot.StartupConfig with
-          | Some config -> Some { config with McpPort = port }
-          | None -> None
-        return! loop { snapshot with StartupConfig = updatedConfig }
+      let! snapshot' = safeProcessQuery snapshot cmd
+      return! loop snapshot'
     }
     let emptySnapshot = {
-      AppState = Unchecked.defaultof<AppState>
-      SessionState = SessionState.WarmingUp
+      Phase = Initializing None
       EvalStats = Affordances.EvalStats.empty
-      StartupConfig = None
-      WarmupFailures = []
-      StatusMessage = None
     }
     loop emptySnapshot
   )
@@ -622,22 +686,22 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
   // Writers: publishSnapshot (called by main actor on every state change).
   // Readers: getSessionState, getEvalStats, etc. — zero mailbox round-trip.
   let mutable latestSnapshot : QuerySnapshot = {
-    AppState = Unchecked.defaultof<AppState>
-    SessionState = SessionState.WarmingUp
+    Phase = Initializing None
     EvalStats = Affordances.EvalStats.empty
-    StartupConfig = None
-    WarmupFailures = []
-    StatusMessage = None
   }
 
-  let publishSnapshot st sessionState evalStats =
+  let publishSnapshot st activity evalStats =
     let snap = {
-      AppState = st
-      SessionState = sessionState
+      Phase = Active (st, activity)
       EvalStats = evalStats
-      StartupConfig = st.StartupConfig
-      WarmupFailures = st.WarmupFailures
-      StatusMessage = None
+    }
+    System.Threading.Volatile.Write(&latestSnapshot, snap)
+    queryActor.Post(UpdateSnapshot snap)
+
+  let publishPhase phase evalStats =
+    let snap = {
+      Phase = phase
+      EvalStats = evalStats
     }
     System.Threading.Volatile.Write(&latestSnapshot, snap)
     queryActor.Post(UpdateSnapshot snap)
@@ -660,7 +724,7 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
           return! loop st middleware sessionState evalStats
         | EvalRun(request, cts, reply) ->
           let sessionState' = SessionState.Evaluating
-          publishSnapshot st sessionState' evalStats
+          publishSnapshot st Evaluating evalStats
           let sw = System.Diagnostics.Stopwatch.StartNew()
           emit (Events.EvalRequested {| Code = request.Code; Source = Events.System |})
           let pipeline = buildPipeline (wrapErrorMiddleware :: middleware) (evalFn cts.Token)
@@ -685,7 +749,7 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
           | Ok(res, newSt) ->
             let sessionState'' = SessionState.Ready
             let evalStats' = Affordances.EvalStats.record sw.Elapsed evalStats
-            publishSnapshot newSt sessionState'' evalStats'
+            publishSnapshot newSt Idle evalStats'
             match res.EvaluationResult with
             | Ok result ->
               emit (Events.EvalCompleted {|
@@ -710,7 +774,7 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
               Metadata = Map.empty
             }
             let sessionState'' = SessionState.Ready
-            publishSnapshot st sessionState'' evalStats
+            publishSnapshot st Idle evalStats
             emit (Events.EvalFailed {|
               Code = code
               Error = ex.Message
@@ -724,7 +788,7 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
         | EvalReset reply ->
           try
             let sessionState' = SessionState.WarmingUp
-            publishSnapshot st sessionState' evalStats
+            publishPhase (Initializing None) evalStats
             logger.LogInfo "🔄 Resetting FSI session..."
             // Wait briefly for any in-flight eval thread to finish
             match currentEvalThread.Value with
@@ -740,29 +804,26 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
             let softResetCts = new CancellationTokenSource(Timeouts.softResetCancellation)
             let onProgress (s,t,msg) =
               emit (Events.SageFsEvent.SessionWarmUpProgress {| Step = s; Total = t; Message = msg |})
-              queryActor.Post(UpdateSnapshot {
-                AppState = st; SessionState = SessionState.WarmingUp; EvalStats = evalStats
-                StartupConfig = st.StartupConfig; WarmupFailures = st.WarmupFailures
-                StatusMessage = Some (sprintf "[%d/%d] %s" s t msg) })
+              publishPhase (Initializing (Some (sprintf "[%d/%d] %s" s t msg))) evalStats
             let! newSession, newRecorder, _, warmupFailures, warmupCtx = createFsiSession logger outStream useAsp st.Solution softResetCts.Token onProgress
             softResetCts.Dispose()
             let newSt = { st with Session = newSession; OutStream = newRecorder; Diagnostics = Features.DiagnosticsStore.empty; WarmupFailures = warmupFailures; WarmupContext = warmupCtx }
             logger.LogInfo "✅ FSI session reset complete"
             let sessionState'' = SessionState.Ready
-            publishSnapshot newSt sessionState'' evalStats
+            publishSnapshot newSt Idle evalStats
             emit Events.SessionReset
             reply.Reply(Ok ())
             return! loop newSt middleware sessionState'' evalStats
           with ex ->
             logger.LogError $"❌ FSI session reset failed: {ex.Message}"
             let sessionState' = SessionState.Faulted
-            publishSnapshot st sessionState' evalStats
+            publishPhase Faulted evalStats
             reply.Reply(Error (SageFsError.ResetFailed ex.Message))
             return! loop st middleware sessionState' evalStats
         | EvalHardReset (rebuild, reply) ->
           try
             let sessionState' = SessionState.WarmingUp
-            publishSnapshot st sessionState' evalStats
+            publishPhase (Initializing None) evalStats
             logger.LogInfo "🔨 Hard resetting FSI session..."
             // Wait briefly for any in-flight eval thread to finish
             match currentEvalThread.Value with
@@ -876,7 +937,7 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
                       let msg = sprintf "Build failed on retry (exit code %d): %s" retryCode retryErr
                       logger.LogError (sprintf "  ❌ %s" msg)
                       let failedState = SessionState.Faulted
-                      publishSnapshot st failedState evalStats
+                      publishPhase Faulted evalStats
                       reply.Reply(Error (SageFsError.HardResetFailed msg))
                       return! loop st middleware failedState evalStats
                     | false ->
@@ -885,7 +946,7 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
                     let msg = sprintf "Build failed (exit code %d): %s" exitCode stderr
                     logger.LogError (sprintf "  ❌ %s" msg)
                     let failedState = SessionState.Faulted
-                    publishSnapshot st failedState evalStats
+                    publishPhase Faulted evalStats
                     reply.Reply(Error (SageFsError.HardResetFailed msg))
                     return! loop st middleware failedState evalStats
                 | false ->
@@ -917,10 +978,7 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
               System.Threading.Tasks.Task.Run<Result<_, exn>>(fun () ->
                 let onProgress (s,t,msg) =
                   emit (Events.SageFsEvent.SessionWarmUpProgress {| Step = s; Total = t; Message = msg |})
-                  queryActor.Post(UpdateSnapshot {
-                    AppState = st; SessionState = SessionState.WarmingUp; EvalStats = evalStats
-                    StartupConfig = st.StartupConfig; WarmupFailures = st.WarmupFailures
-                    StatusMessage = Some (sprintf "[%d/%d] %s" s t msg) })
+                  publishPhase (Initializing (Some (sprintf "[%d/%d] %s" s t msg))) evalStats
                 try
                   Async.RunSynchronously(
                     createFsiSession logger outStream useAsp newSln warmupCts.Token onProgress)
@@ -948,7 +1006,7 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
               let msg = sprintf "Session warmup failed: %s" ex.Message
               logger.LogError (sprintf "  ❌ %s" msg)
               let failedState = SessionState.Faulted
-              publishSnapshot st failedState evalStats
+              publishPhase Faulted evalStats
               reply.Reply(Error (SageFsError.HardResetFailed msg))
               return! loop st middleware failedState evalStats
             | Ok (newSession, newRecorder, _, warmupFailures, warmupCtx) ->
@@ -964,14 +1022,14 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
                   WarmupContext = warmupCtx }
             logger.LogInfo "✅ Hard reset complete"
             let sessionState'' = SessionState.Ready
-            publishSnapshot newSt sessionState'' evalStats
+            publishSnapshot newSt Idle evalStats
             emit (Events.SessionHardReset {| Rebuild = rebuild |})
             reply.Reply(Ok "Hard reset complete. Fresh session with re-copied assemblies.")
             return! loop newSt middleware sessionState'' evalStats
           with ex ->
             logger.LogError (sprintf "❌ Hard reset failed: %s" ex.Message)
             let sessionState' = SessionState.Faulted
-            publishSnapshot st sessionState' evalStats
+            publishPhase Faulted evalStats
             reply.Reply(Error (SageFsError.HardResetFailed ex.Message))
             return! loop st middleware sessionState' evalStats
       }
@@ -1004,13 +1062,7 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
           let initCts = new CancellationTokenSource(Timeouts.initSessionCancellation)
           let onProgress (s,t,msg) =
             emit (Events.SageFsEvent.SessionWarmUpProgress {| Step = s; Total = t; Message = msg |})
-            queryActor.Post(UpdateSnapshot {
-              AppState = Unchecked.defaultof<AppState>
-              SessionState = SessionState.WarmingUp
-              EvalStats = Affordances.EvalStats.empty
-              StartupConfig = None
-              WarmupFailures = []
-              StatusMessage = Some (sprintf "[%d/%d] %s" s t msg) })
+            publishPhase (Initializing (Some (sprintf "[%d/%d] %s" s t msg))) Affordances.EvalStats.empty
           let! fsiSession, recorder, args, warmupFailures, warmupCtx = createFsiSession logger outStream useAsp sln initCts.Token onProgress
           initCts.Dispose()
           
@@ -1057,7 +1109,7 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
           }
 
           let evalStats = Affordances.EvalStats.empty
-          publishSnapshot st sessionState evalStats
+          publishSnapshot st Idle evalStats
           return! loop st [] sessionState evalStats
         with ex ->
           let msg =
@@ -1069,7 +1121,11 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
           | false -> logger.LogError (sprintf "  Inner: %s" ex.InnerException.Message)
           | true -> ()
           logger.LogError (sprintf "  Stack: %s" ex.StackTrace)
-          // Publish Faulted so MCP clients know the session is dead, not warming up
+          // Publish Faulted so MCP clients know the session is dead, not warming up.
+          // AppState is None because the Session/OutStream are unusable.
+          publishPhase Faulted Affordances.EvalStats.empty
+          // Actor stays alive to accept hard_reset_fsi_session commands.
+          // faultedSt keeps the loop alive but is NOT exposed via QuerySnapshot.
           let faultedSt = {
             Solution = sln
             OriginalSolution = originalSln
@@ -1084,8 +1140,6 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
             StartupConfig = None
             HotReloadState = HotReloadState.empty
           }
-          publishSnapshot faultedSt SessionState.Faulted Affordances.EvalStats.empty
-          // Actor stays alive to accept hard_reset_fsi_session commands
           return! loop faultedSt [] SessionState.Faulted Affordances.EvalStats.empty
       }
 
@@ -1094,14 +1148,14 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
 
   // Router actor: dispatches instantly, never blocks.
   // Query commands go to queryActor, eval commands go to evalActor.
+  // Wrapped with ResilientActor.wrapLoop for safety (low risk but cheap insurance).
   let actor = MailboxProcessor.Start(fun mailbox ->
-    let rec loop () =
+    let processRoute () (cmd: Command) =
       async {
-        let! cmd = mailbox.Receive()
         match cmd with
         // Query commands — forward to query actor (responds even during eval)
-        | GetAppState reply ->
-          queryActor.Post(QueryGetAppState reply)
+        | GetSessionPhase reply ->
+          queryActor.Post(QueryGetSessionPhase reply)
         | GetSessionState reply ->
           queryActor.Post(QueryGetSessionState reply)
         | GetStartupConfig reply ->
@@ -1164,33 +1218,45 @@ let mkAppStateActor (logger: ILogger) (initCustomData: Map<string, obj>) outStre
           | Some thread -> try thread.Interrupt() with _ -> ()
           | None -> ()
           evalActor.Post(EvalHardReset(rebuild, reply))
-
+      }
+    let safeProcessRoute = ResilientActor.wrapLoop logger "router" processRoute
+    let rec loop () =
+      async {
+        let! cmd = mailbox.Receive()
+        let! () = safeProcessRoute () cmd
         return! loop ()
       }
     loop ()
   )
 
   // CQRS reads: volatile snapshot — zero blocking, zero mailbox round-trip
+  // All fields derived from SessionPhase — impossible to desync.
   let getSessionState () =
     let snap = System.Threading.Volatile.Read(&latestSnapshot)
-    snap.SessionState
+    SessionPhase.toSessionState snap.Phase
   let getEvalStats () =
     let snap = System.Threading.Volatile.Read(&latestSnapshot)
     snap.EvalStats
   let getWarmupFailures () =
     let snap = System.Threading.Volatile.Read(&latestSnapshot)
-    snap.WarmupFailures
+    match snap.Phase with
+    | Active (st, _) -> st.WarmupFailures
+    | _ -> []
   let getWarmupContext () =
     let snap = System.Threading.Volatile.Read(&latestSnapshot)
-    match obj.ReferenceEquals(snap.AppState, null) with
-    | true -> WarmupContext.empty
-    | false -> snap.AppState.WarmupContext
+    match snap.Phase with
+    | Active (st, _) -> st.WarmupContext
+    | _ -> WarmupContext.empty
   let getStartupConfig () =
     let snap = System.Threading.Volatile.Read(&latestSnapshot)
-    snap.StartupConfig
+    match snap.Phase with
+    | Active (st, _) -> st.StartupConfig
+    | _ -> None
   let getStatusMessage () =
     let snap = System.Threading.Volatile.Read(&latestSnapshot)
-    snap.StatusMessage
+    match snap.Phase with
+    | Initializing msg -> msg
+    | _ -> None
   let cancelCurrentEval () =
     actor.PostAndAsyncReply(fun reply -> CancelEval reply)
     |> Async.RunSynchronously

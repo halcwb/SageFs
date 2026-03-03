@@ -206,11 +206,14 @@ module ProjectDiscoveryTests =
           let ctx = sharedCtx ()
 
           // Get the working directory the actor actually uses
-          let! appState = globalActorResult.Value.Actor.PostAndAsyncReply(fun reply -> GetAppState reply)
+          let! phase = globalActorResult.Value.Actor.PostAndAsyncReply(fun reply -> GetSessionPhase reply)
           let workingDir =
-            match appState.StartupConfig with
-            | Some config -> config.WorkingDirectory
-            | None -> Environment.CurrentDirectory
+            match phase with
+            | Active (st, _) ->
+              match st.StartupConfig with
+              | Some config -> config.WorkingDirectory
+              | None -> Environment.CurrentDirectory
+            | _ -> Environment.CurrentDirectory
 
           let! result = getAvailableProjects ctx "test" None
 

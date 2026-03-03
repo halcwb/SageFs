@@ -188,6 +188,16 @@ module Instrumentation =
   let fsiEvalErrors =
     mcpMeter.CreateCounter<int64>("sagefs.fsi.eval_errors_total", description = "Total FSI eval errors")
 
+  // P0: Actor loop resilience counters
+  let actorErrors =
+    sessionMeter.CreateCounter<int64>(
+      "sagefs.actor.errors_total",
+      description = "Unhandled exceptions caught by ResilientActor wrapLoop")
+  let fireAndForgetErrors =
+    sessionMeter.CreateCounter<int64>(
+      "sagefs.fire_and_forget.errors_total",
+      description = "Unhandled exceptions caught by SafeFireAndForget")
+
   // P5: Background task error visibility (periodic saves, health checks)
   let periodicTaskErrors =
     sessionMeter.CreateCounter<int64>(

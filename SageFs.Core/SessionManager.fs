@@ -106,6 +106,9 @@ module SessionManager =
   type QuerySnapshot = {
     Sessions: Map<SessionId, SessionInfo>
     StandbyInfo: StandbyInfo
+    /// Per-session standby state, keyed by session ID.
+    /// Each session is matched to its standby (if any) via StandbyKey.
+    PerSessionStandby: Map<SessionId, StandbyInfo>
     /// Per-session warmup progress (e.g., "2/4 Scanned 12 files").
     WarmupProgress: Map<SessionId, string>
     /// Per-session worker HTTP base URLs (for hot-reload proxy, etc.).
@@ -137,6 +140,23 @@ module SessionManager =
           |> Option.defaultValue ""
         StandbyInfo.Warming progress
 
+  /// Compute per-session standby info by matching each session to its StandbyKey.
+  let computePerSessionStandby (pool: PoolState) (sessions: Map<SessionId, SessionInfo>) : Map<SessionId, StandbyInfo> =
+    match pool.Enabled with
+    | false -> Map.empty
+    | true ->
+      sessions
+      |> Map.map (fun _id info ->
+        let key = StandbyKey.fromSession info.Projects info.WorkingDirectory
+        match Map.tryFind key pool.Standbys with
+        | None -> StandbyInfo.NoPool
+        | Some s ->
+          match s.State with
+          | StandbyState.Invalidated -> StandbyInfo.Invalidated
+          | StandbyState.Ready -> StandbyInfo.Ready
+          | StandbyState.Warming ->
+            StandbyInfo.Warming (s.WarmupProgress |> Option.defaultValue ""))
+
   module QuerySnapshot =
     let fromState (state: ManagerState) (standby: StandbyInfo) : QuerySnapshot =
       let sessions =
@@ -148,7 +168,8 @@ module SessionManager =
           match ms.WorkerBaseUrl.Length > 0 with
           | true -> Map.add id ms.WorkerBaseUrl acc
           | false -> acc) Map.empty
-      { Sessions = sessions; StandbyInfo = standby; WarmupProgress = state.WarmupProgress; WorkerBaseUrls = workerUrls }
+      let perSession = computePerSessionStandby state.Pool sessions
+      { Sessions = sessions; StandbyInfo = standby; PerSessionStandby = perSession; WarmupProgress = state.WarmupProgress; WorkerBaseUrls = workerUrls }
 
     /// Project a snapshot directly from ManagerState (computes standby info).
     let fromManagerState (state: ManagerState) : QuerySnapshot =
@@ -160,7 +181,7 @@ module SessionManager =
     let allSessions (snap: QuerySnapshot) : SessionInfo list =
       snap.Sessions |> Map.toList |> List.map snd
 
-    let empty = { Sessions = Map.empty; StandbyInfo = StandbyInfo.NoPool; WarmupProgress = Map.empty; WorkerBaseUrls = Map.empty }
+    let empty = { Sessions = Map.empty; StandbyInfo = StandbyInfo.NoPool; PerSessionStandby = Map.empty; WarmupProgress = Map.empty; WorkerBaseUrls = Map.empty }
 
   /// A proxy that rejects calls while the worker is still starting up.
   let pendingProxy : SessionProxy =

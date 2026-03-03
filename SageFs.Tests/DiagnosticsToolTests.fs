@@ -142,7 +142,11 @@ let accumulatedDiagnosticsTests =
     <| fun _ ->
       task {
         let result = globalActorResult.Value
-        let! st = result.Actor.PostAndAsyncReply(GetAppState)
+        let! phase = result.Actor.PostAndAsyncReply(GetSessionPhase)
+        let st =
+          match phase with
+          | Active (st, _) -> st
+          | other -> failwithf "Expected Active phase, got %A" other
         // Just verify the field exists and is a valid store (may have accumulated entries from other tests)
         st.Diagnostics
         |> DiagnosticsStore.all
@@ -155,11 +159,19 @@ let accumulatedDiagnosticsTests =
     <| fun _ ->
       task {
         let result = globalActorResult.Value
-        let! stBefore = result.Actor.PostAndAsyncReply(GetAppState)
+        let! phaseBefore = result.Actor.PostAndAsyncReply(GetSessionPhase)
+        let stBefore =
+          match phaseBefore with
+          | Active (st, _) -> st
+          | other -> failwithf "Expected Active phase, got %A" other
         let countBefore = stBefore.Diagnostics |> DiagnosticsStore.allFlat |> List.length
         let uniqueCode = sprintf "let accumTest_%d: int = \"oops\"" (System.Random.Shared.Next())
         let! _diags = result.Actor.PostAndAsyncReply(fun rc -> GetDiagnostics(uniqueCode, rc))
-        let! stAfter = result.Actor.PostAndAsyncReply(GetAppState)
+        let! phaseAfter = result.Actor.PostAndAsyncReply(GetSessionPhase)
+        let stAfter =
+          match phaseAfter with
+          | Active (st, _) -> st
+          | other -> failwithf "Expected Active phase, got %A" other
         let countAfter = stAfter.Diagnostics |> DiagnosticsStore.allFlat |> List.length
         (countAfter > countBefore)
         |> Expect.isTrue "diagnostics count should increase after GetDiagnostics with errors"
