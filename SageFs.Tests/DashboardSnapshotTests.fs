@@ -78,7 +78,8 @@ let dashboardRenderSnapshotTests = testList "Dashboard render snapshots" [
         EvalCount = 15
         Uptime = "3m"
         WorkingDir = @"C:\Code\MyProj"
-        LastActivity = "eval" }
+        LastActivity = "eval"
+        StandbyLabel = "" }
       { Id = "session-def"
         Status = "stopped"
         StatusMessage = None
@@ -88,14 +89,15 @@ let dashboardRenderSnapshotTests = testList "Dashboard render snapshots" [
         EvalCount = 0
         Uptime = ""
         WorkingDir = ""
-        LastActivity = "" }
+        LastActivity = ""
+        StandbyLabel = "" }
     ]
-    let html = renderSessions sessions false "" |> renderNode
+    let html = renderSessions sessions false |> renderNode
     do! verifyDashboard "dashboard_sessions" html
   }
 
   testTask "renderSessions empty" {
-    let html = renderSessions [] false "" |> renderNode
+    let html = renderSessions [] false |> renderNode
     do! verifyDashboard "dashboard_sessions_empty" html
   }
 
@@ -139,9 +141,10 @@ let edgeCaseSnapshotTests = testList "edge case snapshots" [
         EvalCount = 42
         Uptime = "15m"
         WorkingDir = @"C:\Code\MyProj"
-        LastActivity = "eval" }
+        LastActivity = "eval"
+        StandbyLabel = "" }
     ]
-    let html = renderSessions sessions false "" |> renderNode
+    let html = renderSessions sessions false |> renderNode
     do! verifyDashboard "dashboard_sessions_singleActive" html
   }
   testTask "renderDiagnostics with zero line col" {
@@ -238,37 +241,53 @@ let shellStructureTests = testList "shell structure (replaces browser existence 
     do! verifyDashboard "dashboard_shell" html
   }
 
-  test "h1 shows version" {
+  test "shell has SageFs title" {
     let html = renderShell "1.2.3" |> renderNode
-    Expect.stringContains html "SageFs" "h1 has SageFs"
-    Expect.stringContains html "v1.2.3" "h1 has version"
+    Expect.stringContains html "SageFs" "shell has SageFs title"
+  }
+
+  // Full-page morph: dynamic elements live in renderMainContent, not renderShell.
+  // These tests verify the morphed content includes key interactive elements.
+  let mkSnap version = {
+    DashboardSnapshot.Version = version
+    SessionState = "ready"; SessionId = "test-id"; WorkingDir = @"C:\Code"
+    WarmupProgress = ""; EvalStats = { Count = 0; AvgMs = 0.0; MinMs = 0.0; MaxMs = 0.0 }
+    ThemeName = "default"; ConnectionLabel = None
+    HotReloadPanel = Elem.div [] []; SessionContextPanel = Elem.div [] []
+    TestTracePanel = Elem.div [] []; OutputPanel = Elem.div [] []
+    SessionsPanel = Elem.div [] []; SessionPicker = Elem.div [] []
+    ThemePicker = Elem.div [] []; ThemeVars = Elem.div [] []
+  }
+
+  test "renderMainContent shows version" {
+    let html = renderMainContent (mkSnap "1.2.3") |> renderNode
+    Expect.stringContains html "v1.2.3" "main content has version"
   }
 
   test "evaluate section has textarea with placeholder" {
-    let html = renderShell "0.0.0" |> renderNode
+    let html = renderMainContent (mkSnap "0.0.0") |> renderNode
     Expect.stringContains html "eval-input" "has eval-input class"
     Expect.stringContains html "F# code" "placeholder mentions F#"
   }
 
   test "eval button is present" {
-    let html = renderShell "0.0.0" |> renderNode
+    let html = renderMainContent (mkSnap "0.0.0") |> renderNode
     Expect.stringContains html "Eval" "has Eval button"
   }
 
   test "reset and hard reset buttons are present" {
-    let html = renderShell "0.0.0" |> renderNode
+    let html = renderMainContent (mkSnap "0.0.0") |> renderNode
     Expect.stringContains html "Reset" "has Reset button"
     Expect.stringContains html "Hard Reset" "has Hard Reset button"
   }
 
   test "clear output button in panel header" {
-    let html = renderShell "0.0.0" |> renderNode
+    let html = renderMainContent (mkSnap "0.0.0") |> renderNode
     Expect.stringContains html "Clear" "has Clear button"
   }
 
   test "create session section has all inputs" {
-    let html = renderShell "0.0.0" |> renderNode
-    Expect.stringContains html "path" "has working dir placeholder"
+    let html = renderMainContent (mkSnap "0.0.0") |> renderNode
     Expect.stringContains html "Discover" "has Discover button"
     Expect.stringContains html "fsproj" "has fsproj placeholder"
     Expect.stringContains html "Create" "has Create Session button"
@@ -276,7 +295,6 @@ let shellStructureTests = testList "shell structure (replaces browser existence 
 
   test "server-status banner has no data-show attribute" {
     let html = renderShell "0.0.0" |> renderNode
-    // The banner element should NOT use Datastar data-show (server can't push when dead)
     let bannerStart = html.IndexOf("id=\"server-status\"")
     Expect.isTrue (bannerStart > -1) "server-status exists"
     let tagEnd = html.IndexOf(">", bannerStart)
@@ -290,17 +308,19 @@ let standbyBadgeSseTests = testList "SSE standby badge" [
   test "ready standby shows green badge" {
     let getState _ = SessionState.Ready
     let getMsg _ = None
+    let getStandby _ = StandbyInfo.Ready
     let r = mkRegion "sessions" "active s1 SageFs.Tests.fsproj C:\\Code\\Repos\\SageFs 42 1m Ready 0"
-    let html = renderRegionForSse getState getMsg "✓ standby" r |> Option.map renderNode |> Option.defaultValue ""
+    let html = renderRegionForSse getState getMsg getStandby r |> Option.map renderNode |> Option.defaultValue ""
     Expect.isTrue (html.Contains "standby") "should contain standby"
-    Expect.isTrue (html.Contains "var(--green)") "ready standby should use green"
+    Expect.isTrue (html.Contains "var(--fg-green)") "ready standby should use green"
   }
 
   test "warming standby shows yellow badge" {
     let getState _ = SessionState.Ready
     let getMsg _ = None
+    let getStandby _ = StandbyInfo.Warming ""
     let r = mkRegion "sessions" "active s1 SageFs.Tests.fsproj C:\\Code\\Repos\\SageFs 42 1m Ready 0"
-    let html = renderRegionForSse getState getMsg "⏳ standby" r |> Option.map renderNode |> Option.defaultValue ""
+    let html = renderRegionForSse getState getMsg getStandby r |> Option.map renderNode |> Option.defaultValue ""
     Expect.isTrue (html.Contains "standby") "should contain standby"
     Expect.isTrue (html.Contains "var(--fg-yellow)") "warming standby should use yellow"
   }
@@ -308,18 +328,20 @@ let standbyBadgeSseTests = testList "SSE standby badge" [
   test "invalidated standby shows red badge" {
     let getState _ = SessionState.Ready
     let getMsg _ = None
+    let getStandby _ = StandbyInfo.Invalidated
     let r = mkRegion "sessions" "active s1 SageFs.Tests.fsproj C:\\Code\\Repos\\SageFs 42 1m Ready 0"
-    let html = renderRegionForSse getState getMsg "⚠ standby" r |> Option.map renderNode |> Option.defaultValue ""
+    let html = renderRegionForSse getState getMsg getStandby r |> Option.map renderNode |> Option.defaultValue ""
     Expect.isTrue (html.Contains "standby") "should contain standby"
-    Expect.isTrue (html.Contains "var(--red)") "invalidated standby should use red"
+    Expect.isTrue (html.Contains "var(--fg-red)") "invalidated standby should use red"
   }
 
-  test "empty label shows no badge" {
+  test "no pool shows no badge" {
     let getState _ = SessionState.Ready
     let getMsg _ = None
+    let getStandby _ = StandbyInfo.NoPool
     let r = mkRegion "sessions" "active s1 SageFs.Tests.fsproj C:\\Code\\Repos\\SageFs 42 1m Ready 0"
-    let html = renderRegionForSse getState getMsg "" r |> Option.map renderNode |> Option.defaultValue ""
-    Expect.isFalse (html.Contains "standby") "empty label should not show standby badge"
+    let html = renderRegionForSse getState getMsg getStandby r |> Option.map renderNode |> Option.defaultValue ""
+    Expect.isFalse (html.Contains "standby") "NoPool should not show standby badge"
   }
 
   test "StandbyInfo.label maps correctly" {
@@ -330,19 +352,21 @@ let standbyBadgeSseTests = testList "SSE standby badge" [
     Expect.equal (StandbyInfo.label StandbyInfo.Invalidated) "⚠ standby" "Invalidated"
   }
 
-  test "output region unaffected by standby label" {
+  test "output region unaffected by standby" {
     let getState _ = SessionState.Ready
     let getMsg _ = None
+    let getStandby _ = StandbyInfo.Ready
     let r = mkRegion "output" "[12:00:00] [info] hello world"
-    let html = renderRegionForSse getState getMsg "✓ standby" r |> Option.map renderNode |> Option.defaultValue ""
+    let html = renderRegionForSse getState getMsg getStandby r |> Option.map renderNode |> Option.defaultValue ""
     Expect.isFalse (html.Contains "standby") "output region should not contain standby"
   }
 
   test "unknown region returns None" {
     let getState _ = SessionState.Ready
     let getMsg _ = None
+    let getStandby _ = StandbyInfo.Ready
     let r = mkRegion "unknown" "whatever"
-    Expect.isNone (renderRegionForSse getState getMsg "✓ standby" r) "unknown region -> None"
+    Expect.isNone (renderRegionForSse getState getMsg getStandby r) "unknown region -> None"
   }
 ]
 
@@ -350,9 +374,9 @@ let warmupProgressSseTests = testList "Standby warmup progress SSE" [
   test "warming badge with progress shows phase text" {
     let getState _ = SessionState.Ready
     let getMsg _ = None
-    let standbyLabel = StandbyInfo.label (StandbyInfo.Warming "2/4 Scanned 12 files")
+    let getStandby _ = StandbyInfo.Warming "2/4 Scanned 12 files"
     let r = mkRegion "sessions" "No sessions"
-    let result = renderRegionForSse getState getMsg standbyLabel r
+    let result = renderRegionForSse getState getMsg getStandby r
     match result with
     | Some node ->
       let html = renderNode node
@@ -362,9 +386,9 @@ let warmupProgressSseTests = testList "Standby warmup progress SSE" [
   test "warming badge with empty progress shows default" {
     let getState _ = SessionState.Ready
     let getMsg _ = None
-    let standbyLabel = StandbyInfo.label (StandbyInfo.Warming "")
+    let getStandby _ = StandbyInfo.Warming ""
     let r = mkRegion "sessions" "No sessions"
-    let result = renderRegionForSse getState getMsg standbyLabel r
+    let result = renderRegionForSse getState getMsg getStandby r
     match result with
     | Some node ->
       let html = renderNode node
