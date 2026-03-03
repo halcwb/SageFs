@@ -561,7 +561,9 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
               try
                 let code = IO.File.ReadAllText f
                 Features.LiveTesting.TestTreeSitter.discover f code
-              with _ -> Array.empty)
+              with ex ->
+                log.LogWarning("[Daemon] Tree-sitter discovery failed for {File}: {Error}", f, ex.Message)
+                Array.empty)
           | false -> Array.empty)
       | false -> Array.empty
     // Dispatch locations BEFORE tests so mergeSourceLocations can enrich them
@@ -619,13 +621,21 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
           for projects in uniqueProjectSets do
             match Features.DaemonPersistence.saveTestCache DaemonState.SageFsDir projects model.LiveTesting.TestState with
             | Ok path -> log.LogDebug("Periodic cache save to {Path} (gen {Gen})", path, gen)
-            | Error err -> log.LogWarning("Periodic cache save failed: {Error}", err)
+            | Error err ->
+              Instrumentation.persistenceSaveErrors.Add(
+                1L, System.Collections.Generic.KeyValuePair("format", box "stc1"))
+              log.LogWarning("Periodic cache save failed: {Error}", err)
           sw.Stop()
           Instrumentation.cacheSaveCount.Add(1L)
-          Instrumentation.cacheSaveMs.Record(sw.Elapsed.TotalMilliseconds)
+          Instrumentation.cacheSaveMs.Record(
+            sw.Elapsed.TotalMilliseconds,
+            System.Collections.Generic.KeyValuePair("coverage_entries", box (int64 model.LiveTesting.TestState.TestCoverageBitmaps.Count)),
+            System.Collections.Generic.KeyValuePair("result_entries", box (int64 model.LiveTesting.TestState.LastResults.Count)))
           lastSavedGeneration <- gen
         | false -> ()
       with ex ->
+        Instrumentation.periodicTaskErrors.Add(
+          1L, System.Collections.Generic.KeyValuePair("task", box "cache_save"))
         log.LogWarning("Periodic cache save error: {Error}", ex.Message)
       // Periodic manifest save (binary session resume)
       try
@@ -639,8 +649,13 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
         }
         match Features.DaemonPersistence.saveManifest DaemonState.SageFsDir replayState with
         | Ok path -> log.LogDebug("Periodic manifest save to {Path}", path)
-        | Error err -> log.LogWarning("Periodic manifest save failed: {Error}", err)
+        | Error err ->
+          Instrumentation.persistenceSaveErrors.Add(
+            1L, System.Collections.Generic.KeyValuePair("format", box "sfm1"))
+          log.LogWarning("Periodic manifest save failed: {Error}", err)
       with ex ->
+        Instrumentation.periodicTaskErrors.Add(
+          1L, System.Collections.Generic.KeyValuePair("task", box "manifest_save"))
         log.LogWarning("Periodic manifest save error: {Error}", ex.Message)),
     null, 60_000, 60_000)
 
@@ -1112,6 +1127,17 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
   log.LogInformation("SSE events: http://localhost:{Port}/events", mcpPort)
   log.LogInformation("Health: http://localhost:{Port}/health", mcpPort)
 
+  // Cleanup orphaned .tmp files from interrupted writes
+  let stcOrphans = Features.TestCacheFile.cleanupOrphanedTmpFiles DaemonState.SageFsDir
+  let sfsOrphans = Features.SessionFile.cleanupOrphanedTmpFiles DaemonState.SageFsDir
+  match stcOrphans + sfsOrphans > 0 with
+  | true ->
+    Instrumentation.persistenceOrphanedTmpCleanup.Add(int64 stcOrphans, System.Collections.Generic.KeyValuePair("format", box "stc1"))
+    Instrumentation.persistenceOrphanedTmpCleanup.Add(int64 sfsOrphans, System.Collections.Generic.KeyValuePair("format", box "sfs3"))
+    log.LogInformation("Cleaned up {Count} orphaned .tmp files ({Stc} .sagetc, {Sfs} .sagefs)",
+      stcOrphans + sfsOrphans, stcOrphans, sfsOrphans)
+  | false -> ()
+
   // Eagerly load cached test state for initial projects — shows results before FSI warmup
   match initialProjects with
   | [] -> ()
@@ -1201,7 +1227,10 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
     for projects in uniqueProjectSets do
       match Features.DaemonPersistence.saveTestCache DaemonState.SageFsDir projects testState with
       | Ok path -> log.LogInformation("Saved test cache to {Path}", path)
-      | Error err -> log.LogWarning("Failed to save test cache: {Error}", err)
+      | Error err ->
+        Instrumentation.persistenceSaveErrors.Add(
+          1L, System.Collections.Generic.KeyValuePair("format", box "stc1"))
+        log.LogWarning("Failed to save test cache: {Error}", err)
 
     // Persist session manifest for binary-first resume
     let toShutdownRecord (s: WorkerProtocol.SessionInfo) : Features.Replay.DaemonSessionRecord =
@@ -1213,7 +1242,10 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
     }
     match Features.DaemonPersistence.saveManifest DaemonState.SageFsDir shutdownReplayState with
     | Ok path -> log.LogInformation("Saved session manifest to {Path}", path)
-    | Error err -> log.LogWarning("Failed to save session manifest: {Error}", err)
+    | Error err ->
+      Instrumentation.persistenceSaveErrors.Add(
+        1L, System.Collections.Generic.KeyValuePair("format", box "sfm1"))
+      log.LogWarning("Failed to save session manifest: {Error}", err)
 
     for info in activeSessions do
       appendEventsAsync [

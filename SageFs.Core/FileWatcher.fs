@@ -110,7 +110,8 @@ let start
       // inherit W3C TraceContext. Tag with the file change timestamp.
       let activity =
         Instrumentation.startSpan Instrumentation.testCycleSource "test_cycle"
-          [ ("file.path", box c.FilePath)
+          [ ("trigger_type", box "file_change")
+            ("file.path", box c.FilePath)
             ("file.change_kind", box (string c.Kind))
             ("file.change_at", box (c.Timestamp.ToString("o"))) ]
       try

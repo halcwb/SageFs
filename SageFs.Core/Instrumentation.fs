@@ -188,6 +188,39 @@ module Instrumentation =
   let fsiEvalErrors =
     mcpMeter.CreateCounter<int64>("sagefs.fsi.eval_errors_total", description = "Total FSI eval errors")
 
+  // P5: Background task error visibility (periodic saves, health checks)
+  let periodicTaskErrors =
+    sessionMeter.CreateCounter<int64>(
+      "sagefs.daemon.periodic_task_errors_total",
+      description = "Errors in periodic background tasks (cache_save, manifest_save)")
+
+  // P5: GC/memory observable gauges (zero per-event cost)
+  let gcHeapBytes =
+    sessionMeter.CreateObservableGauge<int64>(
+      "sagefs.gc.heap_bytes",
+      (fun () -> System.GC.GetTotalMemory(false)),
+      "bytes",
+      "GC managed heap size (approximate)")
+  let gcGen2Collections =
+    sessionMeter.CreateObservableGauge<int64>(
+      "sagefs.gc.collections_gen2",
+      (fun () -> int64 (System.GC.CollectionCount(2))),
+      description = "Gen2 GC collection count (cumulative)")
+
+  // P5: Binary persistence error counters
+  let persistenceSaveErrors =
+    sessionMeter.CreateCounter<int64>(
+      "sagefs.persistence.save_errors_total",
+      description = "Binary file save failures (atomic write)")
+  let persistenceCrcErrors =
+    sessionMeter.CreateCounter<int64>(
+      "sagefs.persistence.crc_errors_total",
+      description = "CRC validation failures on binary file reads")
+  let persistenceOrphanedTmpCleanup =
+    sessionMeter.CreateCounter<int64>(
+      "sagefs.persistence.orphaned_tmp_cleanup_total",
+      description = "Orphaned .tmp files cleaned up at startup")
+
   /// SSE/long-lived paths to suppress in ASP.NET Core HTTP span instrumentation.
   let sseFilterPaths =
     [ "/events"; "/diagnostics"; "/__sagefs__/reload"; "/sse"; "/dashboard/stream"; "/health" ]

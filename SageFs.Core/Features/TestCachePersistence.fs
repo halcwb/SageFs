@@ -205,6 +205,8 @@ module TestCacheReader =
       forCrc.[36] <- 0uy; forCrc.[37] <- 0uy; forCrc.[38] <- 0uy; forCrc.[39] <- 0uy
       let computed = Crc32.computeAll forCrc
       if storedCrc <> computed then
+        Instrumentation.persistenceCrcErrors.Add(
+          1L, System.Collections.Generic.KeyValuePair("format", box "stc1"))
         err (sprintf "Header CRC mismatch: stored=%08X computed=%08X" storedCrc computed)
       else
         let minVersion = BitConverter.ToUInt16(data, 6)
@@ -251,7 +253,10 @@ module TestCacheReader =
             (e, payload, computed = e.Crc))
 
         let crcOk = sectionPayloads |> List.forall (fun (_, _, ok) -> ok)
-        if not crcOk then err "Section CRC mismatch"
+        if not crcOk then
+          Instrumentation.persistenceCrcErrors.Add(
+            1L, System.Collections.Generic.KeyValuePair("format", box "stc1"))
+          err "Section CRC mismatch"
         else
           let payloadMap = sectionPayloads |> List.map (fun (e, p, _) -> (e.Tag, p)) |> Map.ofList
           match Map.tryFind 0x494D4150u payloadMap, Map.tryFind 0x54524553u payloadMap with

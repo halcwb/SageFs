@@ -135,7 +135,10 @@ module ManifestReader =
       forCrc.[36] <- 0uy; forCrc.[37] <- 0uy; forCrc.[38] <- 0uy; forCrc.[39] <- 0uy
       let computedCrc = Crc32.computeAll forCrc
       match storedCrc = computedCrc with
-      | false -> err (sprintf "Header CRC mismatch: stored=%08x computed=%08x" storedCrc computedCrc)
+      | false ->
+        Instrumentation.persistenceCrcErrors.Add(
+          1L, System.Collections.Generic.KeyValuePair("format", box "sfm1"))
+        err (sprintf "Header CRC mismatch: stored=%08x computed=%08x" storedCrc computedCrc)
       | true ->
 
       let activeSessionId = BinaryPrimitives.readLpStringOption br
@@ -168,7 +171,10 @@ module ManifestReader =
 
       let payloadCrc = Crc32.computeAll payload
       match payloadCrc = sessCrcStored with
-      | false -> err (sprintf "SESS CRC mismatch: stored=%08x computed=%08x" sessCrcStored payloadCrc)
+      | false ->
+        Instrumentation.persistenceCrcErrors.Add(
+          1L, System.Collections.Generic.KeyValuePair("format", box "sfm1"))
+        err (sprintf "SESS CRC mismatch: stored=%08x computed=%08x" sessCrcStored payloadCrc)
       | true ->
 
       use pms = new MemoryStream(payload)

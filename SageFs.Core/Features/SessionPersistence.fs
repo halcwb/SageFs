@@ -305,6 +305,8 @@ module SessionBinaryReader =
       forCrc.[36] <- 0uy; forCrc.[37] <- 0uy; forCrc.[38] <- 0uy; forCrc.[39] <- 0uy
       let computed = Crc32.computeAll forCrc
       if storedCrc <> computed then
+        Instrumentation.persistenceCrcErrors.Add(
+          1L, System.Collections.Generic.KeyValuePair("format", box "sfs3"))
         err (sprintf "Header CRC mismatch: stored=%08X computed=%08X" storedCrc computed)
       else
         let minVersion = BitConverter.ToUInt16(data, 6)
@@ -333,7 +335,10 @@ module SessionBinaryReader =
         let crcOk = dirEntries |> List.forall (fun e ->
           let p = data.[int e.Offset .. int e.Offset + int e.Size - 1]
           Crc32.computeAll p = e.Crc)
-        if not crcOk then err "Section CRC mismatch"
+        if not crcOk then
+          Instrumentation.persistenceCrcErrors.Add(
+            1L, System.Collections.Generic.KeyValuePair("format", box "sfs3"))
+          err "Section CRC mismatch"
         else
           let getP tag =
             match findSection tag dirEntries with
