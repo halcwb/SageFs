@@ -231,7 +231,6 @@ let rec startDaemon () =
     match running with
     | true ->
       isStarting <- false
-      Window.showInformationMessage "SageFs daemon is already running." [||] |> ignore
       refreshStatus ()
     | false ->
       let! projPath = findProject ()
@@ -283,7 +282,6 @@ let rec startDaemon () =
                 intervalId |> Option.iter jsClearInterval
                 isStarting <- false
                 out.appendLine "SageFs daemon is ready."
-                Window.showInformationMessage "SageFs daemon started." [||] |> ignore
                 onDaemonReady |> Option.iter (fun f -> f c)
                 refreshStatus ()
               elif attempts > 60 then
@@ -329,13 +327,19 @@ let withClient (action: Client.Client -> JS.Promise<unit>) =
     if ok then do! action (getClient ())
   }
 
-/// Fire a client action that returns ApiOutcome, show its message, then refresh.
+/// Fire a client action that returns ApiOutcome, show brief status bar flash, then refresh.
 let simpleCommand (defaultMsg: string) (action: Client.Client -> JS.Promise<Client.ApiOutcome>) =
   withClient (fun c ->
     promise {
       let! result = action c
       let msg = result |> Client.ApiOutcome.messageOrDefault defaultMsg
-      Window.showInformationMessage (sprintf "SageFs: %s" msg) [||] |> ignore
+      match statusBarItem with
+      | Some sb ->
+        let prev = sb.text
+        sb.text <- sprintf "$(check) %s" msg
+        jsSetTimeout (fun () -> sb.text <- prev; refreshStatus () |> ignore) 3000 |> ignore
+      | None ->
+        Window.showInformationMessage (sprintf "SageFs: %s" msg) [||] |> ignore
       refreshStatus ()
     })
 

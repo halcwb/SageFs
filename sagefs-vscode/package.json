@@ -2,9 +2,10 @@
   "name": "sagefs",
   "displayName": "SageFs — Live F# Development",
   "description": "Send F# code to SageFs for instant evaluation, type-checking, and hot reload.",
-  "version": "0.5.457",
+  "version": "0.5.458",
   "publisher": "sagefs",
   "license": "MIT",
+  "icon": "icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/WillEhrendreich/SageFs"
@@ -14,8 +15,8 @@
   },
   "categories": [
     "Programming Languages",
-    "Notebooks",
-    "Other"
+    "Testing",
+    "Linters"
   ],
   "keywords": [
     "fsharp",
@@ -178,7 +179,7 @@
       {
         "command": "sagefs.evalAdvance",
         "key": "shift+enter",
-        "when": "editorTextFocus && editorLangId == fsharp"
+        "when": "editorTextFocus && editorLangId == fsharp && !notebookEditorFocused"
       },
       {
         "command": "sagefs.cancelEval",
@@ -208,6 +209,12 @@
           "type": "string",
           "default": "",
           "description": "Path to .fsproj file. If empty, SageFs auto-detects."
+        },
+        "sagefs.logLevel": {
+          "type": "string",
+          "enum": ["error", "info", "debug"],
+          "default": "info",
+          "description": "Output channel log level."
         }
       }
     },
