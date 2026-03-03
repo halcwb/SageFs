@@ -1,7 +1,10 @@
 module SageFs.Tests.CellGridTests
 
 open Expecto
+open FsCheck
+open FsCheck.FSharp
 open SageFs
+open SageFs.Tests.SharedGenerators
 
 let cellGridTests = testList "CellGrid" [
   test "create makes grid of empty cells" {
@@ -469,6 +472,42 @@ let performanceTests = testList "Performance" [
   }
 ]
 
+let cellGridPropertyTests = testList "CellGrid properties" [
+  testPropertyWithConfig propConfig "set/get roundtrip for in-bounds coords" <|
+    Prop.forAll (Arb.fromGen genSmallRect) (fun r ->
+      Prop.forAll (Arb.fromGen genCell) (fun cell ->
+        let grid = CellGrid.create (r.Height + r.Row + 1) (r.Width + r.Col + 1)
+        CellGrid.set grid r.Row r.Col cell
+        Expect.equal (CellGrid.get grid r.Row r.Col) cell "roundtrip"))
+
+  testPropertyWithConfig propConfig "Rect.splitH conserves total height" <|
+    Prop.forAll (Arb.fromGen genSmallRect) (fun r ->
+      let splitAt = r.Height / 2
+      let top, bot = Rect.splitH splitAt r
+      Expect.equal (top.Height + bot.Height) r.Height "height conserved")
+
+  testPropertyWithConfig propConfig "Rect.splitV conserves total width" <|
+    Prop.forAll (Arb.fromGen genSmallRect) (fun r ->
+      let splitAt = r.Width / 2
+      let left, right = Rect.splitV splitAt r
+      Expect.equal (left.Width + right.Width) r.Width "width conserved")
+
+  testPropertyWithConfig propConfig "Rect.splitH top/bottom are contiguous" <|
+    Prop.forAll (Arb.fromGen genSmallRect) (fun r ->
+      let splitAt = r.Height / 2
+      let top, bot = Rect.splitH splitAt r
+      Expect.equal top.Row r.Row "top starts at original row"
+      Expect.equal bot.Row (r.Row + top.Height) "bottom starts after top")
+
+  testPropertyWithConfig propConfig "get out-of-bounds returns Cell.empty" <|
+    fun (PositiveInt rows) (PositiveInt cols) ->
+      let rows = min rows 50
+      let cols = min cols 50
+      let grid = CellGrid.create rows cols
+      Expect.equal (CellGrid.get grid rows cols) Cell.empty "out of bounds"
+      Expect.equal (CellGrid.get grid -1 0) Cell.empty "negative"
+]
+
 [<Tests>]
 let allCellGridTests = testList "CellGrid Rendering" [
   cellGridTests
@@ -477,4 +516,5 @@ let allCellGridTests = testList "CellGrid Rendering" [
   junctionTests
   ansiEmitterTests
   performanceTests
+  cellGridPropertyTests
 ]

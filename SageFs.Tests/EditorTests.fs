@@ -2,7 +2,10 @@ module SageFs.Tests.EditorTests
 
 open Expecto
 open Expecto.Flip
+open FsCheck
+open FsCheck.FSharp
 open SageFs
+open SageFs.Tests.SharedGenerators
 
 let initial = EditorState.initial
 
@@ -509,4 +512,57 @@ let promptTests = testList "Inline Prompt" [
   testCase "UiAction.tryParse PromptCancel" <| fun _ ->
     UiAction.tryParse "PromptCancel"
     |> Expect.equal "should parse" (Some (UiAction.Editor EditorAction.PromptCancel))
+]
+
+// Generator for safe editor actions (no side effects, no special params)
+let genSafeEditorAction =
+  let parameterless = [
+    EditorAction.DeleteBackward; EditorAction.DeleteForward
+    EditorAction.DeleteWord; EditorAction.DeleteToEndOfLine
+    EditorAction.MoveWordForward; EditorAction.MoveWordBackward
+    EditorAction.MoveToLineStart; EditorAction.MoveToLineEnd
+    EditorAction.SelectAll; EditorAction.SelectWord
+    EditorAction.NewLine; EditorAction.Undo; EditorAction.Redo
+    EditorAction.MoveCursor Direction.Up; EditorAction.MoveCursor Direction.Down
+    EditorAction.MoveCursor Direction.Left; EditorAction.MoveCursor Direction.Right
+    EditorAction.HistoryPrevious; EditorAction.HistoryNext
+  ]
+  Gen.oneof [
+    Gen.elements parameterless
+    Gen.elements (['a'..'z'] @ ['0'..'9'] @ [' '; '.'; '('; ')'])
+    |> Gen.map EditorAction.InsertChar
+  ]
+
+let genActionSequence =
+  Gen.choose (1, 50)
+  |> Gen.bind (fun len -> Gen.listOfLength len genSafeEditorAction)
+
+[<Tests>]
+let editorPropertyTests = testList "Editor properties" [
+  testPropertyWithConfig propConfig "cursor always in bounds after random action sequence" <|
+    Prop.forAll (Arb.fromGen genActionSequence) (fun actions ->
+      let finalState, _ = applyActions actions
+      let cursor = ValidatedBuffer.cursor finalState.Buffer
+      let lines = ValidatedBuffer.lines finalState.Buffer
+      let lineCount = List.length lines
+      (cursor.Line, 0) |> Expect.isGreaterThanOrEqual "line >= 0"
+      (cursor.Line, lineCount) |> Expect.isLessThan "line < lineCount"
+      let lineLen = lines.[cursor.Line].Length
+      (cursor.Column, 0) |> Expect.isGreaterThanOrEqual "col >= 0"
+      (cursor.Column, lineLen + 1) |> Expect.isLessThan "col <= lineLen")
+
+  testPropertyWithConfig propConfig "buffer always has at least one line" <|
+    Prop.forAll (Arb.fromGen genActionSequence) (fun actions ->
+      let finalState, _ = applyActions actions
+      let lines = ValidatedBuffer.lines finalState.Buffer
+      (List.length lines, 0) |> Expect.isGreaterThan "at least one line")
+
+  testPropertyWithConfig propConfig "undo never crashes regardless of state" <|
+    Prop.forAll
+      (Arb.fromGen genActionSequence)
+      (fun actions ->
+        let s, _ = applyActions actions
+        let afterUndo, _ = EditorUpdate.update EditorAction.Undo s
+        let lines = ValidatedBuffer.lines afterUndo.Buffer
+        (List.length lines, 0) |> Expect.isGreaterThan "still has lines")
 ]

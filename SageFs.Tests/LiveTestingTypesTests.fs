@@ -4,7 +4,9 @@ open System
 open Expecto
 open Expecto.Flip
 open FsCheck
+open FsCheck.FSharp
 open SageFs.Features.LiveTesting
+open SageFs.Tests.SharedGenerators
 
 [<Tests>]
 let liveTestingTypesTests = testList "LiveTestingTypes" [
@@ -822,5 +824,55 @@ let liveTestingTypesTests = testList "LiveTestingTypes" [
       |> SequencePoint.hasRange
       |> Expect.isFalse "endCol < col on same line"
     }
+  ]
+
+  testList "properties" [
+    let genOutcome =
+      Gen.elements [TestOutcome.Pass; TestOutcome.Fail]
+
+    let genOutcomeList =
+      Gen.choose (1, 30)
+      |> Gen.bind (fun n -> Gen.listOfLength n genOutcome)
+
+    testPropertyWithConfig propConfig "ResultWindow.toList never exceeds capacity" <|
+      Prop.forAll (Arb.fromGen genOutcomeList) (fun outcomes ->
+        let capacity = 10
+        let w = outcomes |> List.fold (fun w o -> ResultWindow.add o w) (ResultWindow.create capacity)
+        let items = ResultWindow.toList w
+        (List.length items, capacity + 1) |> Expect.isLessThan "within capacity")
+
+    testPropertyWithConfig propConfig "ResultWindow.toList length = min(added, capacity)" <|
+      Prop.forAll (Arb.fromGen genOutcomeList) (fun outcomes ->
+        let capacity = 10
+        let w = outcomes |> List.fold (fun w o -> ResultWindow.add o w) (ResultWindow.create capacity)
+        let expected = min (List.length outcomes) capacity
+        ResultWindow.toList w
+        |> List.length
+        |> Expect.equal "length matches" expected)
+
+    testPropertyWithConfig propConfig "TestId.create is deterministic" <|
+      fun (NonEmptyString name) ->
+        let genFramework = Gen.elements [TestFramework.Expecto; TestFramework.XUnit; TestFramework.NUnit]
+        Prop.forAll (Arb.fromGen genFramework) (fun fw ->
+          let id1 = TestId.create name fw
+          let id2 = TestId.create name fw
+          id1 |> Expect.equal "deterministic" id2)
+
+    testPropertyWithConfig propConfig "TestId.create produces 16-char hex string" <|
+      fun (NonEmptyString name) ->
+        let (TestId.TestId id) = TestId.create name TestFramework.Expecto
+        id.Length |> Expect.equal "16 chars" 16
+        id |> Seq.forall Char.IsAsciiHexDigit |> Expect.isTrue "hex chars"
+
+    testPropertyWithConfig propConfig "GutterIcon.toChar is total — never throws" <|
+      Prop.forAll
+        (Arb.fromGen (Gen.elements [
+          GutterIcon.TestDiscovered; GutterIcon.TestPassed; GutterIcon.TestFailed
+          GutterIcon.TestRunning; GutterIcon.TestSkipped; GutterIcon.TestFlaky
+          GutterIcon.Covered; GutterIcon.NotCovered
+        ]))
+        (fun icon ->
+          let _ = GutterIcon.toChar icon
+          true |> Expect.isTrue "no exception")
   ]
 ]
