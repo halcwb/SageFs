@@ -120,12 +120,16 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
   let daemonStreamId = "daemon-sessions"
 
   /// Fire-and-forget event append — logs errors but doesn't block the caller.
+  /// Version conflicts are expected (audit trail may already have these events) and logged at Debug.
   let appendEventsAsync (events: Features.Events.SageFsEvent list) =
     System.Threading.Tasks.Task.Run(fun () ->
       task {
         match! persistence.AppendEvents daemonStreamId events with
         | Ok () -> ()
-        | Error err -> log.LogWarning("Fire-and-forget event append failed: {Error}", err)
+        | Error err ->
+          match err.Contains("duplicate key") || err.Contains("version") with
+          | true -> log.LogDebug("Audit trail append skipped (already exists): {Error}", err)
+          | false -> log.LogWarning("Fire-and-forget event append failed: {Error}", err)
       } :> System.Threading.Tasks.Task) |> ignore
 
   // Handle --prune: mark all alive sessions as stopped and exit

@@ -714,4 +714,70 @@ let workerEvalJsonTests =
       let json = McpAdapter.formatWorkerEvalResultJson resp
       JsonDocument.Parse(json) |> ignore
       json |> Expect.stringContains "contains escaped quote" "\\\""
+
+    testList "escapeJson property" [
+      testProperty "escaped output roundtrips through JSON" <| fun (s: string) ->
+        match isNull s with
+        | true -> ()
+        | false ->
+          let escaped = McpAdapter.escapeJson s
+          let json = sprintf """{"v":"%s"}""" escaped
+          use doc = System.Text.Json.JsonDocument.Parse(json)
+          let roundtripped = doc.RootElement.GetProperty("v").GetString()
+          roundtripped |> Expect.equal "roundtrip should preserve value" s
+    ]
+
+    testList "file type detection" [
+      testCase "isSolutionFile detects .sln" <| fun _ ->
+        McpAdapter.isSolutionFile "Foo.sln" |> Expect.isTrue "should detect .sln"
+
+      testCase "isSolutionFile detects .slnx" <| fun _ ->
+        McpAdapter.isSolutionFile "Foo.slnx" |> Expect.isTrue "should detect .slnx"
+
+      testCase "isSolutionFile rejects .fsproj" <| fun _ ->
+        McpAdapter.isSolutionFile "Foo.fsproj" |> Expect.isFalse "should reject .fsproj"
+
+      testCase "isSolutionFile is case-sensitive" <| fun _ ->
+        McpAdapter.isSolutionFile "Foo.SLN" |> Expect.isFalse "should be case-sensitive"
+
+      testCase "isProjectFile detects .fsproj" <| fun _ ->
+        McpAdapter.isProjectFile "Foo.fsproj" |> Expect.isTrue "should detect .fsproj"
+
+      testCase "isProjectFile rejects .csproj" <| fun _ ->
+        McpAdapter.isProjectFile "Foo.csproj" |> Expect.isFalse "should reject .csproj"
+
+      testCase "isProjectFile rejects .sln" <| fun _ ->
+        McpAdapter.isProjectFile "Foo.sln" |> Expect.isFalse "should reject .sln"
+    ]
+
+    testList "splitStatements properties" [
+      testProperty "no output statement is empty" <| fun (s: string) ->
+        match isNull s with
+        | true -> ()
+        | false ->
+          let stmts = McpAdapter.splitStatements s
+          for stmt in stmts do
+            (stmt.Trim().Length > 0) |> Expect.isTrue "no statement should be empty/whitespace"
+
+      testCase "escaped backslash before quote in string" <| fun _ ->
+        let stmts = McpAdapter.splitStatements """let s = "a\\";; let y = 1;;"""
+        stmts |> Expect.hasLength "should have 2 stmts" 2
+
+      testCase "empty string between double semicolons" <| fun _ ->
+        let stmts = McpAdapter.splitStatements ";;;;"
+        stmts |> Expect.equal "should be empty" []
+
+      testCase "multiple newlines between statements" <| fun _ ->
+        let stmts = McpAdapter.splitStatements "let x = 1;;\n\n\n\nlet y = 2;;"
+        stmts |> Expect.hasLength "should have 2 stmts" 2
+
+      testCase "statement with only whitespace before ;;" <| fun _ ->
+        let stmts = McpAdapter.splitStatements "   ;;"
+        stmts |> Expect.equal "whitespace-only segment is dropped" []
+
+      testCase "hash directive preserved" <| fun _ ->
+        let stmts = McpAdapter.splitStatements "#r \"nuget: FSharp.Data\";;\nlet x = 1;;"
+        stmts |> Expect.hasLength "should have 2 stmts" 2
+        stmts.[0] |> Expect.stringContains "first should be directive" "#r"
+    ]
   ]
