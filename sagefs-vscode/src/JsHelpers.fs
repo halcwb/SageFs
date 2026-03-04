@@ -44,31 +44,44 @@ let sleep (ms: int) : JS.Promise<unit> = jsNative
 [<Emit("console.error('[SageFs] unhandled promise rejection:', $0)")>]
 let private logPromiseError (err: obj) : unit = jsNative
 
-/// Ignore a promise's result but log rejections instead of swallowing them silently.
+/// Ignore a promise's result but log rejections to console.error.
+/// Prefer promiseIgnoreLog when an output channel is available.
 let promiseIgnore (p: JS.Promise<_>) : unit =
   p
   |> Promise.map ignore
   |> Promise.catch (fun err -> logPromiseError err)
   |> Promise.start
 
+/// Ignore a promise's result, logging rejections to the provided sink (e.g. outputChannel.appendLine).
+let promiseIgnoreLog (log: string -> unit) (p: JS.Promise<_>) : unit =
+  p
+  |> Promise.map ignore
+  |> Promise.catch (fun err -> log (sprintf "[error] Unhandled promise rejection: %O" err))
+  |> Promise.start
+
 // ── SSE subscribers with exponential backoff reconnect ──────────────────
 
 [<Import("createSseSubscriber", "./sse-helpers.js")>]
-let private createSseSubscriber (url: string) (onMessage: string -> obj -> unit) (onReconnect: (unit -> unit) option) : Disposable = jsNative
+let private createSseSubscriber (url: string) (onMessage: string -> obj -> unit) (onReconnect: (unit -> unit) option) (logger: (string -> unit) option) : Disposable = jsNative
 
 /// Simple SSE subscriber: parses `data:` lines as JSON, calls onData(parsed).
 let subscribeSse (url: string) (onData: obj -> unit) : Disposable =
-  createSseSubscriber url (fun _eventType data -> onData data) None
+  createSseSubscriber url (fun _eventType data -> onData data) None None
+
+/// Simple SSE subscriber with optional logger for lifecycle events.
+let subscribeSseWithLogger (url: string) (onData: obj -> unit) (logger: (string -> unit) option) : Disposable =
+  createSseSubscriber url (fun _eventType data -> onData data) None logger
 
 /// Typed SSE subscriber: tracks `event:` type and `data:` payload.
 /// Calls onEvent(eventType, parsedData) for each complete SSE message.
 let subscribeTypedSse (url: string) (onEvent: string -> obj -> unit) : Disposable =
-  createSseSubscriber url onEvent None
+  createSseSubscriber url onEvent None None
 
-/// Typed SSE subscriber with reconnection callback.
+/// Typed SSE subscriber with reconnection callback and logger.
 /// onReconnect fires when the SSE connection is re-established after a drop.
-let subscribeTypedSseWithReconnect (url: string) (onEvent: string -> obj -> unit) (onReconnect: unit -> unit) : Disposable =
-  createSseSubscriber url onEvent (Some onReconnect)
+/// logger routes SSE lifecycle messages to the VS Code output channel.
+let subscribeTypedSseWithReconnect (url: string) (onEvent: string -> obj -> unit) (onReconnect: unit -> unit) (logger: string -> unit) : Disposable =
+  createSseSubscriber url onEvent (Some onReconnect) (Some logger)
 
 // ── Timer helpers ───────────────────────────────────────────────────────
 

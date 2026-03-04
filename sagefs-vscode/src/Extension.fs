@@ -171,7 +171,7 @@ let refreshStatus () =
           match choice with
           | Some "Restart" ->
             crashPromptShown <- false
-            Commands.executeCommand "sagefs.start" |> promiseIgnore
+            Commands.executeCommand "sagefs.start" |> promiseIgnoreLog (fun msg -> (getOutput()).appendLine msg)
           | _ -> ()
         | false -> ()
         wasRunning <- false
@@ -224,11 +224,12 @@ let refreshStatus () =
         else
           sb.text <- "$(loading~spin) SageFs: starting..."
         sb.show ()
-    with _ ->
+    with ex ->
+      c.log (sprintf "[warn] refreshStatus: %O" ex)
       sb.text <- "$(circle-slash) SageFs: offline"
       sb.show ()
     | _ -> ()
-  } |> promiseIgnore
+  } |> promiseIgnoreLog (fun msg -> (getOutput()).appendLine msg)
 
 // ── Daemon Lifecycle ───────────────────────────────────────────
 
@@ -308,7 +309,7 @@ let rec startDaemon () =
                 out.appendLine "Timed out waiting for SageFs daemon after 120s."
                 Window.showErrorMessage "SageFs daemon failed to start after 120s." [||] |> ignore
                 sb.text <- "$(error) SageFs: offline"
-            } |> promiseIgnore
+            } |> promiseIgnoreLog (fun msg -> out.appendLine msg)
           ) 2000
         intervalId <- Some id
   }
@@ -679,7 +680,7 @@ let activate (context: ExtensionContext) =
   let mcpPort = config.get("mcpPort", 37749)
   let dashboardPort = config.get("dashboardPort", 37750)
 
-  let c = Client.create mcpPort dashboardPort
+  let c = Client.create mcpPort dashboardPort (fun msg -> (getOutput()).appendLine msg)
   client <- Some c
 
   let out = Window.createOutputChannel "SageFs"
@@ -727,28 +728,29 @@ let activate (context: ExtensionContext) =
 
   let reg cmd handler =
     context.subscriptions.Add (Commands.registerCommand cmd handler)
+  let logToOutput msg = (getOutput()).appendLine msg
 
-  reg "sagefs.eval" (fun _ -> evalSelection () |> promiseIgnore)
-  reg "sagefs.evalFile" (fun _ -> evalFile () |> promiseIgnore)
-  reg "sagefs.evalRange" (fun args -> evalRange args |> promiseIgnore)
-  reg "sagefs.evalAdvance" (fun _ -> evalAdvance () |> promiseIgnore)
-  reg "sagefs.cancelEval" (fun _ -> cancelEvalCmd () |> promiseIgnore)
-  reg "sagefs.loadScript" (fun _ -> loadScriptCmd () |> promiseIgnore)
-  reg "sagefs.start" (fun _ -> startDaemon () |> promiseIgnore)
+  reg "sagefs.eval" (fun _ -> evalSelection () |> promiseIgnoreLog logToOutput)
+  reg "sagefs.evalFile" (fun _ -> evalFile () |> promiseIgnoreLog logToOutput)
+  reg "sagefs.evalRange" (fun args -> evalRange args |> promiseIgnoreLog logToOutput)
+  reg "sagefs.evalAdvance" (fun _ -> evalAdvance () |> promiseIgnoreLog logToOutput)
+  reg "sagefs.cancelEval" (fun _ -> cancelEvalCmd () |> promiseIgnoreLog logToOutput)
+  reg "sagefs.loadScript" (fun _ -> loadScriptCmd () |> promiseIgnoreLog logToOutput)
+  reg "sagefs.start" (fun _ -> startDaemon () |> promiseIgnoreLog logToOutput)
   reg "sagefs.stop" (fun _ -> stopDaemon ())
   reg "sagefs.openDashboard" (fun _ -> openDashboard ())
-  reg "sagefs.resetSession" (fun _ -> resetSessionCmd () |> promiseIgnore)
-  reg "sagefs.hardReset" (fun _ -> hardResetCmd () |> promiseIgnore)
-  reg "sagefs.createSession" (fun _ -> createSessionCmd () |> promiseIgnore)
-  reg "sagefs.switchSession" (fun _ -> switchSessionCmd () |> promiseIgnore)
-  reg "sagefs.stopSession" (fun _ -> stopSessionCmd () |> promiseIgnore)
+  reg "sagefs.resetSession" (fun _ -> resetSessionCmd () |> promiseIgnoreLog logToOutput)
+  reg "sagefs.hardReset" (fun _ -> hardResetCmd () |> promiseIgnoreLog logToOutput)
+  reg "sagefs.createSession" (fun _ -> createSessionCmd () |> promiseIgnoreLog logToOutput)
+  reg "sagefs.switchSession" (fun _ -> switchSessionCmd () |> promiseIgnoreLog logToOutput)
+  reg "sagefs.stopSession" (fun _ -> stopSessionCmd () |> promiseIgnoreLog logToOutput)
   reg "sagefs.clearResults" (fun _ -> InlineDeco.clearAllDecorations ())
   reg "sagefs.enableLiveTesting" (fun _ ->
-    simpleCommand "Live testing enabled" Client.enableLiveTesting |> promiseIgnore)
+    simpleCommand "Live testing enabled" Client.enableLiveTesting |> promiseIgnoreLog logToOutput)
   reg "sagefs.disableLiveTesting" (fun _ ->
-    simpleCommand "Live testing disabled" Client.disableLiveTesting |> promiseIgnore)
+    simpleCommand "Live testing disabled" Client.disableLiveTesting |> promiseIgnoreLog logToOutput)
   reg "sagefs.runTests" (fun _ ->
-    simpleCommand "Tests queued" (Client.runTests "") |> promiseIgnore)
+    simpleCommand "Tests queued" (Client.runTests "") |> promiseIgnoreLog logToOutput)
   reg "sagefs.setRunPolicy" (fun _ ->
     withClient (fun c ->
       promise {
@@ -768,7 +770,7 @@ let activate (context: ExtensionContext) =
             |> Option.iter (fun msg -> Window.showInformationMessage msg [||] |> ignore)
           | None -> ()
         | None -> ()
-      }) |> promiseIgnore)
+      }) |> promiseIgnoreLog logToOutput)
   reg "sagefs.showHistory" (fun _ ->
     withClient (fun c ->
       promise {
@@ -778,9 +780,9 @@ let activate (context: ExtensionContext) =
           let lines = body.Split('\n') |> Array.filter (fun l -> l.Trim().Length > 0)
           match lines with
           | [||] -> Window.showInformationMessage "No recent events" [||] |> ignore
-          | _ -> Window.showQuickPick lines "Recent SageFs events" |> promiseIgnore
+          | _ -> Window.showQuickPick lines "Recent SageFs events" |> promiseIgnoreLog logToOutput
         | None -> Window.showWarningMessage "Could not fetch events" [||] |> ignore
-      }) |> promiseIgnore)
+      }) |> promiseIgnoreLog logToOutput)
   reg "sagefs.showCallGraph" (fun _ ->
     withClient (fun c ->
       promise {
@@ -815,9 +817,9 @@ let activate (context: ExtensionContext) =
                       let status = fieldString "Status" t |> Option.defaultValue "unknown"
                       let icon = match status with "passed" -> "✓" | "failed" -> "✗" | _ -> "●"
                       sprintf "%s %s [%s]" icon name status)
-                  Window.showQuickPick items (sprintf "Tests covering '%s'" sym) |> promiseIgnore
+                  Window.showQuickPick items (sprintf "Tests covering '%s'" sym) |> promiseIgnoreLog logToOutput
             | _ -> ()
-      }) |> promiseIgnore)
+      }) |> promiseIgnoreLog logToOutput)
   reg "sagefs.showBindings" (fun _ ->
     match liveTestListener |> Option.map (fun l -> l.Bindings ()) with
     | Some [||] | None ->
@@ -832,7 +834,7 @@ let activate (context: ExtensionContext) =
             Some (sprintf "%s : %s%s" name typeSig shadowLabel)
           | _ -> None)
       Window.showQuickPick items "FSI Bindings"
-      |> promiseIgnore)
+      |> promiseIgnoreLog logToOutput)
   reg "sagefs.showTestTrace" (fun _ ->
     match liveTestListener |> Option.bind (fun l -> l.TestTrace ()) with
     | Some trace ->
@@ -845,7 +847,7 @@ let activate (context: ExtensionContext) =
           (fieldObj "Summary" trace |> Option.bind (fieldInt "Passed") |> Option.defaultValue 0)
           (fieldObj "Summary" trace |> Option.bind (fieldInt "Failed") |> Option.defaultValue 0)
       |]
-      Window.showQuickPick items "test trace" |> promiseIgnore
+      Window.showQuickPick items "test trace" |> promiseIgnoreLog logToOutput
     | None -> Window.showInformationMessage "No test trace data yet" [||] |> ignore)
 
   reg "sagefs.exportSession" (fun _ ->
@@ -866,7 +868,7 @@ let activate (context: ExtensionContext) =
               let! doc = Workspace.openTextDocument r.content "fsharp"
               let! _ = Window.showTextDocument doc
               ()
-      }) |> promiseIgnore)
+      }) |> promiseIgnoreLog logToOutput)
   let lensProvider = Lens.create ()
   context.subscriptions.Add (Languages.registerCodeLensProvider "fsharp" lensProvider)
   let testLensProvider = TestLens.create ()
@@ -889,6 +891,7 @@ let activate (context: ExtensionContext) =
 
   // Diagnostics SSE + session resume + live state updates
   let rec connectToRunningDaemon (c: Client.Client) =
+    c.log "connectToRunningDaemon: disposing existing connections..."
     // Dispose existing connection resources for idempotency
     sseDisposable |> Option.iter (fun d -> d.dispose () |> ignore)
     sseDisposable <- None
@@ -898,8 +901,10 @@ let activate (context: ExtensionContext) =
     testAdapter <- None
     diagnosticsDisposable |> Option.iter (fun d -> d.dispose () |> ignore)
     diagnosticsDisposable <- None
+    c.log "connectToRunningDaemon: establishing fresh SSE connections..."
     // Establish fresh connection resources
-    diagnosticsDisposable <- Some (Diag.start c.mcpPort dc)
+    let diagLogger = Some (fun (msg: string) -> (getOutput()).appendLine (sprintf "[Diagnostics SSE] %s" msg))
+    diagnosticsDisposable <- Some (Diag.start c.mcpPort dc diagLogger)
     // TestController for VS Code Test Explorer
     let adapter = TestCtrl.create (fun () -> client)
     testAdapter <- Some adapter
@@ -939,9 +944,14 @@ let activate (context: ExtensionContext) =
       OnTestTraceUpdate = fun _ -> ()
       OnFeatureEvent = None
     }
-    let reconnectHandler = Some (fun () -> connectToRunningDaemon c)
-    let listener = LiveTest.start c.mcpPort liveTestCallbacks reconnectHandler
+    let reconnectHandler = Some (fun () ->
+      c.log "SSE reconnected — refreshing status..."
+      refreshStatus ()
+    )
+    let sseLogger = Some (fun (msg: string) -> (getOutput()).appendLine (sprintf "[SSE] %s" msg))
+    let listener = LiveTest.start c.mcpPort liveTestCallbacks reconnectHandler sseLogger
     liveTestListener <- Some listener
+    c.log "connectToRunningDaemon: SSE streams established."
     sseDisposable <- Some {
       new Disposable with member _.dispose () = listener.Dispose(); null
     }
@@ -977,31 +987,40 @@ let activate (context: ExtensionContext) =
           | None -> ()
         | _ -> ()
       with _ -> ()
-    } |> promiseIgnore
+    } |> promiseIgnoreLog logToOutput
 
   // Wire up daemon-ready callback for startDaemon lifecycle
   onDaemonReady <- Some connectToRunningDaemon
 
   // Single health check: connect to running daemon OR auto-start
   let autoStart = config.get("autoStart", true)
+  let out = getOutput ()
+  out.appendLine (sprintf "SageFs activating (mcpPort=%d, dashboardPort=%d, autoStart=%b)" mcpPort dashboardPort autoStart)
   promise {
     try
+      out.appendLine "Checking for running daemon..."
       let! running = Client.isRunning c
       match running with
-      | true -> connectToRunningDaemon c
+      | true ->
+        out.appendLine "Daemon found, connecting SSE streams..."
+        connectToRunningDaemon c
       | false ->
         match autoStart with
         | true ->
+          out.appendLine "Daemon not found, auto-starting..."
           let! projPath = findProject ()
           match projPath with
-          | Some _ -> do! startDaemon ()
-          | None -> ()
-        | false -> ()
+          | Some proj ->
+            out.appendLine (sprintf "Starting daemon for %s" proj)
+            do! startDaemon ()
+          | None ->
+            out.appendLine "No .fsproj/.sln found, skipping auto-start."
+        | false ->
+          out.appendLine "Daemon not running (autoStart=false, waiting for manual start)."
     with ex ->
-      let out = getOutput ()
       out.appendLine (sprintf "SageFs activation error: %s" (string ex))
       out.show false
-  } |> promiseIgnore
+  } |> promiseIgnoreLog logToOutput
 
   // Config change listener
   context.subscriptions.Add (

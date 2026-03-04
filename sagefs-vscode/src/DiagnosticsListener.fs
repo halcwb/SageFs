@@ -5,7 +5,7 @@ open Vscode
 open SageFs.Vscode.JsHelpers
 open SageFs.Vscode.SafeInterop
 
-let start (port: int) (dc: DiagnosticCollection) =
+let start (port: int) (dc: DiagnosticCollection) (log: (string -> unit) option) =
   let url = sprintf "http://localhost:%d/diagnostics" port
 
   let onData (data: obj) =
@@ -39,4 +39,4 @@ let start (port: int) (dc: DiagnosticCollection) =
         let uri = uriFile kv.Key
         dc.set (uri, kv.Value))
 
-  subscribeSse url onData
+  subscribeSseWithLogger url onData log

@@ -3,19 +3,20 @@
 const http = require('http');
 const zlib = require('zlib');
 
-function createSseSubscriber(url, onMessage, onReconnect) {
+function createSseSubscriber(url, onMessage, onReconnect, logger) {
+  const log = logger || ((msg) => console.log('[SageFs SSE]', msg));
   let req;
   let buffer = '';
   let currentEvent = 'message';
   let retryDelay = 1000;
   let inactivityTimer;
   const maxDelay = 30000;
-  const inactivityTimeout = 60000;
+  const inactivityTimeout = 300000; // 5 minutes — warmup/compilation can be quiet for extended periods
 
   const resetInactivity = () => {
     if (inactivityTimer) clearTimeout(inactivityTimer);
     inactivityTimer = setTimeout(() => {
-      console.warn('[SageFs SSE] No data for 60s, reconnecting...');
+      log('No data for 5m, reconnecting...');
       if (req) req.destroy();
     }, inactivityTimeout);
   };
@@ -24,15 +25,19 @@ function createSseSubscriber(url, onMessage, onReconnect) {
     if (inactivityTimer) clearTimeout(inactivityTimer);
     retryDelay = Math.min(retryDelay * 2, maxDelay);
     const jitter = retryDelay * 0.3 * Math.random();
+    const delaySec = ((retryDelay + jitter) / 1000).toFixed(1);
+    log(`Reconnecting in ${delaySec}s...`);
     setTimeout(() => {
-      if (onReconnect) { try { onReconnect(); } catch (e) { console.error('[SageFs SSE] onReconnect error:', e); } }
+      if (onReconnect) { try { onReconnect(); } catch (e) { log(`onReconnect error: ${e.message || e}`); } }
       startListening();
     }, retryDelay + jitter);
   };
 
   const startListening = () => {
+    log(`Connecting to ${url}`);
     req = http.get(url, { timeout: 0, headers: { 'Accept-Encoding': 'br, gzip, deflate' } }, (res) => {
       retryDelay = 1000;
+      log(`Connected (status ${res.statusCode})`);
       resetInactivity();
       // Decompress if server sent compressed response
       let stream = res;
@@ -57,14 +62,14 @@ function createSseSubscriber(url, onMessage, onReconnect) {
             try {
               data = JSON.parse(line.slice(6));
             } catch (e) {
-              console.warn('[SageFs SSE] JSON parse error:', e.message, 'raw:', line.slice(6, 200));
+              log(`JSON parse error: ${e.message} raw: ${line.slice(6, 200)}`);
               currentEvent = 'message';
               continue;
             }
             try {
               onMessage(currentEvent, data);
             } catch (appErr) {
-              console.error('[SageFs SSE] Event handler error for', currentEvent + ':', appErr.message, '\n', appErr.stack);
+              log(`Event handler error for ${currentEvent}: ${appErr.message}\n${appErr.stack}`);
             }
             currentEvent = 'message';
           } else if (line.trim() === '') {

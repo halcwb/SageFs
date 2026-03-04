@@ -6,7 +6,7 @@ open SageFs.Vscode.JsHelpers
 open SageFs.Vscode.SafeInterop
 
 [<Emit("console.warn('[SageFs]', $0 + ':', $1)")>]
-let logWarn (context: string) (err: obj) : unit = jsNative
+let private consoleWarn (context: string) (err: obj) : unit = jsNative
 
 /// Command result: either succeeded with optional message, or failed with error.
 /// Replaces the old { success; result; error } bag-of-optionals — illegal states now unrepresentable.
@@ -72,10 +72,11 @@ let httpPostRaw (url: string) (body: string) (timeout: int) : JS.Promise<{| stat
 
 type Client =
   { mutable mcpPort: int
-    mutable dashboardPort: int }
+    mutable dashboardPort: int
+    log: string -> unit }
 
-let create (mcpPort: int) (dashboardPort: int) =
-  { mcpPort = mcpPort; dashboardPort = dashboardPort }
+let create (mcpPort: int) (dashboardPort: int) (log: string -> unit) =
+  { mcpPort = mcpPort; dashboardPort = dashboardPort; log = log }
 
 let baseUrl (c: Client) = sprintf "http://localhost:%d" c.mcpPort
 let dashboardUrl (c: Client) = sprintf "http://localhost:%d/dashboard" c.dashboardPort
@@ -135,7 +136,7 @@ let getJson<'a> (ctx: string) (path: string) (timeout: int) (parse: obj -> 'a) (
       | 200 -> return jsonParse resp.body |> parse |> Some
       | _ -> return None
     with ex ->
-      logWarn ctx ex
+      c.log (sprintf "[warn] %s: %O" ctx ex)
       return None
   }
 
@@ -148,7 +149,7 @@ let getRaw (ctx: string) (path: string) (timeout: int) (c: Client) : JS.Promise<
       | 200 -> return Some resp.body
       | _ -> return None
     with ex ->
-      logWarn ctx ex
+      c.log (sprintf "[warn] %s: %O" ctx ex)
       return None
   }
 
@@ -161,7 +162,7 @@ let dashGetJson<'a> (ctx: string) (path: string) (timeout: int) (parse: obj -> '
       | 200 -> return jsonParse resp.body |> parse |> Some
       | _ -> return None
     with ex ->
-      logWarn ctx ex
+      c.log (sprintf "[warn] %s: %O" ctx ex)
       return None
   }
 
@@ -336,7 +337,7 @@ let getCompletions (code: string) (cursorPosition: int) (workingDirectory: strin
       | _ ->
         return [||]
     with ex ->
-      logWarn "getCompletions" ex
+      c.log (sprintf "[warn] getCompletions: %O" ex)
       return [||]
   }
 
@@ -360,7 +361,7 @@ let explore (name: string) (c: Client) =
       | 200 -> return Some resp.body
       | _ -> return None
     with ex ->
-      logWarn "explore" ex
+      c.log (sprintf "[warn] explore: %O" ex)
       return None
   }
 

@@ -156,7 +156,7 @@ type LiveTestingListener = {
   Dispose: unit -> unit
 }
 
-let start (port: int) (callbacks: LiveTestingCallbacks) (onReconnect: (unit -> unit) option) : LiveTestingListener =
+let start (port: int) (callbacks: LiveTestingCallbacks) (onReconnect: (unit -> unit) option) (log: (string -> unit) option) : LiveTestingListener =
   let mutable state = VscLiveTestState.empty
   let mutable bindings: obj array = [||]
   let mutable TestTrace: obj option = None
@@ -216,13 +216,18 @@ let start (port: int) (callbacks: LiveTestingCallbacks) (onReconnect: (unit -> u
         ())
 
   let disposable =
-    match onReconnect with
-    | Some reconnectFn ->
+    match onReconnect, log with
+    | Some reconnectFn, Some logger ->
       subscribeTypedSseWithReconnect url processEvent (fun () ->
         state <- VscLiveTestState.empty
         reconnectFn ()
-      )
-    | None -> subscribeTypedSse url processEvent
+      ) logger
+    | Some reconnectFn, None ->
+      subscribeTypedSseWithReconnect url processEvent (fun () ->
+        state <- VscLiveTestState.empty
+        reconnectFn ()
+      ) (fun msg -> try printfn "[SageFs SSE] %s" msg with _ -> ())
+    | _ -> subscribeTypedSse url processEvent
 
   { State = fun () -> state
     Summary = fun () -> VscLiveTestState.summary state
