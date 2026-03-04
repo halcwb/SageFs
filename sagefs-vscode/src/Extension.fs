@@ -739,6 +739,14 @@ let activate (context: ExtensionContext) =
   reg "sagefs.loadScript" (fun _ -> loadScriptCmd () |> promiseIgnoreLog logToOutput)
   reg "sagefs.start" (fun _ -> startDaemon () |> promiseIgnoreLog logToOutput)
   reg "sagefs.stop" (fun _ -> stopDaemon ())
+  reg "sagefs.restart" (fun _ ->
+    promise {
+      let out = getOutput ()
+      out.appendLine "Restarting SageFs daemon..."
+      stopDaemon ()
+      do! sleep 1000
+      do! startDaemon ()
+    } |> promiseIgnoreLog logToOutput)
   reg "sagefs.openDashboard" (fun _ -> openDashboard ())
   reg "sagefs.resetSession" (fun _ -> resetSessionCmd () |> promiseIgnoreLog logToOutput)
   reg "sagefs.hardReset" (fun _ -> hardResetCmd () |> promiseIgnoreLog logToOutput)

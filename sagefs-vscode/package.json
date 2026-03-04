@@ -2,7 +2,7 @@
   "name": "sagefs",
   "displayName": "SageFs — Live F# Development",
   "description": "Send F# code to SageFs for instant evaluation, type-checking, and hot reload.",
-  "version": "0.5.496",
+  "version": "0.5.497",
   "publisher": "sagefs",
   "license": "MIT",
   "icon": "icon.png",
@@ -36,6 +36,7 @@
     "workspaceContains:**/*.slnx",
     "onCommand:sagefs.start",
     "onCommand:sagefs.stop",
+    "onCommand:sagefs.restart",
     "onCommand:sagefs.openDashboard"
   ],
   "main": "./dist/Extension.js",
@@ -61,6 +62,10 @@
       {
         "command": "sagefs.stop",
         "title": "SageFs: Stop Daemon"
+      },
+      {
+        "command": "sagefs.restart",
+        "title": "SageFs: Restart Daemon"
       },
       {
         "command": "sagefs.openDashboard",
