@@ -44,19 +44,10 @@ let tests =
     testCase "after patch using Harmony"
     <| fun _ ->
       TestMethods.IsPatched <- false
-      let patchResult =
-        try
-          let harmony = new Harmony("test.patch.prefix")
-          let original = typeof<TestMethods>.GetMethod("MethodToPatch")
-          let prefix = typeof<TestMethods>.GetMethod("PrefixPatch")
-          harmony.Patch(original, prefix = new HarmonyMethod(prefix)) |> ignore
-          Ok ()
-        with ex ->
-          Error ex.Message
-      match patchResult with
-      | Error msg ->
-        Tests.skiptest (sprintf "Harmony patching not supported on this runtime: %s" msg)
-      | Ok () ->
-        TestMethods.MethodToPatch "test" |> ignore
-        Expect.isTrue TestMethods.IsPatched "prefix patch should have been called"
+      let harmony = new Harmony("test.patch.prefix")
+      let original = typeof<TestMethods>.GetMethod("MethodToPatch")
+      let prefix = typeof<TestMethods>.GetMethod("PrefixPatch")
+      harmony.Patch(original, prefix = new HarmonyMethod(prefix)) |> ignore
+      TestMethods.MethodToPatch "test" |> ignore
+      Expect.isTrue TestMethods.IsPatched "prefix patch should have been called"
   ]
