@@ -120,17 +120,40 @@ let findProject () =
         return picked
   }
 
+/// Check if the file uses ;; delimiters anywhere.
+let hasSemiSemiDelimiters (doc: TextDocument) =
+  let lineCount = int doc.lineCount
+  let mutable found = false
+  let mutable i = 0
+  while not found && i < lineCount do
+    if doc.lineAt(float i).text.TrimEnd().EndsWith(";;") then found <- true
+    i <- i + 1
+  found
+
+/// Find the code block boundaries around the cursor.
+/// Returns (text, startLine, endLine).
 let getCodeBlock (editor: TextEditor) =
   let doc = editor.document
-  let pos = editor.selection.active
-  let mutable startLine = int pos.line
-  while startLine > 0 && not (doc.lineAt(float (startLine - 1)).text.TrimEnd().EndsWith(";;")) do
-    startLine <- startLine - 1
-  let mutable endLine = int pos.line
-  while endLine < int doc.lineCount - 1 && not (doc.lineAt(float endLine).text.TrimEnd().EndsWith(";;")) do
-    endLine <- endLine + 1
+  let curLine = int editor.selection.active.line
+  let lineCount = int doc.lineCount
+  let isBlank (n: int) = doc.lineAt(float n).text.Trim() = ""
+  let endsWithSS (n: int) = doc.lineAt(float n).text.TrimEnd().EndsWith(";;")
+  let startLine, endLine =
+    match hasSemiSemiDelimiters doc with
+    | true ->
+      let mutable s = curLine
+      while s > 0 && not (endsWithSS (s - 1)) do s <- s - 1
+      let mutable e = curLine
+      while e < lineCount - 1 && not (endsWithSS e) do e <- e + 1
+      s, e
+    | false ->
+      let mutable s = curLine
+      while s > 0 && not (isBlank (s - 1)) do s <- s - 1
+      let mutable e = curLine
+      while e < lineCount - 1 && not (isBlank (e + 1)) do e <- e + 1
+      s, e
   let range = newRange startLine 0 endLine (int (doc.lineAt(float endLine).text.Length))
-  doc.getTextRange range
+  doc.getTextRange range, startLine, endLine
 
 // ── Status ─────────────────────────────────────────────────────
 
@@ -197,7 +220,7 @@ let refreshStatus () =
           | n when n.EndsWith(".sln") -> n.[..n.Length - 5]
           | n -> n
         match status.status with
-        | Some "ready" | Some "idle" ->
+        | Some "Ready" | Some "Evaluating" ->
           let! sessions = Client.listSessions c
           let session =
             match activeSessionId with
@@ -222,6 +245,16 @@ let refreshStatus () =
           let activeId = activeSessionId
           HotReload.setSession c activeId
           SessionCtx.setSession c activeId
+        | Some "Starting" | Some "Restarting" ->
+          sb.text <- "$(loading~spin) SageFs: warming up..."
+          sb.backgroundColor <- None
+        | Some "Faulted" | Some "Stopped" ->
+          sb.text <- "$(error) SageFs: session error"
+          sb.backgroundColor <-
+            Some (newThemeColor "statusBarItem.errorBackground")
+        | Some "no session" ->
+          sb.text <- "$(circle-slash) SageFs: no session"
+          sb.backgroundColor <- None
         | _ ->
           sb.text <- "$(loading~spin) SageFs: starting..."
         sb.show ()
@@ -373,20 +406,55 @@ type EvalResult =
   | EvalError of message: string
   | EvalConnectionError of message: string
 
+/// Wait for session to reach Ready state (up to ~60s with 2s intervals).
+/// Returns true if ready, false if timed out.
+let waitForSessionReady () : JS.Promise<bool> =
+  promise {
+    match client with
+    | None -> return false
+    | Some c ->
+    let mutable ready = false
+    let mutable attempts = 0
+    while not ready && attempts < 30 do
+      let! r = Client.isReady c
+      ready <- r
+      if not ready then
+        do! sleep 2000
+        attempts <- attempts + 1
+    return ready
+  }
+
 let evalCore (code: string) : JS.Promise<EvalResult> =
   promise {
     try
       match client with
       | None -> return EvalConnectionError "SageFs not activated"
       | Some c ->
-      let workDir = getWorkingDirectory ()
-      let startTime = performanceNow ()
-      let! result = Client.evalCode code workDir c
-      let elapsed = performanceNow () - startTime
-      match result with
-      | Client.Failed errMsg -> return EvalError errMsg
-      | Client.Succeeded msg ->
-        return EvalOk (msg |> Option.defaultValue "", elapsed)
+      let! ready = Client.isReady c
+      if not ready then
+        (getOutput()).appendLine "Session not ready, waiting for warmup..."
+        let! becameReady = waitForSessionReady ()
+        if not becameReady then
+          return EvalError "Session did not become ready in time. Check the dashboard for status."
+        else
+          (getOutput()).appendLine "Session ready, evaluating..."
+          let workDir = getWorkingDirectory ()
+          let startTime = performanceNow ()
+          let! result = Client.evalCode code workDir c
+          let elapsed = performanceNow () - startTime
+          match result with
+          | Client.Failed errMsg -> return EvalError errMsg
+          | Client.Succeeded msg ->
+            return EvalOk (msg |> Option.defaultValue "", elapsed)
+      else
+        let workDir = getWorkingDirectory ()
+        let startTime = performanceNow ()
+        let! result = Client.evalCode code workDir c
+        let elapsed = performanceNow () - startTime
+        match result with
+        | Client.Failed errMsg -> return EvalError errMsg
+        | Client.Succeeded msg ->
+          return EvalOk (msg |> Option.defaultValue "", elapsed)
     with err ->
       return EvalConnectionError (string err)
   }
@@ -404,17 +472,41 @@ let logEvalResult (out: OutputChannel) (result: EvalResult) =
     out.show true
   result
 
-/// Get code from selection or code block, append ;; if needed.
+/// Collect module context (open declarations) from above a given line.
+/// Only collects `open` statements — `module` declarations are file-level
+/// constructs that FSI doesn't support and would cause cascade errors.
+let getModuleContext (doc: TextDocument) (blockStartLine: int) =
+  let mutable ctx = ResizeArray<string>()
+  for i in 0 .. blockStartLine - 1 do
+    let text = doc.lineAt(float i).text.TrimStart()
+    if text.StartsWith("open ") then
+      ctx.Add(doc.lineAt(float i).text)
+  match ctx.Count with
+  | 0 -> None
+  | _ -> Some (String.concat "\n" ctx)
+
+/// Get code from selection or code block, prepend module context, append ;; if needed.
+/// Returns (code, startLine, endLine) for flash highlight and inline result placement.
 let getEvalCode (ed: TextEditor) =
-  let raw =
+  let doc = ed.document
+  let raw, blockStartLine, blockEndLine =
     if not ed.selection.isEmpty then
-      ed.document.getTextRange (newRange (int ed.selection.start.line) (int ed.selection.start.character) (int ed.selection.``end``.line) (int ed.selection.``end``.character))
-    else getCodeBlock ed
+      let startLine = int ed.selection.start.line
+      let endLine = int ed.selection.``end``.line
+      let text = doc.getTextRange (newRange startLine (int ed.selection.start.character) endLine (int ed.selection.``end``.character))
+      text, startLine, endLine
+    else
+      getCodeBlock ed
   match raw.Trim() with
   | "" -> None
   | _ ->
-    if raw.TrimEnd().EndsWith(";;") then Some raw
-    else Some (raw.TrimEnd() + ";;")
+    let code = if raw.TrimEnd().EndsWith(";;") then raw else raw.TrimEnd() + ";;"
+    let ctx = getModuleContext doc blockStartLine
+    let fullCode =
+      match ctx with
+      | Some context -> context + "\n" + code
+      | None -> code
+    Some (fullCode, blockStartLine, blockEndLine)
 
 let evalSelection () =
   promise {
@@ -425,7 +517,8 @@ let evalSelection () =
       let! ok = ensureRunning ()
       match ok, getEvalCode ed with
       | false, _ | _, None -> ()
-      | true, Some code ->
+      | true, Some (code, blockStart, blockEnd) ->
+        InlineDeco.flashEvalRange ed blockStart blockEnd
         let out = getOutput ()
         do! Window.withProgress ProgressLocation.Window "SageFs: evaluating..." (fun _progress _token ->
           promise {
@@ -436,9 +529,9 @@ let evalSelection () =
             match logEvalResult out result with
             | EvalError errMsg ->
               out.show true
-              InlineDeco.showInlineDiagnostic ed errMsg
+              InlineDeco.showInlineDiagnostic ed errMsg (Some blockEnd)
             | EvalOk (output, elapsed) ->
-              InlineDeco.showInlineResult ed output (Some elapsed)
+              InlineDeco.showInlineResult ed output (Some elapsed) (Some blockEnd)
             | EvalConnectionError _ ->
               out.show true
               let! choice = Window.showErrorMessage "Cannot reach SageFs daemon. Is it running?" [| "Show Output"; "Restart" |]
@@ -472,20 +565,30 @@ let evalRange (args: obj) =
     | None -> ()
     | Some ed ->
       let! ok = ensureRunning ()
-      let range: Range = unbox args // Range is a VS Code API type passed by the editor — safe
-      let code = ed.document.getTextRange range
-      match ok, code.Trim() with
+      let range: Range = unbox args
+      let raw = ed.document.getTextRange range
+      let endLine = int range.``end``.line
+      match ok, raw.Trim() with
       | false, _ | _, "" -> ()
       | true, _ ->
+        let code = if raw.TrimEnd().EndsWith(";;") then raw else raw.TrimEnd() + ";;"
+        let startLine = int range.start.line
+        let ctx = getModuleContext ed.document startLine
+        let fullCode =
+          match ctx with
+          | Some context -> context + "\n" + code
+          | None -> code
         let out = getOutput ()
         out.show true
         out.appendLine "──── eval block ────"
-        out.appendLine code
+        out.appendLine fullCode
         out.appendLine ""
-        let! result = evalCore code
+        let! result = evalCore fullCode
         match logEvalResult out result with
         | EvalOk (output, elapsed) ->
-          InlineDeco.showInlineResult ed output (Some elapsed)
+          InlineDeco.showInlineResult ed output (Some elapsed) (Some endLine)
+        | EvalError errMsg ->
+          InlineDeco.showInlineDiagnostic ed errMsg (Some endLine)
         | _ -> ()
   }
 
@@ -605,17 +708,18 @@ let evalAdvance () =
       let! ok = ensureRunning ()
       match ok, getEvalCode ed with
       | false, _ | _, None -> ()
-      | true, Some code ->
+      | true, Some (code, blockStart, blockEnd) ->
+        InlineDeco.flashEvalRange ed blockStart blockEnd
         let out = getOutput ()
         let! result = evalCore code
         match logEvalResult out result with
         | EvalError errMsg ->
-          InlineDeco.showInlineDiagnostic ed errMsg
+          InlineDeco.showInlineDiagnostic ed errMsg (Some blockEnd)
         | EvalOk (output, elapsed) ->
-          InlineDeco.showInlineResult ed output (Some elapsed)
-          let curLine = int ed.selection.``end``.line
+          InlineDeco.showInlineResult ed output (Some elapsed) (Some blockEnd)
+          // Move cursor to next non-blank line after the block end
           let lineCount = int ed.document.lineCount
-          let mutable nextLine = curLine + 1
+          let mutable nextLine = blockEnd + 1
           while nextLine < lineCount && ed.document.lineAt(float nextLine).text.Trim() = "" do
             nextLine <- nextLine + 1
           match nextLine < lineCount with

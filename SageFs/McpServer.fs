@@ -492,8 +492,26 @@ let startMcpServer (cfg: McpServerConfig) =
             // GET /health — session health check
             app.MapGet("/health", fun (ctx: Microsoft.AspNetCore.Http.HttpContext) ->
                 withErrorHandling ctx (fun () -> task {
-                    let! status = SageFs.McpTools.getStatus mcpContext "http" None None
-                    do! jsonResponse ctx 200 {| healthy = true; status = status |}
+                    // Get simple machine-readable session status for extension polling
+                    let! allSessions = cfg.SessionOps.GetAllSessions()
+                    let! sessionStatus = task {
+                      match allSessions |> Seq.tryHead with
+                      | None -> return "no session"
+                      | Some sess ->
+                        let! proxy = cfg.SessionOps.GetProxy sess.Id
+                        match proxy with
+                        | Some send ->
+                          try
+                            let! resp = send (SageFs.WorkerProtocol.WorkerMessage.GetStatus "health") |> Async.StartAsTask
+                            match resp with
+                            | SageFs.WorkerProtocol.WorkerResponse.StatusResult(_, snap) ->
+                              return SageFs.WorkerProtocol.SessionStatus.label snap.Status
+                            | _ -> return "unknown"
+                          with _ -> return "error"
+                        | None -> return "starting"
+                    }
+                    let healthy = sessionStatus = "Ready" || sessionStatus = "Evaluating"
+                    do! jsonResponse ctx 200 {| healthy = healthy; status = sessionStatus |}
                 }) :> Task
             ) |> ignore
 

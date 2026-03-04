@@ -2,7 +2,7 @@
   "name": "sagefs",
   "displayName": "SageFs — Live F# Development",
   "description": "Send F# code to SageFs for instant evaluation, type-checking, and hot reload.",
-  "version": "0.5.500",
+  "version": "0.5.501",
   "publisher": "sagefs",
   "license": "MIT",
   "icon": "icon.png",
@@ -354,6 +354,15 @@
           "dark": "#6c7086",
           "light": "#9ca0b0",
           "highContrast": "#808080"
+        }
+      },
+      {
+        "id": "sagefs.evalFlashBackground",
+        "description": "Background highlight shown briefly when evaluating a code block",
+        "defaults": {
+          "dark": "#264f7830",
+          "light": "#add8e630",
+          "highContrast": "#ffffff20"
         }
       }
     ],

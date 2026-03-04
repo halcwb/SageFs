@@ -204,6 +204,14 @@ let getStatus (c: Client) =
       return { connected = false; healthy = None; status = None }
   }
 
+let isReady (c: Client) =
+  promise {
+    let! s = getStatus c
+    match s.connected, s.status with
+    | true, (Some "Ready" | Some "Evaluating") -> return true
+    | _ -> return false
+  }
+
 let evalCode (code: string) (workingDirectory: string option) (c: Client) =
   let wd = workingDirectory |> Option.defaultValue ""
   postCommand c "/exec" (jsonStringify {| code = code; working_directory = wd |}) 30000

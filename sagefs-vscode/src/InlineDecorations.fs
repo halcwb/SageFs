@@ -76,12 +76,25 @@ let private getEditorLine (editor: TextEditor) =
   then int editor.selection.active.line
   else int editor.selection.``end``.line
 
-let showInlineResult (editor: TextEditor) (text: string) (durationMs: float option) =
+/// Flash-highlight a range of lines briefly to indicate eval started.
+let flashEvalRange (editor: TextEditor) (startLine: int) (endLine: int) =
+  let opts = createObj [
+    "backgroundColor" ==> newThemeColor "sagefs.evalFlashBackground"
+    "isWholeLine" ==> true
+  ]
+  let deco = Window.createTextEditorDecorationType opts
+  let ranges = ResizeArray<obj>()
+  for i in startLine .. endLine do
+    ranges.Add(box (newRange i 0 i 0))
+  editor.setDecorations(deco, ranges)
+  jsSetTimeout (fun () -> deco.dispose () |> ignore) 300 |> ignore
+
+let showInlineResult (editor: TextEditor) (text: string) (durationMs: float option) (atLine: int option) =
   let trimmed = text.Trim()
   match trimmed with
   | "" -> ()
   | _ ->
-    let line = getEditorLine editor
+    let line = atLine |> Option.defaultWith (fun () -> getEditorLine editor)
     clearBlockDecoration line
     let lines = trimmed.Split('\n')
     let firstLine = match lines.Length with 0 -> "" | _ -> lines.[0]
@@ -113,14 +126,14 @@ let showInlineResult (editor: TextEditor) (text: string) (durationMs: float opti
     blockDecorations <- Map.add line deco blockDecorations
     autoClearAfter line
 
-let showInlineDiagnostic (editor: TextEditor) (text: string) =
+let showInlineDiagnostic (editor: TextEditor) (text: string) (atLine: int option) =
   let firstLine =
     let parts = text.Split('\n')
     match parts.Length with 0 -> "" | _ -> parts.[0].Trim()
   match firstLine with
   | "" -> ()
   | _ ->
-    let line = getEditorLine editor
+    let line = atLine |> Option.defaultWith (fun () -> getEditorLine editor)
     clearBlockDecoration line
     let opts = createObj [
       "after" ==> createObj [
