@@ -3,7 +3,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <NoWarn>$(NoWarn);NU1608</NoWarn>
-    <Version>0.5.498</Version>
+    <Version>0.5.499</Version>
   </PropertyGroup>
 </Project>
 

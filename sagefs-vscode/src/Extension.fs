@@ -330,8 +330,8 @@ and ensureRunning () =
         do! startDaemon ()
         let mutable ready = false
         let mutable attempts = 0
-        while not ready && attempts < 15 do
-          do! sleep 2000
+        while not ready && attempts < 30 do
+          do! sleep 1000
           let! r = Client.isRunning c
           ready <- r
           attempts <- attempts + 1
