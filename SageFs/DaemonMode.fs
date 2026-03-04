@@ -72,13 +72,40 @@ let proxyToSession
       return Error (SageFsError.WorkerCommunicationFailed(sid, sprintf "Session pipe closed — %s" ex.Message))
 }
 
-/// Run SageFs as a headless daemon.
-/// MCP server + SessionManager + Dashboard — all frontends are clients.
-/// Every session is a worker sub-process managed by SessionManager.
-let run (mcpPort: int) (args: Args.Arguments list) = task {
-  let version = DaemonInfo.version
+// ---------------------------------------------------------------------------
+// DaemonInfra — lifetime group 1: one-time daemon infrastructure
+// ---------------------------------------------------------------------------
 
-  // Create structured logger for daemon lifecycle (flows to OTEL when configured)
+/// Infrastructure created once at daemon startup.
+/// Groups logger, HTTP client, persistence, cancellation, and state-change event.
+type DaemonInfra = {
+  Log: ILogger
+  LoggerFactory: ILoggerFactory
+  HttpClient: Net.Http.HttpClient
+  Persistence: SageFs.EventStore.EventPersistence
+  DaemonStreamId: string
+  Cts: CancellationTokenSource
+  StateChangedEvent: Event<DaemonStateChange>
+  /// Timeout for agent-facing worker fetches (MCP tools, SSE).
+  McpFetchTimeoutSec: float
+  /// Timeout for user-facing worker fetches (dashboard).
+  DashboardFetchTimeoutSec: float
+}
+
+/// Fire-and-forget event append — logs errors but doesn't block the caller.
+let appendEventsAsync (infra: DaemonInfra) (events: Features.Events.SageFsEvent list) =
+  System.Threading.Tasks.Task.Run(fun () ->
+    task {
+      match! infra.Persistence.AppendEvents infra.DaemonStreamId events with
+      | Ok () -> ()
+      | Error err ->
+        match err.Contains("duplicate key") || err.Contains("version") with
+        | true -> infra.Log.LogDebug("Audit trail append skipped (already exists): {Error}", err)
+        | false -> infra.Log.LogWarning("Fire-and-forget event append failed: {Error}", err)
+    } :> System.Threading.Tasks.Task) |> ignore
+
+/// Create one-time daemon infrastructure (logger, HTTP client, persistence, CTS).
+let createDaemonInfrastructure (args: Args.Arguments list) : DaemonInfra =
   let otelConfigured = DaemonInfo.otelConfigured
   let loggerFactory =
     LoggerFactory.Create(fun builder ->
@@ -97,19 +124,11 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       | false -> ()
     )
   let log = loggerFactory.CreateLogger("SageFs.Daemon")
-  // Shared HttpClient for all daemon→worker HTTP calls (avoids socket exhaustion)
   let httpClient = new Net.Http.HttpClient()
 
-  /// Timeout for agent-facing worker fetches (MCP tools, SSE session events).
-  let mcpFetchTimeoutSec = 5.0
-  /// Timeout for user-facing worker fetches (dashboard responses).
-  /// Short timeout (500ms) so dashboard stays responsive during warmup/testing.
-  let dashboardFetchTimeoutSec = 0.5
+  log.LogInformation("SageFs daemon v{Version} starting", DaemonInfo.version)
 
-  log.LogInformation("SageFs daemon v{Version} starting on port {Port}", version, mcpPort)
-
-  // Ensure the thread pool has enough threads to avoid starvation during bursts.
-  // Default min = CPU count, which is too small when SSE/MCP/effects run concurrently.
+  // Ensure adequate thread pool for concurrent SSE/MCP/effects
   let minWorker, minIO = System.Threading.ThreadPool.GetMinThreads()
   let desiredMin = max 32 (System.Environment.ProcessorCount * 4)
   match minWorker < desiredMin with
@@ -118,8 +137,6 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
     log.LogInformation("ThreadPool min threads: {Old} → {New}", minWorker, desiredMin)
   | false -> ()
 
-  // Set up persistence: binary manifest is primary. PostgreSQL/Marten is fire-and-forget
-  // audit logging, being phased out. See EventStore.fs header for full rationale.
   let persistence =
     match PostgresInfra.getOrStartPostgres () with
     | Ok connStr ->
@@ -129,43 +146,324 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
     | Error msg ->
       log.LogWarning("PostgreSQL unavailable ({Error}), running in binary-only mode", msg)
       SageFs.EventStore.EventPersistence.noop
-  let daemonStreamId = "daemon-sessions"
 
-  /// Fire-and-forget event append — logs errors but doesn't block the caller.
-  /// Version conflicts are expected (audit trail may already have these events) and logged at Debug.
-  let appendEventsAsync (events: Features.Events.SageFsEvent list) =
-    System.Threading.Tasks.Task.Run(fun () ->
-      task {
-        match! persistence.AppendEvents daemonStreamId events with
-        | Ok () -> ()
-        | Error err ->
-          match err.Contains("duplicate key") || err.Contains("version") with
-          | true -> log.LogDebug("Audit trail append skipped (already exists): {Error}", err)
-          | false -> log.LogWarning("Fire-and-forget event append failed: {Error}", err)
-      } :> System.Threading.Tasks.Task) |> ignore
+  {
+    Log = log
+    LoggerFactory = loggerFactory
+    HttpClient = httpClient
+    Persistence = persistence
+    DaemonStreamId = "daemon-sessions"
+    Cts = new CancellationTokenSource()
+    StateChangedEvent = Event<DaemonStateChange>()
+    McpFetchTimeoutSec = 5.0
+    DashboardFetchTimeoutSec = 0.5
+  }
 
-  // Handle --prune: mark all alive sessions as stopped and exit
+/// Handle --prune flag: mark all alive sessions as stopped and return true if pruned.
+let handlePrune (infra: DaemonInfra) (args: Args.Arguments list) = task {
   match args |> List.exists (function Args.Arguments.Prune -> true | _ -> false) with
   | true ->
-    let! daemonEvents = persistence.FetchStream daemonStreamId
+    let! daemonEvents = infra.Persistence.FetchStream infra.DaemonStreamId
     let daemonState = Features.Replay.DaemonReplayState.replayStream daemonEvents
     let pruneEvents = Features.Replay.DaemonReplayState.pruneAllSessions daemonState
     match pruneEvents.IsEmpty with
     | true ->
-      log.LogInformation("No alive sessions to prune")
+      infra.Log.LogInformation("No alive sessions to prune")
     | false ->
-      let! result = persistence.AppendEvents daemonStreamId pruneEvents
+      let! result = infra.Persistence.AppendEvents infra.DaemonStreamId pruneEvents
       match result with
-      | Ok () -> log.LogInformation("Pruned {Count} session(s)", pruneEvents.Length)
-      | Error msg -> log.LogWarning("Prune failed: {Error}", msg)
-    return ()
+      | Ok () -> infra.Log.LogInformation("Pruned {Count} session(s)", pruneEvents.Length)
+      | Error msg -> infra.Log.LogWarning("Prune failed: {Error}", msg)
+    return true
+  | false -> return false
+}
+
+/// Build SessionManagementOps record from mailbox + snapshot reader.
+let createSessionOps
+  (sessionManager: MailboxProcessor<SessionManager.SessionCommand>)
+  (readSnapshot: unit -> SessionManager.QuerySnapshot)
+  (appendEvents: Features.Events.SageFsEvent list -> unit)
+  : SessionManagementOps =
+  {
+    CreateSession = fun projects workingDir ->
+      task {
+        let! result =
+          sessionManager.PostAndAsyncReply(fun reply ->
+            SessionManager.SessionCommand.CreateSession(projects, workingDir, reply))
+          |> Async.StartAsTask
+        match result with
+        | Ok info ->
+          appendEvents [
+            Features.Events.SageFsEvent.DaemonSessionCreated
+              {| SessionId = info.Id; Projects = projects; WorkingDir = workingDir; CreatedAt = DateTimeOffset.UtcNow |}
+          ]
+          return Ok info.Id
+        | Error e -> return Error e
+      }
+    ListSessions = fun () ->
+      task {
+        let! sessions =
+          sessionManager.PostAndAsyncReply(fun reply ->
+            SessionManager.SessionCommand.ListSessions reply)
+          |> Async.StartAsTask
+        return SessionOperations.formatSessionList DateTime.UtcNow None sessions
+      }
+    StopSession = fun sessionId ->
+      task {
+        let! result =
+          sessionManager.PostAndAsyncReply(fun reply ->
+            SessionManager.SessionCommand.StopSession(sessionId, reply))
+          |> Async.StartAsTask
+        appendEvents [
+          Features.Events.SageFsEvent.DaemonSessionStopped
+            {| SessionId = sessionId; StoppedAt = DateTimeOffset.UtcNow |}
+        ]
+        return
+          result
+          |> Result.map (fun () ->
+            sprintf "Session '%s' stopped." sessionId)
+      }
+    RestartSession = fun sessionId rebuild ->
+      task {
+        let! result =
+          sessionManager.PostAndAsyncReply(fun reply ->
+            SessionManager.SessionCommand.RestartSession(sessionId, rebuild, reply))
+          |> Async.StartAsTask
+        return result
+      }
+    GetProxy = fun sessionId ->
+      let snapshot = readSnapshot()
+      task { return HttpWorkerClient.proxyFromUrls sessionId snapshot.WorkerBaseUrls }
+    GetSessionInfo = fun sessionId ->
+      task { return SessionManager.QuerySnapshot.tryGetSession sessionId (readSnapshot()) }
+    GetAllSessions = fun () ->
+      task { return SessionManager.QuerySnapshot.allSessions (readSnapshot()) }
+    GetStandbyInfo = fun () ->
+      task { return (readSnapshot()).StandbyInfo }
+  }
+
+/// Look up worker HTTP base URL for a session from CQRS snapshot.
+let getWorkerBaseUrl (readSnapshot: unit -> SessionManager.QuerySnapshot) (sid: string) =
+  let snapshot = readSnapshot()
+  match Map.tryFind sid snapshot.WorkerBaseUrls with
+  | Some url when url.Length > 0 -> Some url
+  | _ -> None
+
+/// Fetch JSON from a worker endpoint with timeout, returning None on failure.
+let fetchWorkerEndpoint
+  (httpClient: Net.Http.HttpClient)
+  (readSnapshot: unit -> SessionManager.QuerySnapshot)
+  (sessionId: string)
+  (path: string)
+  (timeout: float)
+  (parse: string -> 'T)
+  : Threading.Tasks.Task<'T option> = task {
+  match getWorkerBaseUrl readSnapshot sessionId with
+  | Some baseUrl ->
+    try
+      use cts = new Threading.CancellationTokenSource(TimeSpan.FromSeconds(timeout))
+      let! resp = httpClient.GetStringAsync(sprintf "%s%s" baseUrl path, cts.Token)
+      return Some (parse resp)
+    with
+    | :? Threading.Tasks.TaskCanceledException ->
+      Log.warn "[fetchWorkerEndpoint] Timeout (%.0fs) fetching %s for session %s" timeout path sessionId
+      return None
+    | :? Net.Http.HttpRequestException as ex ->
+      Log.error "[fetchWorkerEndpoint] HTTP error fetching %s for session %s: %s" path sessionId ex.Message
+      return None
+    | ex ->
+      Log.error "[fetchWorkerEndpoint] Unexpected error fetching %s for session %s: %s" path sessionId (ex.GetType().Name)
+      return None
+  | None -> return None
+}
+
+/// Resume previous sessions from binary manifest (or Marten fallback).
+/// Creates new sessions for each alive-but-deduplicated entry, or
+/// falls back to --proj args if no previous sessions exist.
+let resumePreviousSessions
+  (infra: DaemonInfra)
+  (sessionOps: SessionManagementOps)
+  (initialProjects: string list)
+  (workingDir: string)
+  (onSessionResumed: unit -> unit)
+  = task {
+  let log = infra.Log
+  let persistence = infra.Persistence
+  let daemonStreamId = infra.DaemonStreamId
+  let appendEventsAsync events = appendEventsAsync infra events
+  let startupSw = System.Diagnostics.Stopwatch.StartNew()
+  let startupSpan = Instrumentation.startSpan Instrumentation.sessionSource "sagefs.daemon.startup" []
+
+  // Binary-first: try loading session manifest before Marten
+  let binarySpan = Instrumentation.startSpan Instrumentation.sessionSource "sagefs.daemon.binary_manifest_load" []
+  let binarySw = System.Diagnostics.Stopwatch.StartNew()
+  let manifestResult = Features.DaemonPersistence.loadManifest DaemonState.SageFsDir
+  binarySw.Stop()
+  match isNull binarySpan with
+  | false -> binarySpan.SetTag("binary_load_ms", binarySw.Elapsed.TotalMilliseconds) |> ignore
+  | true -> ()
+
+  // Determine session state: prefer binary manifest, fall back to Marten replay
+  let! daemonState =
+    match manifestResult with
+    | Ok state ->
+      log.LogInformation("Loaded session manifest from binary ({Count} sessions, {Ms:F1}ms)",
+        state.Sessions.Count, binarySw.Elapsed.TotalMilliseconds)
+      match isNull binarySpan with
+      | false -> binarySpan.SetTag("source", "binary") |> ignore
+      | true -> ()
+      Instrumentation.succeedSpan binarySpan
+      System.Threading.Tasks.Task.FromResult(state)
+    | Error binaryErr ->
+      log.LogDebug("No binary manifest ({Error}), falling back to Marten replay", binaryErr)
+      match isNull binarySpan with
+      | false -> binarySpan.SetTag("source", "marten_fallback") |> ignore
+      | true -> ()
+      Instrumentation.succeedSpan binarySpan
+
+      // Replay phase (Marten fallback)
+      task {
+        let replaySpan = Instrumentation.startSpan Instrumentation.sessionSource "sagefs.daemon.event_replay" []
+        let! daemonEvents = persistence.FetchStream daemonStreamId
+        let state = Features.Replay.DaemonReplayState.replayStream daemonEvents
+        let eventCount = daemonEvents.Length
+        Instrumentation.daemonReplayEventCount.Add(int64 eventCount)
+        match isNull replaySpan with
+        | false -> replaySpan.SetTag("event_count", eventCount) |> ignore
+        | true -> ()
+        Instrumentation.succeedSpan replaySpan
+        return state
+      }
+
+  let aliveSessions = Features.Replay.DaemonReplayState.aliveSessions daemonState
+
+  match aliveSessions.IsEmpty with
+  | false ->
+    // Dedup phase
+    let dedupSpan = Instrumentation.startSpan Instrumentation.sessionSource "sagefs.daemon.session_dedup" []
+    // Deduplicate by working directory + projects — resume one session per (dir, projects) pair
+    let uniqueByDir =
+      aliveSessions
+      |> List.groupBy (fun r -> r.WorkingDir, r.Projects |> List.sort)
+      |> List.map (fun (_, group) ->
+        // Pick the most recently created session for each (dir, projects) pair
+        group |> List.maxBy (fun r -> r.CreatedAt))
+    // Mark all stale duplicates as stopped
+    let staleIds =
+      aliveSessions
+      |> List.map (fun r -> r.SessionId)
+      |> Set.ofList
+    let keptIds =
+      uniqueByDir |> List.map (fun r -> r.SessionId) |> Set.ofList
+    let prunedCount = (Set.difference staleIds keptIds).Count
+    for staleId in Set.difference staleIds keptIds do
+      appendEventsAsync [
+        Features.Events.SageFsEvent.DaemonSessionStopped
+          {| SessionId = staleId; StoppedAt = DateTimeOffset.UtcNow |}
+      ]
+    match prunedCount > 0 with
+    | true -> Instrumentation.daemonDuplicatesPruned.Add(int64 prunedCount)
+    | false -> ()
+    match isNull dedupSpan with
+    | false ->
+      dedupSpan.SetTag("alive_count", aliveSessions.Length) |> ignore
+      dedupSpan.SetTag("dedup_removed", prunedCount) |> ignore
+    | true -> ()
+    Instrumentation.succeedSpan dedupSpan
+
+    log.LogInformation("Resuming {Count} previous session(s) ({Stale} stale duplicates cleaned)",
+      uniqueByDir.Length, (aliveSessions.Length - uniqueByDir.Length))
+    // Skip missing directories first (synchronous, fast)
+    let existing, missing =
+      uniqueByDir |> List.partition (fun prev -> IO.Directory.Exists prev.WorkingDir)
+    for prev in missing do
+      log.LogWarning("Skipping session {SessionId} — directory {WorkingDir} no longer exists", prev.SessionId, prev.WorkingDir)
+      appendEventsAsync [
+        Features.Events.SageFsEvent.DaemonSessionStopped
+          {| SessionId = prev.SessionId; StoppedAt = DateTimeOffset.UtcNow |}
+      ]
+    // Resume all valid sessions in parallel — each is an independent worker process
+    let resumeSpan = Instrumentation.startSpan Instrumentation.sessionSource "sagefs.daemon.session_resume" []
+    let resumeTasks =
+      existing
+      |> List.map (fun prev -> task {
+        log.LogInformation("Resuming session for {WorkingDir}", prev.WorkingDir)
+        let! result = sessionOps.CreateSession prev.Projects prev.WorkingDir
+        match result with
+        | Ok info ->
+          Instrumentation.daemonSessionsResumed.Add(1L)
+          // Stop the OLD session ID so it doesn't resurrect on next restart
+          appendEventsAsync [
+            Features.Events.SageFsEvent.DaemonSessionStopped
+              {| SessionId = prev.SessionId; StoppedAt = DateTimeOffset.UtcNow |}
+          ]
+          log.LogInformation("Resumed session {Info} (retired old id {OldSessionId})", info, prev.SessionId)
+          onSessionResumed ()
+        | Error err ->
+          log.LogWarning("Failed to resume session for {WorkingDir}: {Error}", prev.WorkingDir, err)
+      })
+    do! System.Threading.Tasks.Task.WhenAll(resumeTasks) :> System.Threading.Tasks.Task
+    match isNull resumeSpan with
+    | false -> resumeSpan.SetTag("resumed_count", existing.Length) |> ignore
+    | true -> ()
+    Instrumentation.succeedSpan resumeSpan
+
+    // Sessions restored — clients will discover them via listing
+    // No global "active session" to restore; each client picks its own
+    match daemonState.ActiveSessionId with
+    | Some _ -> () // Previously tracked active session — clients resolve on connect
+    | None -> ()
+  | true ->
+    match initialProjects.IsEmpty with
+    | false ->
+      // Multi-project: create one session per project for independent workers
+      log.LogInformation("No previous sessions. Creating {Count} session(s) from --proj args", initialProjects.Length)
+      let createTasks =
+        initialProjects
+        |> List.map (fun proj -> task {
+          let! result = sessionOps.CreateSession [ proj ] workingDir
+          match result with
+          | Ok info ->
+            Instrumentation.daemonSessionsResumed.Add(1L)
+            log.LogInformation("Created session for {Project}: {Info}", proj, info)
+            onSessionResumed ()
+          | Error err ->
+            log.LogWarning("Failed to create session for {Project}: {Error}", proj, err)
+        })
+      do! System.Threading.Tasks.Task.WhenAll(createTasks) :> System.Threading.Tasks.Task
+    | true ->
+      log.LogInformation("No previous sessions to resume. Waiting for clients to create sessions")
+
+  startupSw.Stop()
+  Instrumentation.daemonStartupMs.Record(startupSw.Elapsed.TotalMilliseconds)
+  Instrumentation.succeedSpan startupSpan
+}
+
+/// Run SageFs as a headless daemon.
+/// MCP server + SessionManager + Dashboard — all frontends are clients.
+/// Every session is a worker sub-process managed by SessionManager.
+let run (mcpPort: int) (args: Args.Arguments list) = task {
+  let version = DaemonInfo.version
+  let infra = createDaemonInfrastructure args
+  let log = infra.Log
+  let httpClient = infra.HttpClient
+  let persistence = infra.Persistence
+  let daemonStreamId = infra.DaemonStreamId
+  let mcpFetchTimeoutSec = infra.McpFetchTimeoutSec
+  let dashboardFetchTimeoutSec = infra.DashboardFetchTimeoutSec
+  let stateChangedEvent = infra.StateChangedEvent
+
+  log.LogInformation("SageFs daemon v{Version} starting on port {Port}", version, mcpPort)
+
+  let appendEventsAsync events = appendEventsAsync infra events
+
+  // Handle --prune: mark all alive sessions as stopped and exit
+  let! pruned = handlePrune infra args
+  match pruned with
+  | true -> return ()
   | false -> ()
 
-  // Handle shutdown signals
-  use cts = new CancellationTokenSource()
-
-  // Create state-changed event for SSE subscribers (created early so SessionManager can trigger it)
-  let stateChangedEvent = Event<DaemonStateChange>()
+  use cts = infra.Cts
   let mutable lastStateJson = ""
   let mutable lastLoggedOutputCount = 0
   let mutable lastLoggedDiagCount = 0
@@ -187,71 +485,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       (fun sid -> stateChangedEvent.Trigger (SessionReady sid))
       (fun sid progress -> onWarmupProgressCallback sid progress)
 
-  // Active session ID — REMOVED: No global shared session.
-  // Each client (MCP, TUI, dashboard) tracks its own session independently.
-  // MCP uses McpContext.SessionMap. UIs pass ?sessionId= in SSE URL.
-
-  let sessionOps : SessionManagementOps = {
-    CreateSession = fun projects workingDir ->
-      task {
-        let! result =
-          sessionManager.PostAndAsyncReply(fun reply ->
-            SessionManager.SessionCommand.CreateSession(projects, workingDir, reply))
-          |> Async.StartAsTask
-        match result with
-        | Ok info ->
-          appendEventsAsync [
-            Features.Events.SageFsEvent.DaemonSessionCreated
-              {| SessionId = info.Id; Projects = projects; WorkingDir = workingDir; CreatedAt = DateTimeOffset.UtcNow |}
-          ]
-          return Ok info.Id
-        | Error e -> return Error e
-      }
-    ListSessions = fun () ->
-      task {
-        let! sessions =
-          sessionManager.PostAndAsyncReply(fun reply ->
-            SessionManager.SessionCommand.ListSessions reply)
-          |> Async.StartAsTask
-        return SessionOperations.formatSessionList DateTime.UtcNow None sessions
-      }
-    StopSession = fun sessionId ->
-      task {
-        let! result =
-          sessionManager.PostAndAsyncReply(fun reply ->
-            SessionManager.SessionCommand.StopSession(sessionId, reply))
-          |> Async.StartAsTask
-        // Persist stop event (fire-and-forget)
-        appendEventsAsync [
-          Features.Events.SageFsEvent.DaemonSessionStopped
-            {| SessionId = sessionId; StoppedAt = DateTimeOffset.UtcNow |}
-        ]
-        return
-          result
-          |> Result.map (fun () ->
-            sprintf "Session '%s' stopped." sessionId)
-      }
-    RestartSession = fun sessionId rebuild ->
-      task {
-        let! result =
-          sessionManager.PostAndAsyncReply(fun reply ->
-            SessionManager.SessionCommand.RestartSession(sessionId, rebuild, reply))
-          |> Async.StartAsTask
-        return result
-      }
-    GetProxy = fun sessionId ->
-      // CQRS read path — lock-free snapshot, no mailbox blocking
-      task { return HttpWorkerClient.proxyFromUrls sessionId (readSnapshot()).WorkerBaseUrls }
-    GetSessionInfo = fun sessionId ->
-      // CQRS read path — lock-free snapshot, no mailbox blocking
-      task { return SessionManager.QuerySnapshot.tryGetSession sessionId (readSnapshot()) }
-    GetAllSessions = fun () ->
-      // CQRS read path — lock-free snapshot, no mailbox blocking
-      task { return SessionManager.QuerySnapshot.allSessions (readSnapshot()) }
-    GetStandbyInfo = fun () ->
-      // CQRS read path — lock-free snapshot, no mailbox blocking
-      task { return (readSnapshot()).StandbyInfo }
-  }
+  let sessionOps = createSessionOps sessionManager readSnapshot appendEventsAsync
 
   let noResume = args |> List.exists (function Args.Arguments.No_Resume -> true | _ -> false)
 
@@ -263,156 +497,9 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       | _ -> None)
   let workingDir = Environment.CurrentDirectory
 
-  // Session resume runs AFTER servers start (deferred below).
-  // This ensures MCP + dashboard are listening before workers spawn.
-  let resumeSessions (onSessionResumed: unit -> unit) = task {
-    let startupSw = System.Diagnostics.Stopwatch.StartNew()
-    let startupSpan = Instrumentation.startSpan Instrumentation.sessionSource "sagefs.daemon.startup" []
-
-    // Binary-first: try loading session manifest before Marten
-    let binarySpan = Instrumentation.startSpan Instrumentation.sessionSource "sagefs.daemon.binary_manifest_load" []
-    let binarySw = System.Diagnostics.Stopwatch.StartNew()
-    let manifestResult = Features.DaemonPersistence.loadManifest DaemonState.SageFsDir
-    binarySw.Stop()
-    match isNull binarySpan with
-    | false -> binarySpan.SetTag("binary_load_ms", binarySw.Elapsed.TotalMilliseconds) |> ignore
-    | true -> ()
-
-    // Determine session state: prefer binary manifest, fall back to Marten replay
-    let! daemonState =
-      match manifestResult with
-      | Ok state ->
-        log.LogInformation("Loaded session manifest from binary ({Count} sessions, {Ms:F1}ms)",
-          state.Sessions.Count, binarySw.Elapsed.TotalMilliseconds)
-        match isNull binarySpan with
-        | false -> binarySpan.SetTag("source", "binary") |> ignore
-        | true -> ()
-        Instrumentation.succeedSpan binarySpan
-        System.Threading.Tasks.Task.FromResult(state)
-      | Error binaryErr ->
-        log.LogDebug("No binary manifest ({Error}), falling back to Marten replay", binaryErr)
-        match isNull binarySpan with
-        | false -> binarySpan.SetTag("source", "marten_fallback") |> ignore
-        | true -> ()
-        Instrumentation.succeedSpan binarySpan
-
-        // Replay phase (Marten fallback)
-        task {
-          let replaySpan = Instrumentation.startSpan Instrumentation.sessionSource "sagefs.daemon.event_replay" []
-          let! daemonEvents = persistence.FetchStream daemonStreamId
-          let state = Features.Replay.DaemonReplayState.replayStream daemonEvents
-          let eventCount = daemonEvents.Length
-          Instrumentation.daemonReplayEventCount.Add(int64 eventCount)
-          match isNull replaySpan with
-          | false -> replaySpan.SetTag("event_count", eventCount) |> ignore
-          | true -> ()
-          Instrumentation.succeedSpan replaySpan
-          return state
-        }
-
-    let aliveSessions = Features.Replay.DaemonReplayState.aliveSessions daemonState
-
-    match aliveSessions.IsEmpty with
-    | false ->
-      // Dedup phase
-      let dedupSpan = Instrumentation.startSpan Instrumentation.sessionSource "sagefs.daemon.session_dedup" []
-      // Deduplicate by working directory + projects — resume one session per (dir, projects) pair
-      let uniqueByDir =
-        aliveSessions
-        |> List.groupBy (fun r -> r.WorkingDir, r.Projects |> List.sort)
-        |> List.map (fun (_, group) ->
-          // Pick the most recently created session for each (dir, projects) pair
-          group |> List.maxBy (fun r -> r.CreatedAt))
-      // Mark all stale duplicates as stopped
-      let staleIds =
-        aliveSessions
-        |> List.map (fun r -> r.SessionId)
-        |> Set.ofList
-      let keptIds =
-        uniqueByDir |> List.map (fun r -> r.SessionId) |> Set.ofList
-      let prunedCount = (Set.difference staleIds keptIds).Count
-      for staleId in Set.difference staleIds keptIds do
-        appendEventsAsync [
-          Features.Events.SageFsEvent.DaemonSessionStopped
-            {| SessionId = staleId; StoppedAt = DateTimeOffset.UtcNow |}
-        ]
-      match prunedCount > 0 with
-      | true -> Instrumentation.daemonDuplicatesPruned.Add(int64 prunedCount)
-      | false -> ()
-      match isNull dedupSpan with
-      | false ->
-        dedupSpan.SetTag("alive_count", aliveSessions.Length) |> ignore
-        dedupSpan.SetTag("dedup_removed", prunedCount) |> ignore
-      | true -> ()
-      Instrumentation.succeedSpan dedupSpan
-
-      log.LogInformation("Resuming {Count} previous session(s) ({Stale} stale duplicates cleaned)",
-        uniqueByDir.Length, (aliveSessions.Length - uniqueByDir.Length))
-      // Skip missing directories first (synchronous, fast)
-      let existing, missing =
-        uniqueByDir |> List.partition (fun prev -> IO.Directory.Exists prev.WorkingDir)
-      for prev in missing do
-        log.LogWarning("Skipping session {SessionId} — directory {WorkingDir} no longer exists", prev.SessionId, prev.WorkingDir)
-        appendEventsAsync [
-          Features.Events.SageFsEvent.DaemonSessionStopped
-            {| SessionId = prev.SessionId; StoppedAt = DateTimeOffset.UtcNow |}
-        ]
-      // Resume all valid sessions in parallel — each is an independent worker process
-      let resumeSpan = Instrumentation.startSpan Instrumentation.sessionSource "sagefs.daemon.session_resume" []
-      let resumeTasks =
-        existing
-        |> List.map (fun prev -> task {
-          log.LogInformation("Resuming session for {WorkingDir}", prev.WorkingDir)
-          let! result = sessionOps.CreateSession prev.Projects prev.WorkingDir
-          match result with
-          | Ok info ->
-            Instrumentation.daemonSessionsResumed.Add(1L)
-            // Stop the OLD session ID so it doesn't resurrect on next restart
-            appendEventsAsync [
-              Features.Events.SageFsEvent.DaemonSessionStopped
-                {| SessionId = prev.SessionId; StoppedAt = DateTimeOffset.UtcNow |}
-            ]
-            log.LogInformation("Resumed session {Info} (retired old id {OldSessionId})", info, prev.SessionId)
-            onSessionResumed ()
-          | Error err ->
-            log.LogWarning("Failed to resume session for {WorkingDir}: {Error}", prev.WorkingDir, err)
-        })
-      do! System.Threading.Tasks.Task.WhenAll(resumeTasks) :> System.Threading.Tasks.Task
-      match isNull resumeSpan with
-      | false -> resumeSpan.SetTag("resumed_count", existing.Length) |> ignore
-      | true -> ()
-      Instrumentation.succeedSpan resumeSpan
-
-      // Sessions restored — clients will discover them via listing
-      // No global "active session" to restore; each client picks its own
-      match daemonState.ActiveSessionId with
-      | Some _ -> () // Previously tracked active session — clients resolve on connect
-      | None -> ()
-    | true ->
-      match initialProjects.IsEmpty with
-      | false ->
-        // Multi-project: create one session per project for independent workers
-        log.LogInformation("No previous sessions. Creating {Count} session(s) from --proj args", initialProjects.Length)
-        let createTasks =
-          initialProjects
-          |> List.map (fun proj -> task {
-            let! result = sessionOps.CreateSession [ proj ] workingDir
-            match result with
-            | Ok info ->
-              Instrumentation.daemonSessionsResumed.Add(1L)
-              log.LogInformation("Created session for {Project}: {Info}", proj, info)
-              onSessionResumed ()
-            | Error err ->
-              log.LogWarning("Failed to create session for {Project}: {Error}", proj, err)
-          })
-        do! System.Threading.Tasks.Task.WhenAll(createTasks) :> System.Threading.Tasks.Task
-      | true ->
-        log.LogInformation("No previous sessions to resume. Waiting for clients to create sessions")
-
-    startupSw.Stop()
-    Instrumentation.daemonStartupMs.Record(startupSw.Elapsed.TotalMilliseconds)
-    Instrumentation.succeedSpan startupSpan
-  }
+  // resumeSessions delegates to module-level function with captured infra
+  let resumeSessions onSessionResumed =
+    resumePreviousSessions infra sessionOps initialProjects workingDir onSessionResumed
 
   // Create EffectDeps from SessionManager + start Elm loop
   let getWarmupContextForElm (sessionId: string) : Async<SessionContext option> =
@@ -508,32 +595,10 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
   // Create a diagnostics-changed event (aggregated from workers)
   let diagnosticsChanged = Event<Features.DiagnosticsStore.T>()
 
-  let getWorkerBaseUrl (sid: string) =
-    let snapshot = readSnapshot()
-    match Map.tryFind sid snapshot.WorkerBaseUrls with
-    | Some url when url.Length > 0 -> Some url
-    | _ -> None
-
-  /// Fetch JSON from a worker endpoint with timeout, returning None on failure.
-  let fetchWorkerEndpoint (sessionId: string) (path: string) (timeout: float) (parse: string -> 'T) : Threading.Tasks.Task<'T option> = task {
-    match getWorkerBaseUrl sessionId with
-    | Some baseUrl ->
-      try
-        use cts = new Threading.CancellationTokenSource(TimeSpan.FromSeconds(timeout))
-        let! resp = httpClient.GetStringAsync(sprintf "%s%s" baseUrl path, cts.Token)
-        return Some (parse resp)
-      with
-      | :? Threading.Tasks.TaskCanceledException ->
-        Log.warn "[fetchWorkerEndpoint] Timeout (%.0fs) fetching %s for session %s" timeout path sessionId
-        return None
-      | :? Net.Http.HttpRequestException as ex ->
-        Log.error "[fetchWorkerEndpoint] HTTP error fetching %s for session %s: %s" path sessionId ex.Message
-        return None
-      | ex ->
-        Log.error "[fetchWorkerEndpoint] Unexpected error fetching %s for session %s: %s" path sessionId (ex.GetType().Name)
-        return None
-    | None -> return None
-  }
+  // Partially applied worker helpers (capture httpClient + readSnapshot)
+  let getWorkerBaseUrl = getWorkerBaseUrl readSnapshot
+  let fetchWorkerEndpoint sessionId path timeout parse =
+    fetchWorkerEndpoint httpClient readSnapshot sessionId path timeout parse
 
   // Warmup context fetcher for MCP — uses session manager to find worker URL
   let getWarmupContextForMcp (sessionId: string) : System.Threading.Tasks.Task<WarmupContext option> =
@@ -748,58 +813,8 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
   // Start dashboard web server on MCP port + 1
   let dashboardPort = mcpPort + 1
   let connectionTracker = ConnectionTracker()
-  // Dashboard status helpers — read from CQRS snapshot (non-blocking, lock-free).
-  // Only proxy calls (eval stats) go async; state/workingDir/statusMsg/workerBaseUrl use snapshot.
-  let tryGetSessionSnapshotAsync (sid: string) = task {
-    // CQRS: bypass MailboxProcessor — use snapshot + direct HTTP to worker
-    let snapshot = readSnapshot()
-    match SessionManager.QuerySnapshot.tryGetSession sid snapshot, Map.tryFind sid snapshot.WorkerBaseUrls with
-    | Some _, Some baseUrl when baseUrl.Length > 0 ->
-      try
-        use cts = new Threading.CancellationTokenSource(Timeouts.healthCheck)
-        let! resp = httpClient.GetStringAsync(sprintf "%s/status?replyId=dash" baseUrl, cts.Token)
-        use doc = Text.Json.JsonDocument.Parse(resp)
-        let root = doc.RootElement
-        let snap : WorkerProtocol.WorkerStatusSnapshot = {
-          Status =
-            match root.GetProperty("status").GetString() with
-            | "Ready" -> WorkerProtocol.SessionStatus.Ready
-            | "Evaluating" -> WorkerProtocol.SessionStatus.Evaluating
-            | _ -> WorkerProtocol.SessionStatus.Starting
-          StatusMessage =
-            match root.TryGetProperty("statusMessage") with
-            | true, v when v.ValueKind <> Text.Json.JsonValueKind.Null -> Some (v.GetString())
-            | _ -> None
-          EvalCount =
-            match root.TryGetProperty("evalCount") with
-            | true, v -> v.GetInt32()
-            | false, _ -> 0
-          AvgDurationMs =
-            match root.TryGetProperty("avgDurationMs") with
-            | true, v -> v.GetInt64()
-            | false, _ -> 0L
-          MinDurationMs =
-            match root.TryGetProperty("minDurationMs") with
-            | true, v -> v.GetInt64()
-            | false, _ -> 0L
-          MaxDurationMs =
-            match root.TryGetProperty("maxDurationMs") with
-            | true, v -> v.GetInt64()
-            | false, _ -> 0L
-        }
-        return Some snap
-      with
-      | :? System.Net.Http.HttpRequestException -> return None
-      | :? Threading.Tasks.TaskCanceledException -> return None
-      | :? Text.Json.JsonException as ex ->
-        Log.error "[tryGetSessionSnapshot] JSON parse error for %s: %s" sid ex.Message
-        return None
-      | ex ->
-        Log.error "[tryGetSessionSnapshot] Unexpected error for %s: %s (%s)" sid ex.Message (ex.GetType().Name)
-        return None
-    | _ -> return None
-  }
 
+  // Dashboard status helpers — partially applied module-level functions
   let getSessionState (sid: string) =
     match String.IsNullOrEmpty(sid) with
     | true -> SessionState.Uninitialized
@@ -810,13 +825,12 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       | None -> SessionState.Uninitialized
 
   let getEvalStatsAsync (sid: string) = task {
-    // CQRS: bypass MailboxProcessor — call worker HTTP directly
     let snapshot = readSnapshot()
     match Map.tryFind sid snapshot.WorkerBaseUrls with
     | Some baseUrl when baseUrl.Length > 0 ->
       try
-        use cts = new Threading.CancellationTokenSource(Timeouts.healthCheck)
-        let! resp = httpClient.GetStringAsync(sprintf "%s/status?replyId=dash-stats" baseUrl, cts.Token)
+        use cts' = new Threading.CancellationTokenSource(Timeouts.healthCheck)
+        let! resp = httpClient.GetStringAsync(sprintf "%s/status?replyId=dash-stats" baseUrl, cts'.Token)
         use doc = Text.Json.JsonDocument.Parse(resp)
         let root = doc.RootElement
         let getInt (name: string) def =
