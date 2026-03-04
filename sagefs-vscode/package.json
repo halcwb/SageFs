@@ -2,7 +2,7 @@
   "name": "sagefs",
   "displayName": "SageFs — Live F# Development",
   "description": "Send F# code to SageFs for instant evaluation, type-checking, and hot reload.",
-  "version": "0.5.505",
+  "version": "0.5.506",
   "publisher": "sagefs",
   "license": "MIT",
   "icon": "icon.png",
@@ -164,6 +164,30 @@
         "title": "SageFs: Export Session as .fsx"
       },
       {
+        "command": "sagefs.sessionMenu",
+        "title": "SageFs: Session Menu"
+      },
+      {
+        "command": "sagefs.sessionsRefresh",
+        "title": "SageFs: Refresh Sessions",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sagefs.switchToSession",
+        "title": "Switch To",
+        "icon": "$(arrow-right)"
+      },
+      {
+        "command": "sagefs.stopSessionInline",
+        "title": "Stop",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "sagefs.resetSessionInline",
+        "title": "Reset",
+        "icon": "$(debug-restart)"
+      },
+      {
         "command": "sagefs.evalAdvance",
         "title": "SageFs: Evaluate & Advance",
         "icon": "$(run-below)"
@@ -304,6 +328,11 @@
     "views": {
       "sagefs": [
         {
+          "id": "sagefs-sessions",
+          "name": "Sessions",
+          "contextualTitle": "SageFs Sessions"
+        },
+        {
           "id": "sagefs-hotReload",
           "name": "Hot Reload Files",
           "contextualTitle": "SageFs Hot Reload"
@@ -341,6 +370,33 @@
           "command": "sagefs.sessionContextRefresh",
           "when": "view == sagefs-sessionContext",
           "group": "navigation"
+        },
+        {
+          "command": "sagefs.createSession",
+          "when": "view == sagefs-sessions",
+          "group": "navigation"
+        },
+        {
+          "command": "sagefs.sessionsRefresh",
+          "when": "view == sagefs-sessions",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "sagefs.switchToSession",
+          "when": "view == sagefs-sessions && viewItem =~ /session-inactive/",
+          "group": "inline"
+        },
+        {
+          "command": "sagefs.resetSessionInline",
+          "when": "view == sagefs-sessions && viewItem =~ /session-active/",
+          "group": "inline"
+        },
+        {
+          "command": "sagefs.stopSessionInline",
+          "when": "view == sagefs-sessions && viewItem =~ /session-(active|inactive)/ && viewItem != session-stopped",
+          "group": "inline"
         }
       ]
     },

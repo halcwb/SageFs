@@ -12,6 +12,7 @@ module Lens = SageFs.Vscode.CodeLensProvider
 module Completion = SageFs.Vscode.CompletionProvider
 module HotReload = SageFs.Vscode.HotReloadTreeProvider
 module SessionCtx = SageFs.Vscode.SessionContextTreeProvider
+module Sessions = SageFs.Vscode.SessionsTreeProvider
 module LiveTest = SageFs.Vscode.LiveTestingListener
 module TestCtrl = SageFs.Vscode.TestControllerAdapter
 module TypeExpl = SageFs.Vscode.TypeExplorerProvider
@@ -244,6 +245,7 @@ let refreshStatus () =
         activeSessionId <- None
         HotReload.setSession c None
         SessionCtx.setSession c None
+        Sessions.setSession c None
       | true ->
         wasRunning <- true
         crashPromptShown <- false
@@ -284,6 +286,7 @@ let refreshStatus () =
           let activeId = activeSessionId
           HotReload.setSession c activeId
           SessionCtx.setSession c activeId
+          Sessions.setSession c activeId
         | Some "Starting" | Some "Restarting" ->
           sb.text <- "$(loading~spin) SageFs: warming up..."
           sb.backgroundColor <- None
@@ -776,6 +779,108 @@ let stopSessionCmd () =
       | Some id when id = sess.id -> activeSessionId <- None
       | _ -> ())
 
+/// Context-aware session menu — the primary entry point from the status bar.
+let sessionMenu () =
+  promise {
+    match client with
+    | None ->
+      Window.showWarningMessage "SageFs is not connected." [||] |> ignore
+    | Some c ->
+      let! status = Client.getStatus c
+      let items = ResizeArray<string>()
+      // State-aware top items
+      match status.connected with
+      | false ->
+        items.Add "$(play) Start SageFs"
+      | true ->
+        let! sessions = Client.listSessions c
+        match sessions.Length with
+        | 0 -> items.Add "$(add) Create New Session"
+        | _ ->
+          // Show sessions with status
+          for s in sessions do
+            let isActive =
+              match activeSessionId with
+              | Some id -> id = s.id
+              | None -> false
+            let icon =
+              match isActive with
+              | true -> "$(star-full)"
+              | false -> "$(terminal)"
+            let proj =
+              match s.projects with
+              | [||] -> "no project"
+              | ps ->
+                ps
+                |> Array.map (fun p ->
+                  let parts = p.Split([|'/'; '\\'|])
+                  let name = parts |> Array.last
+                  match name with
+                  | n when n.EndsWith(".fsproj") -> n.[..n.Length - 8]
+                  | n -> n)
+                |> String.concat ", "
+            let evals =
+              match s.evalCount with
+              | 0 -> ""
+              | n -> sprintf " [%d]" n
+            let label = sprintf "%s %s — %s%s" icon proj s.status evals
+            items.Add label
+          items.Add "──────────"
+          items.Add "$(add) Create New Session"
+        // Always-available actions
+        match status.status with
+        | Some "Ready" | Some "Evaluating" ->
+          items.Add "$(debug-restart) Reset Session"
+          items.Add "$(refresh) Hard Reset (Rebuild)"
+        | _ -> ()
+        items.Add "$(dashboard) Open Dashboard"
+        items.Add "$(gear) Cycle Density"
+
+      let! picked = Window.showQuickPick (items.ToArray()) "SageFs"
+      match picked with
+      | None -> ()
+      | Some choice ->
+        match choice with
+        | s when s.Contains "Start SageFs" ->
+          do! startDaemon ()
+        | s when s.Contains "Create New Session" ->
+          do! createSessionCmd ()
+        | s when s.Contains "Reset Session" && not (s.Contains "Hard") ->
+          do! resetSessionCmd ()
+        | s when s.Contains "Hard Reset" ->
+          do! hardResetCmd ()
+        | s when s.Contains "Open Dashboard" ->
+          Commands.executeCommand "sagefs.openDashboard" |> ignore
+        | s when s.Contains "Cycle Density" ->
+          cycleDensity ()
+        | s when s.Contains "──" -> () // separator
+        | sessionItem ->
+          // Clicked a session line — switch to it
+          match client with
+          | None -> ()
+          | Some c2 ->
+            let! sessions = Client.listSessions c2
+            // Match by project label in the picked string
+            let picked =
+              sessions
+              |> Array.tryFind (fun sess ->
+                sessionItem.Contains (
+                  match sess.projects with
+                  | [||] -> "no project"
+                  | ps ->
+                    let name = ps.[0].Split([|'/'; '\\'|]) |> Array.last
+                    match name with
+                    | n when n.EndsWith(".fsproj") -> n.[..n.Length - 8]
+                    | n -> n))
+            match picked with
+            | Some sess ->
+              let! _ = Client.switchSession sess.id c2
+              activeSessionId <- Some sess.id
+              Window.showInformationMessage (sprintf "Switched to %s" sess.id) [||] |> ignore
+              refreshStatus ()
+            | None -> ()
+  }
+
 let stopDaemon () =
   daemonProcess |> Option.iter killProc
   daemonProcess <- None
@@ -947,8 +1052,8 @@ let activate (context: ExtensionContext) =
   outputChannel <- Some out
 
   let sb = Window.createStatusBarItem StatusBarAlignment.Left 50.
-  sb.command <- Some "sagefs.openDashboard"
-  sb.tooltip <- Some "Click to open SageFs dashboard"
+  sb.command <- Some "sagefs.sessionMenu"
+  sb.tooltip <- Some "Click for SageFs session menu"
   statusBarItem <- Some sb
   context.subscriptions.Add (sb :> obj :?> Disposable)
 
@@ -983,6 +1088,10 @@ let activate (context: ExtensionContext) =
   SessionCtx.register context
   SessionCtx.setSession c None
 
+  // Sessions TreeView
+  Sessions.register context
+  Sessions.setSession c None
+
   // Type Explorer TreeView
   typeExplorer <- Some (TypeExpl.create context client)
 
@@ -1010,11 +1119,45 @@ let activate (context: ExtensionContext) =
       do! startDaemon ()
     } |> promiseIgnoreLog logToOutput)
   reg "sagefs.openDashboard" (fun _ -> openDashboard ())
+  reg "sagefs.sessionMenu" (fun _ -> sessionMenu () |> promiseIgnoreLog logToOutput)
   reg "sagefs.resetSession" (fun _ -> resetSessionCmd () |> promiseIgnoreLog logToOutput)
   reg "sagefs.hardReset" (fun _ -> hardResetCmd () |> promiseIgnoreLog logToOutput)
   reg "sagefs.createSession" (fun _ -> createSessionCmd () |> promiseIgnoreLog logToOutput)
   reg "sagefs.switchSession" (fun _ -> switchSessionCmd () |> promiseIgnoreLog logToOutput)
   reg "sagefs.stopSession" (fun _ -> stopSessionCmd () |> promiseIgnoreLog logToOutput)
+
+  // Tree view inline actions for Sessions panel
+  reg "sagefs.switchToSession" (fun args ->
+    promise {
+      match client with
+      | None -> ()
+      | Some c ->
+        let sid: string = try args?sessionId with _ -> ""
+        match sid with
+        | "" -> ()
+        | id ->
+          let! _ = Client.switchSession id c
+          activeSessionId <- Some id
+          refreshStatus ()
+    } |> promiseIgnoreLog logToOutput)
+  reg "sagefs.stopSessionInline" (fun args ->
+    promise {
+      match client with
+      | None -> ()
+      | Some c ->
+        let sid: string = try args?sessionId with _ -> ""
+        match sid with
+        | "" -> ()
+        | id ->
+          let! _ = Client.stopSession id c
+          match activeSessionId with
+          | Some aid when aid = id -> activeSessionId <- None
+          | _ -> ()
+          refreshStatus ()
+    } |> promiseIgnoreLog logToOutput)
+  reg "sagefs.resetSessionInline" (fun _ ->
+    resetSessionCmd () |> promiseIgnoreLog logToOutput)
+
   reg "sagefs.clearResults" (fun _ -> InlineDeco.clearAllDecorations ())
   reg "sagefs.cycleDensity" (fun _ -> cycleDensity ())
   reg "sagefs.enableLiveTesting" (fun _ ->
