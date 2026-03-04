@@ -1008,7 +1008,10 @@ let activate (context: ExtensionContext) =
   // Single health check: connect to running daemon OR auto-start
   let autoStart = config.get("autoStart", true)
   let out = getOutput ()
-  out.appendLine (sprintf "SageFs activating (mcpPort=%d, dashboardPort=%d, autoStart=%b)" mcpPort dashboardPort autoStart)
+  let extVersion =
+    try fieldString "version" context?extension?packageJSON |> Option.defaultValue "?"
+    with _ -> "?"
+  out.appendLine (sprintf "SageFs v%s activating (mcpPort=%d, dashboardPort=%d, autoStart=%b)" extVersion mcpPort dashboardPort autoStart)
   promise {
     try
       out.appendLine "Checking for running daemon..."
