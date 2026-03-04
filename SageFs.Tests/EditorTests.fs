@@ -350,16 +350,20 @@ let elmLoopTests = testList "ElmLoop" [
 
   testCase "dispatch updates model and re-renders" <| fun _ ->
     let mutable rendered = []
+    let signal = new System.Threading.ManualResetEventSlim(false)
     let program : ElmProgram<int, int, string, string> = {
       Update = fun msg model -> model + msg, []
       Render = fun model -> [sprintf "%d" model]
       ExecuteEffect = fun _ _ -> async { () }
-      OnModelChanged = fun _ regions -> rendered <- regions
+      OnModelChanged = fun _ regions -> rendered <- regions; signal.Set()
     }
     let dispatch = (ElmLoop.start program 0).Dispatch
+    signal.Wait(1000) |> ignore; signal.Reset()
     dispatch 5
+    signal.Wait(1000) |> ignore; signal.Reset()
     rendered |> Expect.equal "should render 5" ["5"]
     dispatch 3
+    signal.Wait(1000) |> ignore; signal.Reset()
     rendered |> Expect.equal "should render 8" ["8"]
 ]
 

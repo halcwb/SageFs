@@ -859,6 +859,7 @@ let elmIntegrationTests = testList "ElmLoop integration" [
   testCase "SageFs program wires update+render correctly" <| fun _ ->
     let mutable lastRegions : RenderRegion list = []
     let mutable lastModel : SageFsModel option = None
+    let signal = new System.Threading.ManualResetEventSlim(false)
     let program : ElmProgram<SageFsModel, SageFsMsg, SageFsEffect, RenderRegion> = {
       Update = SageFsUpdate.update
       Render = SageFsRender.render
@@ -866,11 +867,14 @@ let elmIntegrationTests = testList "ElmLoop integration" [
       OnModelChanged = fun model regions ->
         lastModel <- Some model
         lastRegions <- regions
+        signal.Set()
     }
     let dispatch = (ElmLoop.start program (SageFsModel.initial())).Dispatch
+    signal.Wait(1000) |> ignore; signal.Reset()
     lastRegions |> Expect.hasLength "initial render should have 5 regions" 5
 
     dispatch (SageFsMsg.Editor (EditorAction.InsertChar 'h'))
+    signal.Wait(1000) |> ignore; signal.Reset()
     lastModel.Value.Editor.Buffer
     |> ValidatedBuffer.text
     |> Expect.equal "should have h" "h"
@@ -881,8 +885,10 @@ let elmIntegrationTests = testList "ElmLoop integration" [
       LastActivity = DateTime.UtcNow; EvalCount = 0
       UpSince = DateTime.UtcNow; WorkingDirectory = "" }
     dispatch (SageFsMsg.Event (SageFsEvent.SessionCreated snap))
+    signal.Wait(1000) |> ignore; signal.Reset()
 
     dispatch (SageFsMsg.Event (SageFsEvent.EvalCompleted ("s1", "val x = 42", [])))
+    signal.Wait(1000) |> ignore; signal.Reset()
     outputFor "s1" lastModel.Value
     |> Expect.hasLength "should have output" 1
     let outputRegion = lastRegions |> List.find (fun r -> r.Id = "output")

@@ -161,6 +161,9 @@ let elmDaemonTests =
         let runtime =
           ElmDaemon.start deps tracker.OnModelChanged
 
+        // consume initial render signal
+        tracker.WaitForUpdate 500
+
         runtime.Dispatch (
           SageFsMsg.Event (
             SageFsEvent.EvalCompleted ("s", "result-42", [])))
@@ -240,6 +243,9 @@ let elmDaemonTests =
         let tracker = ElmDaemonTestHelpers.ModelTracker()
         let runtime =
           ElmDaemon.start deps tracker.OnModelChanged
+
+        // consume initial render signal
+        tracker.WaitForUpdate 500
 
         let result =
           ElmDaemon.dispatchAndWait
