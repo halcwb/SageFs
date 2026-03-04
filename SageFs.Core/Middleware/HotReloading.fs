@@ -197,13 +197,19 @@ let getReloadingState (st: AppState) =
 open HarmonyLib
 
 let detourMethod (method: MethodBase) (replacement: MethodBase) =
-  typeof<Harmony>.Assembly
-  |> _.GetTypes()
-  |> Array.find (fun t -> t.Name = "PatchTools")
-  |> fun x -> x.GetDeclaredMethods()
-  |> Seq.find (fun n -> n.Name = "DetourMethod")
-  |> fun x -> x.Invoke(null, [| method; replacement |])
-  |> ignore
+  try
+    typeof<Harmony>.Assembly
+    |> _.GetTypes()
+    |> Array.find (fun t -> t.Name = "PatchTools")
+    |> fun x -> x.GetDeclaredMethods()
+    |> Seq.find (fun n -> n.Name = "DetourMethod")
+    |> fun x -> x.Invoke(null, [| method; replacement |])
+    |> ignore
+  with
+  | :? TargetInvocationException as ex when
+    (ex.InnerException :? PlatformNotSupportedException) ->
+    // MonoMod does not yet support .NET 11+ CoreCLR — skip detour gracefully
+    ()
 
 open FuzzySharp
 
