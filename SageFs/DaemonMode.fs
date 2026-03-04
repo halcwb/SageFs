@@ -277,6 +277,183 @@ let fetchWorkerEndpoint
   | None -> return None
 }
 
+/// Build DaemonReplayState from active sessions (used in periodic save + shutdown).
+let buildReplayState (readSnapshot: unit -> SessionManager.QuerySnapshot) =
+  let activeSessions = SessionManager.QuerySnapshot.allSessions (readSnapshot())
+  let toRecord (s: WorkerProtocol.SessionInfo) : Features.Replay.DaemonSessionRecord =
+    { SessionId = s.Id; Projects = s.Projects; WorkingDir = s.WorkingDirectory
+      CreatedAt = DateTimeOffset.UtcNow; StoppedAt = None }
+  { Features.Replay.DaemonReplayState.Sessions =
+      activeSessions |> List.map (fun s -> s.Id, toRecord s) |> Map.ofList
+    Features.Replay.DaemonReplayState.ActiveSessionId =
+      activeSessions |> List.tryHead |> Option.map (fun s -> s.Id) }
+
+/// Get session state from CQRS snapshot.
+let getSessionStateFromSnapshot (readSnapshot: unit -> SessionManager.QuerySnapshot) (sid: string) =
+  match String.IsNullOrEmpty(sid) with
+  | true -> SessionState.Uninitialized
+  | false ->
+    let snapshot = readSnapshot()
+    match SessionManager.QuerySnapshot.tryGetSession sid snapshot with
+    | Some info -> WorkerProtocol.SessionStatus.toSessionState info.Status
+    | None -> SessionState.Uninitialized
+
+/// Get working directory for a session from CQRS snapshot.
+let getSessionWorkingDirFromSnapshot (readSnapshot: unit -> SessionManager.QuerySnapshot) (sid: string) =
+  let snapshot = readSnapshot()
+  match SessionManager.QuerySnapshot.tryGetSession sid snapshot with
+  | Some info -> info.WorkingDirectory
+  | None -> ""
+
+/// Get warmup status message for a session.
+let getStatusMsgFromSnapshot (readSnapshot: unit -> SessionManager.QuerySnapshot) (sid: string) =
+  readSnapshot().WarmupProgress |> Map.tryFind sid
+
+/// Fetch eval stats from worker HTTP endpoint.
+let getEvalStatsFromWorker
+  (httpClient: Net.Http.HttpClient)
+  (readSnapshot: unit -> SessionManager.QuerySnapshot)
+  (sid: string) = task {
+  let snapshot = readSnapshot()
+  match Map.tryFind sid snapshot.WorkerBaseUrls with
+  | Some baseUrl when baseUrl.Length > 0 ->
+    try
+      use cts = new Threading.CancellationTokenSource(Timeouts.healthCheck)
+      let! resp = httpClient.GetStringAsync(sprintf "%s/status?replyId=dash-stats" baseUrl, cts.Token)
+      use doc = Text.Json.JsonDocument.Parse(resp)
+      let root = doc.RootElement
+      let getInt (name: string) def =
+        match root.TryGetProperty(name) with
+        | true, v -> v.GetInt32()
+        | false, _ -> def
+      let getLong (name: string) def =
+        match root.TryGetProperty(name) with
+        | true, v -> v.GetInt64()
+        | false, _ -> def
+      let evalCount = getInt "evalCount" 0
+      let avgMs = getLong "avgDurationMs" 0L
+      let minMs = getLong "minDurationMs" 0L
+      let maxMs = getLong "maxDurationMs" 0L
+      return
+        { EvalCount = evalCount
+          TotalDuration = TimeSpan.FromMilliseconds(float avgMs * float evalCount)
+          MinDuration = TimeSpan.FromMilliseconds(float minMs)
+          MaxDuration = TimeSpan.FromMilliseconds(float maxMs) }
+        : Affordances.EvalStats
+    with
+    | :? Net.Http.HttpRequestException | :? Threading.Tasks.TaskCanceledException -> return Affordances.EvalStats.empty
+    | :? Text.Json.JsonException as ex ->
+      Log.error "[getEvalStats] JSON parse error for %s: %s" sid ex.Message
+      return Affordances.EvalStats.empty
+    | ex ->
+      Log.error "[getEvalStats] Unexpected error for %s: %s (%s)" sid ex.Message (ex.GetType().Name)
+      return Affordances.EvalStats.empty
+  | _ -> return Affordances.EvalStats.empty
+}
+
+/// Create hot-reload proxy HTTP endpoints that forward to worker servers.
+let createHotReloadProxyEndpoints
+  (getWorkerBaseUrl: string -> string option)
+  (httpClient: Net.Http.HttpClient)
+  (stateChangedEvent: Event<DaemonStateChange>)
+  : HttpEndpoint list =
+  let proxyToWorker (sid: string) (workerPath: string) (httpCall: string -> Threading.Tasks.Task<string * int * bool>) (ctx: HttpContext) = task {
+    match getWorkerBaseUrl sid with
+    | Some baseUrl ->
+      try
+        let url = sprintf "%s%s" baseUrl workerPath
+        let! (respBody, statusCode, triggerChange) = httpCall url
+        ctx.Response.ContentType <- "application/json"
+        ctx.Response.StatusCode <- statusCode
+        do! ctx.Response.WriteAsync(respBody)
+        match triggerChange with
+        | true -> stateChangedEvent.Trigger HotReloadChanged
+        | false -> ()
+      with ex ->
+        ctx.Response.StatusCode <- 502
+        do! ctx.Response.WriteAsJsonAsync({| error = ex.Message |})
+    | None ->
+      ctx.Response.StatusCode <- 404
+      do! ctx.Response.WriteAsJsonAsync({| error = "Session not found or not ready" |})
+  }
+  let proxyGet (sid: string) (workerPath: string) (ctx: HttpContext) =
+    proxyToWorker sid workerPath (fun url -> task {
+      let! resp = httpClient.GetStringAsync(url)
+      return (resp, 200, false)
+    }) ctx
+  let proxyPost (sid: string) (workerPath: string) (ctx: HttpContext) =
+    proxyToWorker sid workerPath (fun url -> task {
+      use reader = new IO.StreamReader(ctx.Request.Body)
+      let! body = reader.ReadToEndAsync()
+      use content = new Net.Http.StringContent(body, Text.Encoding.UTF8, "application/json")
+      let! resp = httpClient.PostAsync(url, content)
+      let! respBody = resp.Content.ReadAsStringAsync()
+      return (respBody, int resp.StatusCode, resp.IsSuccessStatusCode)
+    }) ctx
+  let extractSid = fun (r: RequestData) -> r.GetString("sid", "")
+  let proxyGetRoute path = mapGet (sprintf "/api/sessions/{sid}%s" path) extractSid (fun sid -> fun ctx -> proxyGet sid path ctx)
+  let proxyPostRoute path = mapPost (sprintf "/api/sessions/{sid}%s" path) extractSid (fun sid -> fun ctx -> proxyPost sid path ctx)
+  [
+    proxyGetRoute "/hotreload"
+    proxyPostRoute "/hotreload/toggle"
+    proxyPostRoute "/hotreload/watch-all"
+    proxyPostRoute "/hotreload/unwatch-all"
+    proxyPostRoute "/hotreload/watch-project"
+    proxyPostRoute "/hotreload/unwatch-project"
+    proxyPostRoute "/hotreload/watch-directory"
+    proxyPostRoute "/hotreload/unwatch-directory"
+    proxyGetRoute "/warmup-context"
+  ]
+
+/// Graceful shutdown: save caches, persist manifest, stop all workers.
+let performGracefulShutdown
+  (log: ILogger)
+  (readSnapshot: unit -> SessionManager.QuerySnapshot)
+  (getModel: unit -> SageFsModel)
+  (persistence: SageFs.EventStore.EventPersistence)
+  (daemonStreamId: string)
+  (appendEventsAsync: Features.Events.SageFsEvent list -> unit)
+  (sessionManager: MailboxProcessor<SessionManager.SessionCommand>)
+  =
+  // Save test cache for each unique project set
+  let activeSessions = SessionManager.QuerySnapshot.allSessions (readSnapshot())
+  let testState = (getModel()).LiveTesting.TestState
+  let uniqueProjectSets =
+    activeSessions
+    |> List.map (fun s -> s.Projects)
+    |> List.distinctBy (fun ps ->
+      ps |> List.sort |> List.map (fun p -> p.Replace("\\", "/").ToLowerInvariant()) |> String.concat "|")
+  for projects in uniqueProjectSets do
+    match Features.DaemonPersistence.saveTestCache DaemonState.SageFsDir projects testState with
+    | Ok path -> log.LogInformation("Saved test cache to {Path}", path)
+    | Error err ->
+      Instrumentation.persistenceSaveErrors.Add(
+        1L, System.Collections.Generic.KeyValuePair("format", box "stc1"))
+      log.LogWarning("Failed to save test cache: {Error}", err)
+
+  // Persist session manifest for binary-first resume
+  let replayState = buildReplayState readSnapshot
+  match Features.DaemonPersistence.saveManifest DaemonState.SageFsDir replayState with
+  | Ok path -> log.LogInformation("Saved session manifest to {Path}", path)
+  | Error err ->
+    Instrumentation.persistenceSaveErrors.Add(
+      1L, System.Collections.Generic.KeyValuePair("format", box "sfm1"))
+    log.LogWarning("Failed to save session manifest: {Error}", err)
+
+  for info in activeSessions do
+    appendEventsAsync [
+      Features.Events.SageFsEvent.DaemonSessionStopped
+        {| SessionId = info.Id; StoppedAt = DateTimeOffset.UtcNow |}
+    ]
+  // Stop all workers with a timeout
+  let stopTask =
+    sessionManager.PostAndAsyncReply(fun reply ->
+      SessionManager.SessionCommand.StopAll reply)
+    |> Async.StartAsTask
+  match stopTask.Wait(Timeouts.processNormalExit) with
+  | false -> log.LogWarning("StopAll timed out — some workers may not have stopped cleanly")
+  | true -> ()
+
 /// Resume previous sessions from binary manifest (or Marten fallback).
 /// Creates new sessions for each alive-but-deduplicated entry, or
 /// falls back to --proj args if no previous sessions exist.
@@ -742,14 +919,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
         log.LogWarning("Periodic cache save error: {Error}", ex.Message)
       // Periodic manifest save (binary session resume)
       try
-        let activeSessions = SessionManager.QuerySnapshot.allSessions (readSnapshot())
-        let toRecord (s: WorkerProtocol.SessionInfo) : Features.Replay.DaemonSessionRecord =
-          { SessionId = s.Id; Projects = s.Projects; WorkingDir = s.WorkingDirectory
-            CreatedAt = DateTimeOffset.UtcNow; StoppedAt = None }
-        let replayState : Features.Replay.DaemonReplayState = {
-          Sessions = activeSessions |> List.map (fun s -> s.Id, toRecord s) |> Map.ofList
-          ActiveSessionId = activeSessions |> List.tryHead |> Option.map (fun s -> s.Id)
-        }
+        let replayState = buildReplayState readSnapshot
         match Features.DaemonPersistence.saveManifest DaemonState.SageFsDir replayState with
         | Ok path -> log.LogDebug("Periodic manifest save to {Path}", path)
         | Error err ->
@@ -815,66 +985,10 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
   let connectionTracker = ConnectionTracker()
 
   // Dashboard status helpers — partially applied module-level functions
-  let getSessionState (sid: string) =
-    match String.IsNullOrEmpty(sid) with
-    | true -> SessionState.Uninitialized
-    | false ->
-      let snapshot = readSnapshot()
-      match SessionManager.QuerySnapshot.tryGetSession sid snapshot with
-      | Some info -> WorkerProtocol.SessionStatus.toSessionState info.Status
-      | None -> SessionState.Uninitialized
-
-  let getEvalStatsAsync (sid: string) = task {
-    let snapshot = readSnapshot()
-    match Map.tryFind sid snapshot.WorkerBaseUrls with
-    | Some baseUrl when baseUrl.Length > 0 ->
-      try
-        use cts' = new Threading.CancellationTokenSource(Timeouts.healthCheck)
-        let! resp = httpClient.GetStringAsync(sprintf "%s/status?replyId=dash-stats" baseUrl, cts'.Token)
-        use doc = Text.Json.JsonDocument.Parse(resp)
-        let root = doc.RootElement
-        let getInt (name: string) def =
-          match root.TryGetProperty(name) with
-          | true, v -> v.GetInt32()
-          | false, _ -> def
-        let getLong (name: string) def =
-          match root.TryGetProperty(name) with
-          | true, v -> v.GetInt64()
-          | false, _ -> def
-        let evalCount = getInt "evalCount" 0
-        let avgMs = getLong "avgDurationMs" 0L
-        let minMs = getLong "minDurationMs" 0L
-        let maxMs = getLong "maxDurationMs" 0L
-        return
-          { EvalCount = evalCount
-            TotalDuration = TimeSpan.FromMilliseconds(float avgMs * float evalCount)
-            MinDuration = TimeSpan.FromMilliseconds(float minMs)
-            MaxDuration = TimeSpan.FromMilliseconds(float maxMs) }
-          : Affordances.EvalStats
-      with
-      | :? System.Net.Http.HttpRequestException | :? Threading.Tasks.TaskCanceledException -> return Affordances.EvalStats.empty
-      | :? Text.Json.JsonException as ex ->
-        Log.error "[getEvalStats] JSON parse error for %s: %s" sid ex.Message
-        return Affordances.EvalStats.empty
-      | ex ->
-        Log.error "[getEvalStats] Unexpected error for %s: %s (%s)" sid ex.Message (ex.GetType().Name)
-        return Affordances.EvalStats.empty
-    | _ -> return Affordances.EvalStats.empty
-  }
-
-  let getSessionWorkingDir (sid: string) =
-    let snapshot = readSnapshot()
-    match SessionManager.QuerySnapshot.tryGetSession sid snapshot with
-    | Some info -> info.WorkingDirectory
-    | None -> ""
-
-  let getAllSessions () = task {
-    return SessionManager.QuerySnapshot.allSessions (readSnapshot())
-  }
-
-  let getStatusMsg (sid: string) =
-    readSnapshot().WarmupProgress |> Map.tryFind sid
-
+  let getSessionState = getSessionStateFromSnapshot readSnapshot
+  let getEvalStatsAsync = getEvalStatsFromWorker httpClient readSnapshot
+  let getSessionWorkingDir = getSessionWorkingDirFromSnapshot readSnapshot
+  let getStatusMsg = getStatusMsgFromSnapshot readSnapshot
 
   let sessionThemes = DashboardTypes.loadThemes DaemonState.SageFsDir
 
@@ -923,7 +1037,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
       }
       return activeSessions @ historicalSessions
     }
-    GetAllSessions = getAllSessions
+    GetAllSessions = fun () -> task { return SessionManager.QuerySnapshot.allSessions (readSnapshot()) }
     GetStandbyInfo = sessionOps.GetStandbyInfo
     GetSessionStandbyInfo = fun sessionId ->
       (readSnapshot()).PerSessionStandby |> Map.tryFind sessionId |> Option.defaultValue StandbyInfo.NoPool
@@ -1066,55 +1180,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
   let dashboardEndpoints =
     Dashboard.createEndpoints dashboardQueries dashboardActions dashboardInfra
 
-  // Hot-reload proxy endpoints — forward to worker HTTP servers
-  let hotReloadProxyEndpoints : HttpEndpoint list =
-    let proxyToWorker (sid: string) (workerPath: string) (httpCall: string -> Threading.Tasks.Task<string * int * bool>) (ctx: Microsoft.AspNetCore.Http.HttpContext) = task {
-      match getWorkerBaseUrl sid with
-      | Some baseUrl ->
-        try
-          let url = sprintf "%s%s" baseUrl workerPath
-          let! (respBody, statusCode, triggerChange) = httpCall url
-          ctx.Response.ContentType <- "application/json"
-          ctx.Response.StatusCode <- statusCode
-          do! ctx.Response.WriteAsync(respBody)
-          match triggerChange with
-          | true -> stateChangedEvent.Trigger HotReloadChanged
-          | false -> ()
-        with ex ->
-          ctx.Response.StatusCode <- 502
-          do! ctx.Response.WriteAsJsonAsync({| error = ex.Message |})
-      | None ->
-        ctx.Response.StatusCode <- 404
-        do! ctx.Response.WriteAsJsonAsync({| error = "Session not found or not ready" |})
-    }
-    let proxyGet (sid: string) (workerPath: string) (ctx: Microsoft.AspNetCore.Http.HttpContext) =
-      proxyToWorker sid workerPath (fun url -> task {
-        let! resp = httpClient.GetStringAsync(url)
-        return (resp, 200, false)
-      }) ctx
-    let proxyPost (sid: string) (workerPath: string) (ctx: Microsoft.AspNetCore.Http.HttpContext) =
-      proxyToWorker sid workerPath (fun url -> task {
-        use reader = new IO.StreamReader(ctx.Request.Body)
-        let! body = reader.ReadToEndAsync()
-        use content = new Net.Http.StringContent(body, Text.Encoding.UTF8, "application/json")
-        let! resp = httpClient.PostAsync(url, content)
-        let! respBody = resp.Content.ReadAsStringAsync()
-        return (respBody, int resp.StatusCode, resp.IsSuccessStatusCode)
-      }) ctx
-    let extractSid = fun (r: RequestData) -> r.GetString("sid", "")
-    let proxyGetRoute path = mapGet (sprintf "/api/sessions/{sid}%s" path) extractSid (fun sid -> fun ctx -> proxyGet sid path ctx)
-    let proxyPostRoute path = mapPost (sprintf "/api/sessions/{sid}%s" path) extractSid (fun sid -> fun ctx -> proxyPost sid path ctx)
-    [
-      proxyGetRoute "/hotreload"
-      proxyPostRoute "/hotreload/toggle"
-      proxyPostRoute "/hotreload/watch-all"
-      proxyPostRoute "/hotreload/unwatch-all"
-      proxyPostRoute "/hotreload/watch-project"
-      proxyPostRoute "/hotreload/unwatch-project"
-      proxyPostRoute "/hotreload/watch-directory"
-      proxyPostRoute "/hotreload/unwatch-directory"
-      proxyGetRoute "/warmup-context"
-    ]
+  let hotReloadProxyEndpoints = createHotReloadProxyEndpoints getWorkerBaseUrl httpClient stateChangedEvent
 
   let dashboardTask = task {
     try
@@ -1267,53 +1333,7 @@ let run (mcpPort: int) (args: Args.Arguments list) = task {
   liveTestWatcher.EnableRaisingEvents <- false
   liveTestWatcher.Dispose()
   try
-    // CQRS: read from snapshot (non-blocking), then command to stop
-    let activeSessions = SessionManager.QuerySnapshot.allSessions (readSnapshot())
-
-    // Persist test cache for each unique project set before stopping workers
-    let model = elmRuntime.GetModel()
-    let testState = model.LiveTesting.TestState
-    let uniqueProjectSets =
-      activeSessions
-      |> List.map (fun s -> s.Projects)
-      |> List.distinctBy (fun ps ->
-        ps |> List.sort |> List.map (fun p -> p.Replace("\\", "/").ToLowerInvariant()) |> String.concat "|")
-    for projects in uniqueProjectSets do
-      match Features.DaemonPersistence.saveTestCache DaemonState.SageFsDir projects testState with
-      | Ok path -> log.LogInformation("Saved test cache to {Path}", path)
-      | Error err ->
-        Instrumentation.persistenceSaveErrors.Add(
-          1L, System.Collections.Generic.KeyValuePair("format", box "stc1"))
-        log.LogWarning("Failed to save test cache: {Error}", err)
-
-    // Persist session manifest for binary-first resume
-    let toShutdownRecord (s: WorkerProtocol.SessionInfo) : Features.Replay.DaemonSessionRecord =
-      { SessionId = s.Id; Projects = s.Projects; WorkingDir = s.WorkingDirectory
-        CreatedAt = DateTimeOffset.UtcNow; StoppedAt = None }
-    let shutdownReplayState : Features.Replay.DaemonReplayState = {
-      Sessions = activeSessions |> List.map (fun s -> s.Id, toShutdownRecord s) |> Map.ofList
-      ActiveSessionId = activeSessions |> List.tryHead |> Option.map (fun s -> s.Id)
-    }
-    match Features.DaemonPersistence.saveManifest DaemonState.SageFsDir shutdownReplayState with
-    | Ok path -> log.LogInformation("Saved session manifest to {Path}", path)
-    | Error err ->
-      Instrumentation.persistenceSaveErrors.Add(
-        1L, System.Collections.Generic.KeyValuePair("format", box "sfm1"))
-      log.LogWarning("Failed to save session manifest: {Error}", err)
-
-    for info in activeSessions do
-      appendEventsAsync [
-        Features.Events.SageFsEvent.DaemonSessionStopped
-          {| SessionId = info.Id; StoppedAt = DateTimeOffset.UtcNow |}
-      ]
-    // Stop all workers with a timeout — don't block forever if a worker is hung
-    let stopTask =
-      sessionManager.PostAndAsyncReply(fun reply ->
-        SessionManager.SessionCommand.StopAll reply)
-      |> Async.StartAsTask
-    match stopTask.Wait(Timeouts.processNormalExit) with
-    | false -> log.LogWarning("StopAll timed out — some workers may not have stopped cleanly")
-    | true -> ()
+    performGracefulShutdown log readSnapshot elmRuntime.GetModel persistence daemonStreamId appendEventsAsync sessionManager
   with ex ->
     log.LogWarning("Shutdown cleanup error: {Error}", ex.Message)
 }
