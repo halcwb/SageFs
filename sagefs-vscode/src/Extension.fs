@@ -161,8 +161,9 @@ let refreshStatus () =
     match client, statusBarItem with
     | Some c, Some sb ->
     try
-      let! running = Client.isRunning c
-      if not running then
+      let! status = Client.getStatus c
+      match status.connected with
+      | false ->
         // Detect daemon crash: was running, now offline
         match wasRunning && not crashPromptShown with
         | true ->
@@ -181,10 +182,9 @@ let refreshStatus () =
         activeSessionId <- None
         HotReload.setSession c None
         SessionCtx.setSession c None
-      else
+      | true ->
         wasRunning <- true
         crashPromptShown <- false
-        let! status = Client.getStatus c
         let! sys = Client.getSystemStatus c
         let supervised =
           match sys with Some s when s.supervised -> " $(shield)" | _ -> ""
@@ -196,7 +196,8 @@ let refreshStatus () =
           | n when n.EndsWith(".slnx") -> n.[..n.Length - 6]
           | n when n.EndsWith(".sln") -> n.[..n.Length - 5]
           | n -> n
-        if status.connected then
+        match status.status with
+        | Some "ready" | Some "idle" ->
           let! sessions = Client.listSessions c
           let session =
             match activeSessionId with
@@ -221,7 +222,7 @@ let refreshStatus () =
           let activeId = activeSessionId
           HotReload.setSession c activeId
           SessionCtx.setSession c activeId
-        else
+        | _ ->
           sb.text <- "$(loading~spin) SageFs: starting..."
         sb.show ()
     with ex ->
@@ -294,7 +295,7 @@ let rec startDaemon () =
         let id =
           jsSetInterval (fun () ->
             attempts <- attempts + 1
-            sb.text <- sprintf "$(loading~spin) SageFs starting... (%ds)" (attempts * 2)
+            sb.text <- sprintf "$(loading~spin) SageFs starting... (%ds)" attempts
             promise {
               let! ready = Client.isRunning c
               if ready then
@@ -303,14 +304,14 @@ let rec startDaemon () =
                 out.appendLine "SageFs daemon is ready."
                 onDaemonReady |> Option.iter (fun f -> f c)
                 refreshStatus ()
-              elif attempts > 60 then
+              elif attempts > 120 then
                 intervalId |> Option.iter jsClearInterval
                 isStarting <- false
                 out.appendLine "Timed out waiting for SageFs daemon after 120s."
                 Window.showErrorMessage "SageFs daemon failed to start after 120s." [||] |> ignore
                 sb.text <- "$(error) SageFs: offline"
             } |> promiseIgnoreLog (fun msg -> out.appendLine msg)
-          ) 2000
+          ) 1000
         intervalId <- Some id
   }
 
@@ -1003,7 +1004,13 @@ let activate (context: ExtensionContext) =
       match running with
       | true ->
         out.appendLine "Daemon found, connecting SSE streams..."
-        connectToRunningDaemon c
+        try
+          connectToRunningDaemon c
+        with ex ->
+          out.appendLine (sprintf "SSE connection error: %s" (string ex))
+          match statusBarItem with
+          | Some sb -> sb.text <- "$(warning) SageFs: SSE error"; sb.show ()
+          | None -> ()
       | false ->
         match autoStart with
         | true ->
@@ -1020,6 +1027,11 @@ let activate (context: ExtensionContext) =
     with ex ->
       out.appendLine (sprintf "SageFs activation error: %s" (string ex))
       out.show false
+      match statusBarItem with
+      | Some sb ->
+        sb.text <- "$(error) SageFs: activation failed"
+        sb.show ()
+      | None -> ()
   } |> promiseIgnoreLog logToOutput
 
   // Config change listener
