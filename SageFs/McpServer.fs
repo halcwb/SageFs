@@ -21,6 +21,7 @@ open Microsoft.AspNetCore.ResponseCompression
 open SageFs.AppState
 open SageFs.McpTools
 open SageFs.McpPushNotifications
+open SageFs.McpStateHandlers
 open SageFs.Utils
 
 // ---------------------------------------------------------------------------
@@ -1190,37 +1191,25 @@ let startMcpServer (cfg: McpServerConfig) =
             // Note: diagnosticsChanged event from DaemonMode is not wired to workers,
             // so we detect diag changes via stateChanged + Elm model access.
 
-            let mutable lastDiagCount = 0
-            let mutable lastTestSsePush = System.Diagnostics.Stopwatch.GetTimestamp()
-            let testSseThrottleMs = 250L
-            let mutable lastOutputCount = 0
-            let mutable lastTestTraceJson = ""
+            let mutable modelChangeState = ModelChangeState.empty
 
             let handleDiagnosticsChange diagCount =
-              match diagCount <> lastDiagCount with
-              | true ->
-                lastDiagCount <- diagCount
-                withModel (fun model ->
-                  let errors =
-                    model.Diagnostics
-                    |> Map.toList
-                    |> List.collect (fun (_, diags) ->
-                      diags
-                      |> List.filter (fun d ->
-                        d.Severity = DiagnosticSeverity.Error)
-                      |> List.map (fun d ->
-                        ("fsi", d.Range.StartLine, d.Message)))
-                  serverTracker.AccumulateEvent(
-                    PushEvent.DiagnosticsChanged errors))
-              | false -> ()
+              withModel (fun model ->
+                let state', effects =
+                  processDiagnosticsChange diagCount model.Diagnostics modelChangeState
+                modelChangeState <- state'
+                for effect in effects do
+                  match effect with
+                  | AccumulatePush evt -> serverTracker.AccumulateEvent(evt)
+                  | BroadcastTestSse _ -> ())
 
             let handleBindingsChange outputCount =
-              match outputCount <> lastOutputCount with
+              match outputCount <> modelChangeState.LastOutputCount with
               | true ->
-                match outputCount < lastOutputCount with
+                match outputCount < modelChangeState.LastOutputCount with
                 | true -> fsiBindings <- Map.empty
                 | false -> ()
-                lastOutputCount <- outputCount
+                modelChangeState <- { modelChangeState with LastOutputCount = outputCount }
                 withModel (fun model ->
                   let sid = activeSessionId () |> Option.defaultValue ""
                   let newBindings =
@@ -1265,12 +1254,14 @@ let startMcpServer (cfg: McpServerConfig) =
                   | ex ->
                     Log.error "[MCP] Test trace unexpected error: %s (%s)" ex.Message (ex.GetType().Name)
                     ""
-                match traceJson.Length > 0 && traceJson <> lastTestTraceJson with
-                | true ->
-                  lastTestTraceJson <- traceJson
-                  testEventBroadcast.Trigger(
-                    SageFs.SseWriter.formatTestTraceEvent sid traceJson)
-                | false -> ())
+                let state', effects = processTestTraceChange traceJson modelChangeState
+                modelChangeState <- state'
+                for effect in effects do
+                  match effect with
+                  | BroadcastTestSse json ->
+                    testEventBroadcast.Trigger(
+                      SageFs.SseWriter.formatTestTraceEvent sid json)
+                  | AccumulatePush _ -> ())
 
             let handleTestSummaryChange () =
               withModel (fun model ->
@@ -1286,11 +1277,10 @@ let startMcpServer (cfg: McpServerConfig) =
                   serverTracker.AccumulateEvent(
                     PushEvent.TestSummaryChanged s)
                   let now = System.Diagnostics.Stopwatch.GetTimestamp()
-                  let elapsedMs = (now - lastTestSsePush) * 1000L / System.Diagnostics.Stopwatch.Frequency
                   let isRunComplete = not (TestRunPhase.isAnyRunning lt.RunPhases)
-                  match elapsedMs >= testSseThrottleMs || isRunComplete with
+                  match shouldPushTestSummary now modelChangeState.LastTestSsePushTicks modelChangeState.TestSseThrottleMs isRunComplete with
                   | true ->
-                    lastTestSsePush <- now
+                    modelChangeState <- { modelChangeState with LastTestSsePushTicks = now }
                     testEventBroadcast.Trigger(
                       SageFs.SseWriter.formatTestSummaryEvent sseJsonOpts (Some activeId) s)
                     let freshness =
