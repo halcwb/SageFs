@@ -40,10 +40,8 @@ let private parseLine (line: string) : obj =
   | t ->
     leafItem t "" "symbol-misc" :> obj
 
-let private parseExploreResponse (json: string) : obj array option =
+let private parseExploreResponse (text: string) : obj array option =
   try
-    let parsed = jsonParse json
-    let text = fieldString "content" parsed |> Option.defaultValue ""
     text.Split('\n')
     |> Array.filter (fun l -> l.Trim().Length > 0)
     |> Array.truncate 50

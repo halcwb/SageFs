@@ -290,29 +290,34 @@ let unwatchDirectoryHotReload (sessionId: string) (directory: string) (c: Client
 
 let parseWarmupContext (parsed: obj) =
   let assemblies =
-    fieldArray "AssembliesLoaded" parsed
+    fieldArray "assembliesLoaded" parsed
     |> Option.defaultValue [||]
     |> Array.map (fun a ->
-      { Name = fieldString "Name" a |> Option.defaultValue ""
-        Path = fieldString "Path" a |> Option.defaultValue ""
-        NamespaceCount = fieldInt "NamespaceCount" a |> Option.defaultValue 0
-        ModuleCount = fieldInt "ModuleCount" a |> Option.defaultValue 0 })
+      { Name = fieldString "name" a |> Option.defaultValue ""
+        Path = fieldString "path" a |> Option.defaultValue ""
+        NamespaceCount = fieldInt "namespaceCount" a |> Option.defaultValue 0
+        ModuleCount = fieldInt "moduleCount" a |> Option.defaultValue 0 })
   let opened =
-    fieldArray "NamespacesOpened" parsed
+    fieldArray "namespacesOpened" parsed
     |> Option.defaultValue [||]
     |> Array.map (fun b ->
-      { Name = fieldString "Name" b |> Option.defaultValue ""
-        IsModule = fieldBool "IsModule" b |> Option.defaultValue false
-        Source = fieldString "Source" b |> Option.defaultValue "" })
+      { Name = fieldString "name" b |> Option.defaultValue ""
+        IsModule = fieldBool "isModule" b |> Option.defaultValue false
+        Source = fieldString "source" b |> Option.defaultValue "" })
   let failed =
-    fieldArray "FailedOpens" parsed
+    fieldArray "failedOpens" parsed
     |> Option.defaultValue [||]
     |> Array.map (fun f -> tryCastStringArray f |> Option.defaultValue [||])
-  { SourceFilesScanned = fieldInt "SourceFilesScanned" parsed |> Option.defaultValue 0
+  let timing = fieldObj "phaseTiming" parsed
+  let totalMs =
+    match timing with
+    | None -> fieldInt "warmupDurationMs" parsed |> Option.defaultValue 0
+    | Some t -> fieldInt "totalMs" t |> Option.defaultValue 0
+  { SourceFilesScanned = fieldInt "sourceFilesScanned" parsed |> Option.defaultValue 0
     AssembliesLoaded = assemblies
     NamespacesOpened = opened
     FailedOpens = failed
-    WarmupDurationMs = fieldInt "WarmupDurationMs" parsed |> Option.defaultValue 0 }
+    WarmupDurationMs = totalMs }
 
 let getWarmupContext (sessionId: string) (c: Client) =
   dashGetJson "getWarmupContext" (sprintf "/api/sessions/%s/warmup-context" sessionId) 5000 parseWarmupContext c
