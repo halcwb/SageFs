@@ -29,18 +29,18 @@ let mutable isLoading: bool = false
 // ── Path helpers ─────────────────────────────────────────────────
 
 let getDirectory (path: string) =
-  match path with
-  | null -> ""
-  | _ ->
+  match jsIsNullOrUndefined (box path) with
+  | true -> ""
+  | false ->
     let normalized = path.Replace('\\', '/')
     match normalized.LastIndexOf('/') with
     | -1 -> ""
     | i -> normalized.Substring(0, i)
 
 let getFileName (path: string) =
-  match path with
-  | null -> ""
-  | _ ->
+  match jsIsNullOrUndefined (box path) with
+  | true -> ""
+  | false ->
     let normalized = path.Replace('\\', '/')
     match normalized.LastIndexOf('/') with
     | -1 -> normalized

@@ -38,7 +38,7 @@ let summaryItem (ctx: Client.WarmupContextInfo) =
   let desc =
     sprintf "%d assemblies | %d namespaces | %dms"
       ctx.AssembliesLoaded.Length nsCount ctx.WarmupDurationMs
-  let item = newTreeItem "Session Warmup" TreeItemCollapsibleState.Expanded
+  let item = newTreeItem "Session Context" TreeItemCollapsibleState.Expanded
   item?description <- desc
   item?iconPath <- Vscode.newThemeIcon "symbol-event"
   item?contextValue <- "summary"

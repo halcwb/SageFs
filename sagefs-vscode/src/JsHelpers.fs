@@ -4,19 +4,19 @@ open Fable.Core
 open Fable.Core.JsInterop
 open Vscode
 
-/// Convert a potentially-null JS value to Option
+/// Convert a potentially-null/undefined JS value to Option
 let inline tryOfObj (x: 'a) : 'a option =
-  if isNull (box x) then None else Some x
+  if SafeInterop.jsIsNullOrUndefined (box x) then None else Some x
 
 /// DEPRECATED: Use SafeInterop.fieldString/fieldInt/fieldBool/fieldFloat/fieldArray/fieldObj instead.
 /// This function uses unbox<'T> which Fable erases to a no-op — no runtime type checking.
 [<System.Obsolete("Use SafeInterop typed field accessors instead")>]
 let tryField<'T> (name: string) (obj: obj) : 'T option =
-  match isNull (box obj) with
+  match SafeInterop.jsIsNullOrUndefined obj with
   | true -> None
   | false ->
     let v = obj?(name)
-    match isNull (box v) with
+    match SafeInterop.jsIsNullOrUndefined v with
     | true -> None
     | false -> Some (unbox<'T> v)
 

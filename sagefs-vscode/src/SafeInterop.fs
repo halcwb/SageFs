@@ -8,6 +8,9 @@ open Fable.Core.JsInterop
 [<Emit("typeof $0")>]
 let jsTypeof (x: obj) : string = jsNative
 
+[<Emit("($0 == null)")>]
+let jsIsNullOrUndefined (x: obj) : bool = jsNative
+
 [<Emit("Array.isArray($0)")>]
 let jsIsArray (x: obj) : bool = jsNative
 
@@ -20,7 +23,7 @@ let private logWarnRaw (msg: string) : unit = jsNative
 // ── Null-guard combinator (shared across all cast functions) ────────
 
 let inline private withNullCheck (f: obj -> 'T option) (x: obj) : 'T option =
-  match isNull (box x) with
+  match jsIsNullOrUndefined x with
   | true -> None
   | false -> f x
 
@@ -73,11 +76,11 @@ let tryCastIntArray (x: obj) : int array option =
 // On type mismatch, logs a warning and returns None.
 
 let private rawField (name: string) (obj: obj) : obj option =
-  match isNull (box obj) with
+  match jsIsNullOrUndefined obj with
   | true -> None
   | false ->
     let v = obj?(name)
-    match isNull (box v) with
+    match jsIsNullOrUndefined v with
     | true -> None
     | false -> Some v
 
