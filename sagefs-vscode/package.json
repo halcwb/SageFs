@@ -2,7 +2,7 @@
   "name": "sagefs",
   "displayName": "SageFs — Live F# Development",
   "description": "Send F# code to SageFs for instant evaluation, type-checking, and hot reload.",
-  "version": "0.5.504",
+  "version": "0.5.505",
   "publisher": "sagefs",
   "license": "MIT",
   "icon": "icon.png",
@@ -94,6 +94,10 @@
       {
         "command": "sagefs.clearResults",
         "title": "SageFs: Clear Inline Results"
+      },
+      {
+        "command": "sagefs.cycleDensity",
+        "title": "SageFs: Cycle Density (Full → Normal → Minimal)"
       },
       {
         "command": "sagefs.hotReloadToggle",
@@ -265,6 +269,21 @@
           "type": "boolean",
           "default": true,
           "description": "Highlight the current code cell (block) the cursor is in."
+        },
+        "sagefs.density": {
+          "type": "string",
+          "enum": [
+            "full",
+            "normal",
+            "minimal"
+          ],
+          "enumDescriptions": [
+            "All decorations: inline results, code lens, cell highlight, test signs, stale markers",
+            "Inline results and test signs, no code lens or cell highlight",
+            "Only inline results on eval, nothing persistent"
+          ],
+          "default": "full",
+          "description": "Controls how many visual annotations SageFs shows."
         },
         "sagefs.typeExplorerRoot": {
           "type": "string",

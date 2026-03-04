@@ -6,9 +6,15 @@ open Vscode
 
 /// Creates a CodeLens provider object compatible with VSCode's API.
 /// Shows "▶ Eval" at the start of each code block — either ;; delimited or blank-line separated.
+/// Respects density setting: disabled in Minimal and Normal modes.
 let create () =
   createObj [
     "provideCodeLenses" ==> fun (doc: TextDocument) (_token: obj) ->
+      let cfg = Workspace.getConfiguration "sagefs"
+      let density = cfg.get("density", "full")
+      match density with
+      | "minimal" | "normal" -> [||]
+      | _ ->
       let text = doc.getText ()
       let lines = text.Split('\n')
       let lenses = ResizeArray<CodeLens>()

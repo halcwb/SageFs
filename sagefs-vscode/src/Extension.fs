@@ -41,6 +41,41 @@ let mutable wasRunning = false
 let mutable crashPromptShown = false
 let mutable staleDebounceTimer: obj option = None
 
+// Density preset: controls visual annotation verbosity
+type Density = Full | Normal | Minimal
+
+let mutable currentDensity = Full
+
+let densityFromString (s: string) =
+  match s.ToLowerInvariant() with
+  | "normal" -> Normal
+  | "minimal" -> Minimal
+  | _ -> Full
+
+let densityToString = function
+  | Full -> "full"
+  | Normal -> "normal"
+  | Minimal -> "minimal"
+
+let densityLabel = function
+  | Full -> "Full"
+  | Normal -> "Normal"
+  | Minimal -> "Minimal"
+
+let cycleDensity () =
+  let next =
+    match currentDensity with
+    | Full -> Normal
+    | Normal -> Minimal
+    | Minimal -> Full
+  currentDensity <- next
+  let cfg = Workspace.getConfiguration "sagefs"
+  cfg.update("density", densityToString next, 1) |> ignore
+  Window.showInformationMessage (sprintf "SageFs density: %s" (densityLabel next)) [||] |> ignore
+  match next with
+  | Minimal | Normal -> InlineDeco.clearCellHighlight ()
+  | Full -> ()
+
 // FSI bindings and test trace — maintained by SSE events (server-side CQRS)
 // No client-side parsing; server pushes snapshots via SSE bindings_snapshot/test_trace events
 
@@ -906,6 +941,8 @@ let activate (context: ExtensionContext) =
   let c = Client.create mcpPort dashboardPort (fun msg -> (getOutput()).appendLine msg)
   client <- Some c
 
+  currentDensity <- densityFromString (config.get("density", "full"))
+
   let out = Window.createOutputChannel "SageFs"
   outputChannel <- Some out
 
@@ -979,6 +1016,7 @@ let activate (context: ExtensionContext) =
   reg "sagefs.switchSession" (fun _ -> switchSessionCmd () |> promiseIgnoreLog logToOutput)
   reg "sagefs.stopSession" (fun _ -> stopSessionCmd () |> promiseIgnoreLog logToOutput)
   reg "sagefs.clearResults" (fun _ -> InlineDeco.clearAllDecorations ())
+  reg "sagefs.cycleDensity" (fun _ -> cycleDensity ())
   reg "sagefs.enableLiveTesting" (fun _ ->
     simpleCommand "Live testing enabled" Client.enableLiveTesting |> promiseIgnoreLog logToOutput)
   reg "sagefs.disableLiveTesting" (fun _ ->
@@ -1277,19 +1315,23 @@ let activate (context: ExtensionContext) =
       | true ->
         let cfg = Workspace.getConfiguration "sagefs"
         Client.updatePorts (cfg.get("mcpPort", 37749)) (cfg.get("dashboardPort", 37750)) c
+        currentDensity <- densityFromString (cfg.get("density", "full"))
       | false -> ()
     )
   )
 
-  // Cell highlight: update on cursor move / editor switch
+   // Cell highlight: update on cursor move / editor switch (respects density)
   let updateCellHighlightForEditor (ed: TextEditor) =
-    let langId: string = try ed.document?languageId with _ -> ""
-    match langId with
-    | "fsharp" ->
-      let curLine = int ed.selection.active.line
-      let s, e = getBlockBounds ed.document curLine
-      InlineDeco.updateCellHighlight ed s e
-    | _ -> ()
+    match currentDensity with
+    | Minimal | Normal -> InlineDeco.clearCellHighlight ()
+    | Full ->
+      let langId: string = try ed.document?languageId with _ -> ""
+      match langId with
+      | "fsharp" ->
+        let curLine = int ed.selection.active.line
+        let s, e = getBlockBounds ed.document curLine
+        InlineDeco.updateCellHighlight ed s e
+      | _ -> ()
   context.subscriptions.Add (
     Window.onDidChangeTextEditorSelection (fun ed -> updateCellHighlightForEditor ed))
   context.subscriptions.Add (

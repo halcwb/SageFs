@@ -101,6 +101,7 @@ type [<AllowNullLiteral>] WorkspaceFolder =
 
 type [<AllowNullLiteral>] WorkspaceConfiguration =
   abstract get: section: string * ?defaultValue: 'T -> 'T
+  abstract update: section: string * value: obj * configurationTarget: float -> JS.Promise<unit>
 
 type [<AllowNullLiteral>] ConfigurationChangeEvent =
   abstract affectsConfiguration: section: string -> bool
