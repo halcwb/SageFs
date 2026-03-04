@@ -72,7 +72,9 @@ let getChildren (element: obj option) : JS.Promise<obj array> =
       let item = expandableItem "Namespaces" "explore loaded types" "symbol-namespace" "ns-root"
       return [| item :> obj |]
     | Some el, Some c when (fieldString "contextValue" el |> Option.defaultValue "") = "ns-root" ->
-      return! exploreAndParse "System" "Error parsing response" c
+      let config = Workspace.getConfiguration "sagefs"
+      let rootNs = config.get("typeExplorerRoot", "")
+      return! exploreAndParse rootNs "Error parsing response" c
     | Some el, Some c ->
       let ctx = fieldString "contextValue" el |> Option.defaultValue ""
       match ctx with

@@ -2,7 +2,7 @@
   "name": "sagefs",
   "displayName": "SageFs — Live F# Development",
   "description": "Send F# code to SageFs for instant evaluation, type-checking, and hot reload.",
-  "version": "0.5.492",
+  "version": "0.5.493",
   "publisher": "sagefs",
   "license": "MIT",
   "icon": "icon.png",
@@ -227,6 +227,11 @@
           "type": "number",
           "default": 30000,
           "description": "How long (ms) inline eval results stay visible before auto-clearing. Set to 0 to keep forever."
+        },
+        "sagefs.typeExplorerRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Root namespace for the Type Explorer tree. Empty string shows all top-level namespaces."
         }
       }
     },
