@@ -54,16 +54,21 @@ let promiseIgnore (p: JS.Promise<_>) : unit =
 // ── SSE subscribers with exponential backoff reconnect ──────────────────
 
 [<Import("createSseSubscriber", "./sse-helpers.js")>]
-let private createSseSubscriber (url: string) (onMessage: string -> obj -> unit) : Disposable = jsNative
+let private createSseSubscriber (url: string) (onMessage: string -> obj -> unit) (onReconnect: (unit -> unit) option) : Disposable = jsNative
 
 /// Simple SSE subscriber: parses `data:` lines as JSON, calls onData(parsed).
 let subscribeSse (url: string) (onData: obj -> unit) : Disposable =
-  createSseSubscriber url (fun _eventType data -> onData data)
+  createSseSubscriber url (fun _eventType data -> onData data) None
 
 /// Typed SSE subscriber: tracks `event:` type and `data:` payload.
 /// Calls onEvent(eventType, parsedData) for each complete SSE message.
 let subscribeTypedSse (url: string) (onEvent: string -> obj -> unit) : Disposable =
-  createSseSubscriber url onEvent
+  createSseSubscriber url onEvent None
+
+/// Typed SSE subscriber with reconnection callback.
+/// onReconnect fires when the SSE connection is re-established after a drop.
+let subscribeTypedSseWithReconnect (url: string) (onEvent: string -> obj -> unit) (onReconnect: unit -> unit) : Disposable =
+  createSseSubscriber url onEvent (Some onReconnect)
 
 // ── Timer helpers ───────────────────────────────────────────────────────
 

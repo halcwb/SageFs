@@ -268,11 +268,13 @@ let rec startDaemon () =
         ])
         onProcError proc (fun msg ->
           out.appendLine (sprintf "[SageFs spawn error] %s" msg)
+          isStarting <- false
           let sb = getStatusBar ()
           sb.text <- "$(error) SageFs: spawn failed"
         )
         onProcExit proc (fun code _signal ->
           out.appendLine (sprintf "[SageFs] process exited (code %d)" code)
+          isStarting <- false
         )
         let stderr = procStderr proc
         stderr |> tryOfObj |> Option.iter (fun s -> onData s (fun chunk -> out.appendLine chunk))
@@ -321,11 +323,12 @@ and ensureRunning () =
       | Some "Start SageFs" ->
         do! startDaemon ()
         let mutable ready = false
-        for _ in 0 .. 14 do
-          if not ready then
-            do! sleep 2000
-            let! r = Client.isRunning c
-            if r then ready <- true
+        let mutable attempts = 0
+        while not ready && attempts < 15 do
+          do! sleep 2000
+          let! r = Client.isRunning c
+          ready <- r
+          attempts <- attempts + 1
         if not ready then
           Window.showErrorMessage "SageFs didn't start in time." [||] |> ignore
         return ready
@@ -881,7 +884,7 @@ let activate (context: ExtensionContext) =
   hijackIonideSendToFsi context.subscriptions
 
   // Diagnostics SSE + session resume + live state updates
-  let connectToRunningDaemon (c: Client.Client) =
+  let rec connectToRunningDaemon (c: Client.Client) =
     // Dispose existing connection resources for idempotency
     sseDisposable |> Option.iter (fun d -> d.dispose () |> ignore)
     sseDisposable <- None
@@ -907,7 +910,7 @@ let activate (context: ExtensionContext) =
         TestDeco.applyToAllEditors state
         TestDeco.applyCoverageToAllEditors state
         state
-    let listener = LiveTest.start c.mcpPort {
+    let liveTestCallbacks: LiveTest.LiveTestingCallbacks = {
       OnStateChange = fun changes ->
         adapter.Refresh changes
         let state = refreshAllDecorations ()
@@ -932,6 +935,8 @@ let activate (context: ExtensionContext) =
       OnTestTraceUpdate = fun _ -> ()
       OnFeatureEvent = None
     }
+    let reconnectHandler = Some (fun () -> connectToRunningDaemon c)
+    let listener = LiveTest.start c.mcpPort liveTestCallbacks reconnectHandler
     liveTestListener <- Some listener
     sseDisposable <- Some {
       new Disposable with member _.dispose () = listener.Dispose(); null
@@ -941,38 +946,57 @@ let activate (context: ExtensionContext) =
       Window.onDidChangeVisibleTextEditors (fun _editors -> refreshAllDecorations () |> ignore))
     context.subscriptions.Add (
       Window.onDidChangeActiveTextEditor (fun _editor -> refreshAllDecorations () |> ignore))
-    // Auto-discover and create session if none exists
+    // Auto-discover and create session if none exists (delay to let daemon stabilize)
     promise {
-      let! sessions = Client.listSessions c
-      match sessions with
-      | [||] ->
-        let! projOpt = findProject ()
-        match projOpt with
-        | Some proj ->
-          let workDir = getWorkingDirectory () |> Option.defaultValue "."
-          let! choice =
-            Window.showInformationMessage
-              (sprintf "SageFs is running but has no session. Create one for %s?" proj)
-              [| "Create Session"; "Not Now" |]
-          match choice with
-          | Some "Create Session" ->
-            let! result = Client.createSession proj workDir c
-            match result with
-            | Client.Succeeded _ ->
-              Window.showInformationMessage (sprintf "SageFs: Session created for %s" proj) [||] |> ignore
-            | Client.Failed _ -> ()
-            refreshStatus ()
-          | _ -> ()
-        | None -> ()
-      | _ -> ()
+      do! sleep 2000
+      try
+        let! sessions = Client.listSessions c
+        match sessions with
+        | [||] ->
+          let! projOpt = findProject ()
+          match projOpt with
+          | Some proj ->
+            let workDir = getWorkingDirectory () |> Option.defaultValue "."
+            let! choice =
+              Window.showInformationMessage
+                (sprintf "SageFs is running but has no session. Create one for %s?" proj)
+                [| "Create Session"; "Not Now" |]
+            match choice with
+            | Some "Create Session" ->
+              let! result = Client.createSession proj workDir c
+              match result with
+              | Client.Succeeded _ ->
+                Window.showInformationMessage (sprintf "SageFs: Session created for %s" proj) [||] |> ignore
+              | Client.Failed _ -> ()
+              refreshStatus ()
+            | _ -> ()
+          | None -> ()
+        | _ -> ()
+      with _ -> ()
     } |> promiseIgnore
 
   // Wire up daemon-ready callback for startDaemon lifecycle
   onDaemonReady <- Some connectToRunningDaemon
 
+  // Single health check: connect to running daemon OR auto-start
+  let autoStart = config.get("autoStart", true)
   promise {
-    let! running = Client.isRunning c
-    if running then connectToRunningDaemon c
+    try
+      let! running = Client.isRunning c
+      match running with
+      | true -> connectToRunningDaemon c
+      | false ->
+        match autoStart with
+        | true ->
+          let! projPath = findProject ()
+          match projPath with
+          | Some _ -> do! startDaemon ()
+          | None -> ()
+        | false -> ()
+    with ex ->
+      let out = getOutput ()
+      out.appendLine (sprintf "SageFs activation error: %s" (string ex))
+      out.show false
   } |> promiseIgnore
 
   // Config change listener
@@ -986,26 +1010,12 @@ let activate (context: ExtensionContext) =
     )
   )
 
-  // Status polling
+  // Status polling (15s for responsive crash detection)
   refreshStatus ()
-  let statusInterval = jsSetInterval refreshStatus 60000
+  let statusInterval = jsSetInterval refreshStatus 15000
   context.subscriptions.Add (
     { new Disposable with member _.dispose () = jsClearInterval statusInterval; null }
   )
-
-  // Auto-start (silently — no prompt dialog)
-  let autoStart = config.get("autoStart", true)
-  match autoStart with
-  | true ->
-    promise {
-      let! running = Client.isRunning c
-      if not running then
-        let! projPath = findProject ()
-        match projPath with
-        | Some _ -> do! startDaemon ()
-        | None -> ()
-    } |> promiseIgnore
-  | false -> ()
 
 let deactivate () =
   diagnosticsDisposable |> Option.iter (fun d -> d.dispose () |> ignore)

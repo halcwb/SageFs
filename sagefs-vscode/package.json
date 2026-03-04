@@ -2,7 +2,7 @@
   "name": "sagefs",
   "displayName": "SageFs — Live F# Development",
   "description": "Send F# code to SageFs for instant evaluation, type-checking, and hot reload.",
-  "version": "0.5.489",
+  "version": "0.5.490",
   "publisher": "sagefs",
   "license": "MIT",
   "icon": "icon.png",
@@ -365,7 +365,6 @@
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
     "esbuild": "^0.24.2",
-    "typescript": "^5.5.0",
-    "webpack-cli": "^6.0.1"
+    "typescript": "^5.5.0"
   }
 }

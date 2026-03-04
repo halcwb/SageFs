@@ -3,7 +3,7 @@
 const http = require('http');
 const zlib = require('zlib');
 
-function createSseSubscriber(url, onMessage) {
+function createSseSubscriber(url, onMessage, onReconnect) {
   let req;
   let buffer = '';
   let currentEvent = 'message';
@@ -24,7 +24,10 @@ function createSseSubscriber(url, onMessage) {
     if (inactivityTimer) clearTimeout(inactivityTimer);
     retryDelay = Math.min(retryDelay * 2, maxDelay);
     const jitter = retryDelay * 0.3 * Math.random();
-    setTimeout(startListening, retryDelay + jitter);
+    setTimeout(() => {
+      if (onReconnect) { try { onReconnect(); } catch (e) { console.error('[SageFs SSE] onReconnect error:', e); } }
+      startListening();
+    }, retryDelay + jitter);
   };
 
   const startListening = () => {

@@ -16,6 +16,7 @@ let [<Literal>] private EndRunDebounceMs = 2000
 type TestAdapter = {
   Controller: TestController
   Refresh: VscStateChange list -> unit
+  Reset: unit -> unit
   Dispose: unit -> unit
 }
 
@@ -136,4 +137,8 @@ let create
 
   { Controller = controller
     Refresh = refresh
+    Reset = fun () ->
+      endActiveRun ()
+      testItemMap.Clear ()
+      controller.items.replace [||]
     Dispose = fun () -> endActiveRun (); controller.dispose () }
