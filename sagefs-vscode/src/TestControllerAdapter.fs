@@ -103,7 +103,7 @@ let create
       | None -> ()
       | Some c ->
         let pattern =
-          match request.``include`` with
+          match request.``include`` |> tryOfObj with
           | Some items when items.Length > 0 -> items.[0].id
           | _ -> ""
         let! _result = Client.runTests pattern c
