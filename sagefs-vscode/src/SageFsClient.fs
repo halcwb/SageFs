@@ -5,7 +5,7 @@ open Fable.Core.JsInterop
 open SageFs.Vscode.JsHelpers
 open SageFs.Vscode.SafeInterop
 
-[<Emit("console.warn('[SageFs]', $0, $1)")>]
+[<Emit("console.warn('[SageFs]', $0 + ':', $1)")>]
 let logWarn (context: string) (err: obj) : unit = jsNative
 
 /// Command result: either succeeded with optional message, or failed with error.
@@ -64,10 +64,10 @@ type WarmupContextInfo =
     FailedOpens: string array array
     WarmupDurationMs: int }
 
-[<Emit("new Promise((resolve, reject) => { const http = require('http'); const req = http.get($0, { timeout: $1 }, (res) => { let data = ''; res.on('data', (chunk) => data += chunk); res.on('end', () => resolve({ statusCode: res.statusCode || 0, body: data })); }); req.on('error', reject); req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); }); })")>]
+[<Import("httpGet", "./http-helpers.js")>]
 let httpGetRaw (url: string) (timeout: int) : JS.Promise<{| statusCode: int; body: string |}> = jsNative
 
-[<Emit("new Promise((resolve, reject) => { const http = require('http'); const url = new URL($0); const req = http.request({ hostname: url.hostname, port: url.port, path: url.pathname, method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: $2 }, (res) => { let data = ''; res.on('data', (chunk) => data += chunk); res.on('end', () => resolve({ statusCode: res.statusCode || 0, body: data })); }); req.on('error', reject); req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); }); req.write($1); req.end(); })")>]
+[<Import("httpPost", "./http-helpers.js")>]
 let httpPostRaw (url: string) (body: string) (timeout: int) : JS.Promise<{| statusCode: int; body: string |}> = jsNative
 
 type Client =

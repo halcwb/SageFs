@@ -46,6 +46,9 @@ let mutable staleDebounceTimer: obj option = None
 
 // ── JS Interop ─────────────────────────────────────────────────
 
+[<Emit("console.debug('[SageFs]', $0)")>]
+let logDebug (msg: string) : unit = jsNative
+
 [<Emit("require('child_process').spawn($0, $1, $2)")>]
 let spawn (cmd: string) (args: string array) (opts: obj) : obj = jsNative
 
@@ -666,7 +669,8 @@ let hijackIonideSendToFsi (subs: ResizeArray<Disposable>) =
             Commands.executeCommand "sagefs.eval" |> promiseIgnore
         )
       subs.Add disp
-    with _ -> ()
+    with ex ->
+      logDebug (sprintf "Could not hijack %s: %s" cmd (string ex))
 
 // ── Activate / Deactivate ──────────────────────────────────────
 
