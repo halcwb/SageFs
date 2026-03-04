@@ -809,6 +809,46 @@ let evalAdvance () =
 let cancelEvalCmd () =
   simpleCommand "Eval cancelled" Client.cancelEval
 
+/// Navigate to the next code block.
+let nextBlock () =
+  match Window.getActiveTextEditor () with
+  | None -> ()
+  | Some ed ->
+    let doc = ed.document
+    let curLine = int ed.selection.active.line
+    let _, blockEnd = getBlockBounds doc curLine
+    let lineCount = int doc.lineCount
+    let mutable next = blockEnd + 1
+    // Skip blank lines between blocks
+    while next < lineCount && doc.lineAt(float next).text.Trim() = "" do
+      next <- next + 1
+    match next < lineCount with
+    | true ->
+      let pos = newPosition next 0
+      setEditorSelection ed (newSelection pos pos)
+      revealEditorRange ed (newRange next 0 next 0)
+    | false -> ()
+
+/// Navigate to the previous code block.
+let prevBlock () =
+  match Window.getActiveTextEditor () with
+  | None -> ()
+  | Some ed ->
+    let doc = ed.document
+    let curLine = int ed.selection.active.line
+    let blockStart, _ = getBlockBounds doc curLine
+    match blockStart > 0 with
+    | false -> ()
+    | true ->
+      let mutable prev = blockStart - 1
+      // Skip blank lines between blocks
+      while prev > 0 && doc.lineAt(float prev).text.Trim() = "" do
+        prev <- prev - 1
+      let prevStart, _ = getBlockBounds doc prev
+      let pos = newPosition prevStart 0
+      setEditorSelection ed (newSelection pos pos)
+      revealEditorRange ed (newRange prevStart 0 prevStart 0)
+
 let loadScriptCmd () =
   withClient (fun c ->
     promise {
@@ -919,6 +959,8 @@ let activate (context: ExtensionContext) =
   reg "sagefs.evalAdvance" (fun _ -> evalAdvance () |> promiseIgnoreLog logToOutput)
   reg "sagefs.evalAllBlocks" (fun _ -> evalAllBlocks () |> promiseIgnoreLog logToOutput)
   reg "sagefs.cancelEval" (fun _ -> cancelEvalCmd () |> promiseIgnoreLog logToOutput)
+  reg "sagefs.nextBlock" (fun _ -> nextBlock ())
+  reg "sagefs.prevBlock" (fun _ -> prevBlock ())
   reg "sagefs.loadScript" (fun _ -> loadScriptCmd () |> promiseIgnoreLog logToOutput)
   reg "sagefs.start" (fun _ -> startDaemon () |> promiseIgnoreLog logToOutput)
   reg "sagefs.stop" (fun _ -> stopDaemon ())

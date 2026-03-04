@@ -2,7 +2,7 @@
   "name": "sagefs",
   "displayName": "SageFs — Live F# Development",
   "description": "Send F# code to SageFs for instant evaluation, type-checking, and hot reload.",
-  "version": "0.5.503",
+  "version": "0.5.504",
   "publisher": "sagefs",
   "license": "MIT",
   "icon": "icon.png",
@@ -170,6 +170,14 @@
         "icon": "$(run-all)"
       },
       {
+        "command": "sagefs.nextBlock",
+        "title": "SageFs: Next Code Block"
+      },
+      {
+        "command": "sagefs.prevBlock",
+        "title": "SageFs: Previous Code Block"
+      },
+      {
         "command": "sagefs.cancelEval",
         "title": "SageFs: Cancel Evaluation"
       },
@@ -202,6 +210,16 @@
       {
         "command": "sagefs.evalAllBlocks",
         "key": "ctrl+alt+enter",
+        "when": "editorTextFocus && editorLangId == fsharp"
+      },
+      {
+        "command": "sagefs.nextBlock",
+        "key": "ctrl+down",
+        "when": "editorTextFocus && editorLangId == fsharp"
+      },
+      {
+        "command": "sagefs.prevBlock",
+        "key": "ctrl+up",
         "when": "editorTextFocus && editorLangId == fsharp"
       }
     ],
