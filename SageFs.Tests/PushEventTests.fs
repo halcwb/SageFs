@@ -2,7 +2,7 @@ module SageFs.Tests.PushEventTests
 
 open Expecto
 open Expecto.Flip
-open SageFs.Server.McpServer
+open SageFs.McpPushNotifications
 open SageFs.Features.LiveTesting
 
 let private emptySummary =

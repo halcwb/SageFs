@@ -20,6 +20,7 @@ open OpenTelemetry.Trace
 open Microsoft.AspNetCore.ResponseCompression
 open SageFs.AppState
 open SageFs.McpTools
+open SageFs.McpPushNotifications
 open SageFs.Utils
 
 // ---------------------------------------------------------------------------
@@ -28,131 +29,6 @@ open SageFs.Utils
 
 open SageFs.Features.Diagnostics
 open SageFs.Features.LiveTesting
-
-/// Structured events for the push notification accumulator.
-/// Stored as data, formatted for the LLM only on drain.
-[<RequireQualifiedAccess>]
-type PushEvent =
-  /// Diagnostics changed — carries the current set of errors/warnings.
-  | DiagnosticsChanged of errors: (string * int * string) list
-  /// Elm model state changed — carries output & diag counts.
-  | StateChanged of outputCount: int * diagCount: int
-  /// A watched file was reloaded by the file watcher.
-  | FileReloaded of path: string
-  /// Session became faulted.
-  | SessionFaulted of error: string
-  /// Warmup completed.
-  | WarmupCompleted
-  /// Test summary changed — carries summary record.
-  | TestSummaryChanged of summary: SageFs.Features.LiveTesting.TestSummary
-  /// Test results batch — carries enriched payload with generation, freshness, entries, summary.
-  | TestResultsBatch of payload: SageFs.Features.LiveTesting.TestResultsBatchPayload
-  /// File annotations — per-file inline feedback (test status, coverage, CodeLens, failures).
-  | FileAnnotationsUpdated of annotations: SageFs.Features.LiveTesting.FileAnnotations
-
-/// Whether an event REPLACES the previous instance of the same kind
-/// (state/set semantics) or ACCUMULATES alongside it (delta/list semantics).
-[<RequireQualifiedAccess>]
-type MergeStrategy = Replace | Accumulate
-
-module PushEvent =
-  /// Determine how an event merges with existing events of the same type.
-  let mergeStrategy = function
-    | PushEvent.DiagnosticsChanged _ -> MergeStrategy.Replace
-    | PushEvent.StateChanged _ -> MergeStrategy.Replace
-    | PushEvent.SessionFaulted _ -> MergeStrategy.Replace
-    | PushEvent.FileReloaded _ -> MergeStrategy.Accumulate
-    | PushEvent.WarmupCompleted -> MergeStrategy.Replace
-    | PushEvent.TestSummaryChanged _ -> MergeStrategy.Replace
-    | PushEvent.TestResultsBatch _ -> MergeStrategy.Replace
-    | PushEvent.FileAnnotationsUpdated _ -> MergeStrategy.Replace
-
-  /// Discriminator tag used for Replace dedup.
-  let tag = function
-    | PushEvent.DiagnosticsChanged _ -> 0
-    | PushEvent.StateChanged _ -> 1
-    | PushEvent.FileReloaded _ -> 2
-    | PushEvent.SessionFaulted _ -> 3
-    | PushEvent.WarmupCompleted -> 4
-    | PushEvent.TestSummaryChanged _ -> 5
-    | PushEvent.TestResultsBatch _ -> 6
-    | PushEvent.FileAnnotationsUpdated _ -> 7
-
-  /// Format a single event for LLM consumption — actionable, concise.
-  let formatForLlm = function
-    | PushEvent.DiagnosticsChanged errors when errors.IsEmpty ->
-      "✓ diagnostics cleared"
-    | PushEvent.DiagnosticsChanged errors ->
-      let lines =
-        errors
-        |> List.truncate 5
-        |> List.map (fun (file, line, msg) ->
-          sprintf "  %s:%d — %s" (IO.Path.GetFileName file) line msg)
-      let header = sprintf "⚠ %d diagnostic(s):" errors.Length
-      let truncNote =
-        match errors.Length > 5 with
-        | true -> sprintf "\n  … and %d more" (errors.Length - 5)
-        | false -> ""
-      sprintf "%s\n%s%s" header (String.concat "\n" lines) truncNote
-    | PushEvent.StateChanged (outputCount, diagCount) ->
-      sprintf "state: output=%d diags=%d" outputCount diagCount
-    | PushEvent.FileReloaded path ->
-      sprintf "📄 reloaded %s" (IO.Path.GetFileName path)
-    | PushEvent.SessionFaulted error ->
-      sprintf "🔴 session faulted: %s" error
-    | PushEvent.WarmupCompleted ->
-      "✓ warmup complete"
-    | PushEvent.TestSummaryChanged s ->
-      sprintf "🧪 tests: %d total, %d passed, %d failed, %d stale, %d running" s.Total s.Passed s.Failed s.Stale s.Running
-    | PushEvent.TestResultsBatch payload ->
-      sprintf "🧪 %d test result(s) received (%A)" payload.Entries.Length payload.Freshness
-    | PushEvent.FileAnnotationsUpdated ann ->
-      sprintf "📝 file annotations for %s (%d tests, %d lenses, %d failures)"
-        (IO.Path.GetFileName ann.FilePath) ann.TestAnnotations.Length ann.CodeLenses.Length ann.InlineFailures.Length
-
-type AccumulatedEvent = {
-  Timestamp: DateTimeOffset
-  Event: PushEvent
-}
-
-/// Thread-safe accumulator with smart dedup.
-/// Replace-strategy events overwrite the previous instance.
-/// Accumulate-strategy events are appended.
-type EventAccumulator() =
-  let events = ConcurrentQueue<AccumulatedEvent>()
-  let maxEvents = 50
-  let replaceLock = obj()
-
-  member _.Add(evt: PushEvent) =
-    let entry = { Timestamp = DateTimeOffset.UtcNow; Event = evt }
-    match PushEvent.mergeStrategy evt with
-    | MergeStrategy.Replace ->
-      // Drain-and-requeue is not atomic on ConcurrentQueue; lock the Replace path.
-      lock replaceLock (fun () ->
-        let tag = PushEvent.tag evt
-        let temp = ResizeArray()
-        let mutable item = Unchecked.defaultof<AccumulatedEvent>
-        while events.TryDequeue(&item) do
-          match PushEvent.tag item.Event <> tag with
-          | true -> temp.Add(item)
-          | false -> ()
-        for e in temp do events.Enqueue(e)
-        events.Enqueue(entry))
-    | MergeStrategy.Accumulate ->
-      events.Enqueue(entry)
-      lock replaceLock (fun () ->
-        while events.Count > maxEvents do
-          events.TryDequeue() |> ignore)
-
-  member _.Drain() =
-    lock replaceLock (fun () ->
-      let result = ResizeArray()
-      let mutable item = Unchecked.defaultof<AccumulatedEvent>
-      while events.TryDequeue(&item) do
-        result.Add(item)
-      result.ToArray())
-
-  member _.Count = events.Count
 
 /// Tracks active MCP server connections for push notifications.
 type McpServerTracker() =
