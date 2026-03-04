@@ -308,7 +308,8 @@ let rec startDaemon () =
                 intervalId |> Option.iter jsClearInterval
                 isStarting <- false
                 out.appendLine "Timed out waiting for SageFs daemon after 120s."
-                Window.showErrorMessage "SageFs daemon failed to start after 120s." [||] |> ignore
+                out.show false
+                Window.showErrorMessage "SageFs daemon failed to start after 120s. Check Output panel." [||] |> ignore
                 sb.text <- "$(error) SageFs: offline"
             } |> promiseIgnoreLog (fun msg -> out.appendLine msg)
           ) 1000
@@ -440,7 +441,10 @@ let evalSelection () =
               InlineDeco.showInlineResult ed output (Some elapsed)
             | EvalConnectionError _ ->
               out.show true
-              Window.showErrorMessage "Cannot reach SageFs daemon. Is it running?" [||] |> ignore
+              let! choice = Window.showErrorMessage "Cannot reach SageFs daemon. Is it running?" [| "Show Output"; "Restart" |]
+              match choice with
+              | Some "Restart" -> Commands.executeCommand "sagefs.restart" |> promiseIgnoreLog (fun msg -> (getOutput()).appendLine msg)
+              | _ -> ()
           }
         )
   }
