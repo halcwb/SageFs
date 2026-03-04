@@ -599,6 +599,76 @@ let evalRange (args: obj) =
 let resetSessionCmd () =
   simpleCommand "Reset complete" Client.resetSession
 
+/// Evaluate all code blocks in the file sequentially (top to bottom).
+let evalAllBlocks () =
+  promise {
+    match Window.getActiveTextEditor () with
+    | None -> Window.showWarningMessage "No active editor." [||] |> ignore
+    | Some ed ->
+      let! ok = ensureRunning ()
+      match ok with
+      | false -> ()
+      | true ->
+        let doc = ed.document
+        let lineCount = int doc.lineCount
+        let out = getOutput ()
+        out.appendLine (sprintf "──── eval all blocks: %s ────" doc.fileName)
+        let useSemiSemi = hasSemiSemiDelimiters doc
+        // Collect all block boundaries
+        let blocks = ResizeArray<int * int>()
+        match useSemiSemi with
+        | true ->
+          let mutable blockStart = 0
+          for i in 0 .. lineCount - 1 do
+            if doc.lineAt(float i).text.TrimEnd().EndsWith(";;") then
+              blocks.Add(blockStart, i)
+              blockStart <- i + 1
+        | false ->
+          let mutable inBlock = false
+          let mutable blockStart = 0
+          for i in 0 .. lineCount - 1 do
+            let empty = doc.lineAt(float i).text.Trim() = ""
+            match empty, inBlock with
+            | false, false ->
+              blockStart <- i
+              inBlock <- true
+            | true, true ->
+              blocks.Add(blockStart, i - 1)
+              inBlock <- false
+            | _ -> ()
+          if inBlock then blocks.Add(blockStart, lineCount - 1)
+        // Evaluate each block in sequence
+        let mutable errorCount = 0
+        for blockStart, blockEnd in blocks do
+          let range = newRange blockStart 0 blockEnd (int (doc.lineAt(float blockEnd).text.Length))
+          let raw = doc.getTextRange range
+          match raw.Trim() with
+          | "" -> ()
+          | _ ->
+            let code = if raw.TrimEnd().EndsWith(";;") then raw else raw.TrimEnd() + ";;"
+            let ctx = getModuleContext doc blockStart
+            let fullCode =
+              match ctx with
+              | Some context -> context + "\n" + code
+              | None -> code
+            InlineDeco.flashEvalRange ed blockStart blockEnd
+            let! result = evalCore fullCode
+            match logEvalResult out result with
+            | EvalOk (output, elapsed) ->
+              InlineDeco.showInlineResult ed output (Some elapsed) (Some blockEnd)
+            | EvalError errMsg ->
+              errorCount <- errorCount + 1
+              InlineDeco.showInlineDiagnostic ed errMsg (Some blockEnd)
+            | EvalConnectionError _ ->
+              errorCount <- errorCount + 1
+        let summary =
+          match errorCount with
+          | 0 -> sprintf "✓ All %d blocks evaluated" blocks.Count
+          | n -> sprintf "⚠ %d of %d blocks had errors" n blocks.Count
+        out.appendLine summary
+        Window.showInformationMessage summary [||] |> ignore
+  }
+
 let hardResetCmd () =
   simpleCommand "Hard reset complete" (Client.hardReset true)
 
@@ -847,6 +917,7 @@ let activate (context: ExtensionContext) =
   reg "sagefs.evalFile" (fun _ -> evalFile () |> promiseIgnoreLog logToOutput)
   reg "sagefs.evalRange" (fun args -> evalRange args |> promiseIgnoreLog logToOutput)
   reg "sagefs.evalAdvance" (fun _ -> evalAdvance () |> promiseIgnoreLog logToOutput)
+  reg "sagefs.evalAllBlocks" (fun _ -> evalAllBlocks () |> promiseIgnoreLog logToOutput)
   reg "sagefs.cancelEval" (fun _ -> cancelEvalCmd () |> promiseIgnoreLog logToOutput)
   reg "sagefs.loadScript" (fun _ -> loadScriptCmd () |> promiseIgnoreLog logToOutput)
   reg "sagefs.start" (fun _ -> startDaemon () |> promiseIgnoreLog logToOutput)
