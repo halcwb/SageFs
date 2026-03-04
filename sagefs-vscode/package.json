@@ -2,7 +2,7 @@
   "name": "sagefs",
   "displayName": "SageFs — Live F# Development",
   "description": "Send F# code to SageFs for instant evaluation, type-checking, and hot reload.",
-  "version": "0.5.501",
+  "version": "0.5.502",
   "publisher": "sagefs",
   "license": "MIT",
   "icon": "icon.png",
@@ -233,6 +233,11 @@
           "default": 30000,
           "description": "How long (ms) inline eval results stay visible before auto-clearing. Set to 0 to keep forever."
         },
+        "sagefs.cellHighlight": {
+          "type": "boolean",
+          "default": true,
+          "description": "Highlight the current code cell (block) the cursor is in."
+        },
         "sagefs.typeExplorerRoot": {
           "type": "string",
           "default": "",
@@ -363,6 +368,24 @@
           "dark": "#264f7830",
           "light": "#add8e630",
           "highContrast": "#ffffff20"
+        }
+      },
+      {
+        "id": "sagefs.cellHighlightBackground",
+        "description": "Background color for the current code cell",
+        "defaults": {
+          "dark": "#ffffff06",
+          "light": "#00000006",
+          "highContrast": "#ffffff10"
+        }
+      },
+      {
+        "id": "sagefs.cellBorderColor",
+        "description": "Border color for the top edge of the current code cell",
+        "defaults": {
+          "dark": "#ffffff15",
+          "light": "#00000015",
+          "highContrast": "#ffffff30"
         }
       }
     ],

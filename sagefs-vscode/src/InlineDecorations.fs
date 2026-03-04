@@ -15,6 +15,47 @@ let getInlineTimeout () =
 let mutable blockDecorations: Map<int, TextEditorDecorationType> = Map.empty
 let mutable staleDecorations: Map<int, TextEditorDecorationType> = Map.empty
 
+// ── Cell highlight ─────────────────────────────────────────────
+
+let mutable private cellHighlightDeco: TextEditorDecorationType option = None
+
+let private cellBorderDeco =
+  Window.createTextEditorDecorationType (createObj [
+    "borderWidth" ==> "1px 0 0 0"
+    "borderStyle" ==> "solid"
+    "borderColor" ==> newThemeColor "sagefs.cellBorderColor"
+    "isWholeLine" ==> true
+  ])
+
+/// Update the cell highlight to show the block the cursor is in.
+/// Call on cursor change. startLine/endLine are the block bounds.
+let updateCellHighlight (editor: TextEditor) (startLine: int) (endLine: int) =
+  let config = Workspace.getConfiguration "sagefs"
+  let enabled = config.get("cellHighlight", true)
+  match enabled with
+  | false ->
+    cellHighlightDeco |> Option.iter (fun d -> d.dispose () |> ignore)
+    cellHighlightDeco <- None
+    editor.setDecorations(cellBorderDeco, ResizeArray<obj>())
+  | true ->
+    // Background highlight for entire cell
+    cellHighlightDeco |> Option.iter (fun d -> d.dispose () |> ignore)
+    let deco = Window.createTextEditorDecorationType (createObj [
+      "backgroundColor" ==> newThemeColor "sagefs.cellHighlightBackground"
+      "isWholeLine" ==> true
+    ])
+    let ranges = ResizeArray<obj>()
+    for i in startLine .. endLine do
+      ranges.Add(box (newRange i 0 i 0))
+    editor.setDecorations(deco, ranges)
+    cellHighlightDeco <- Some deco
+    // Top border on first line of block
+    editor.setDecorations(cellBorderDeco, ResizeArray [| box (newRange startLine 0 startLine 0) |])
+
+let clearCellHighlight () =
+  cellHighlightDeco |> Option.iter (fun d -> d.dispose () |> ignore)
+  cellHighlightDeco <- None
+
 // ── Helpers ────────────────────────────────────────────────────
 
 let formatDuration (ms: float) =

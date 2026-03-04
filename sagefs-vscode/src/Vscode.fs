@@ -264,6 +264,14 @@ module Window =
   let onDidChangeActiveTextEditor (handler: TextEditor option -> unit) : Disposable =
     onDidChangeActiveTextEditorRaw windowExports handler
 
+  [<Emit("$0.onDidChangeTextEditorSelection($1)")>]
+  let onDidChangeTextEditorSelectionRaw (w: obj) (handler: obj -> unit) : Disposable = jsNative
+
+  let onDidChangeTextEditorSelection (handler: TextEditor -> unit) : Disposable =
+    onDidChangeTextEditorSelectionRaw windowExports (fun e ->
+      let editor: TextEditor = e?textEditor
+      handler editor)
+
   [<Emit("$0.createOutputChannel($1)")>]
   let _createOutputChannel (w: obj) (name: string) : OutputChannel = jsNative
   let createOutputChannel (name: string) = _createOutputChannel windowExports name
