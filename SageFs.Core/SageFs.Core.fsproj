@@ -74,6 +74,7 @@
         <Compile Include="DirectoryConfig.fs" />
         <Compile Include="ConnectionTracker.fs" />
         <Compile Include="McpPushNotifications.fs" />
+        <Compile Include="McpStateHandlers.fs" />
         <Compile Include="StartupProfile.fs" />
         <Compile Include="HotReloadState.fs" />
         <Compile Include="SessionEvents.fs" />

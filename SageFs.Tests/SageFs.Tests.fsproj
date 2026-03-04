@@ -113,6 +113,7 @@
         <Compile Include="EventFoldPropertyTests.fs" />
         <Compile Include="BinaryFormatTests.fs" />
         <Compile Include="ManifestPersistenceTests.fs" />
+        <Compile Include="McpStateHandlerTests.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 
